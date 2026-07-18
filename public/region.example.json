@@ -1,0 +1,7 @@
+{
+  "name": "Sample Region",
+  "pmtiles": "region.pmtiles",
+  "center": [-98.58, 39.83],
+  "zoom": 4,
+  "_note": "Copy this to region.json (gitignored) and set your own region's name, basemap file, and view."
+}

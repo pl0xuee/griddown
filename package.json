@@ -1,0 +1,28 @@
+{
+  "name": "griddown",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@protomaps/basemaps": "^5.7.2",
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-opener": "^2",
+    "maplibre-contour": "^0.1.0",
+    "maplibre-gl": "^5.24.0",
+    "pmtiles": "^4.4.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

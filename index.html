@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GridDown — offline maps</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div id="map"></div>
+
+    <div id="hud">
+      <div id="hud-title">GRIDDOWN</div>
+      <div id="hud-state">&mdash;</div>
+      <div id="hud-status">
+        <span class="dot" id="net-dot"></span>
+        <span id="net-label">checking&hellip;</span>
+      </div>
+      <div id="hud-legend">
+        <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
+        <div class="legend-row"><span class="swatch trail"></span>Trail</div>
+        <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+      </div>
+      <div id="hud-controls">
+        <button id="theme-toggle" type="button">&#9728; Day</button>
+        <button id="terrain-toggle" type="button">&#9651; Terrain: on</button>
+      </div>
+    </div>
+  </body>
+</html>
