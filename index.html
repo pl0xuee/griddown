@@ -46,6 +46,20 @@
       <button id="handbook-open" type="button">&#9873; Survival handbook</button>
       <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
       <button id="marks-open" type="button">&#9670; Marks &amp; tracks</button>
+      <button id="measure-open" type="button">&#8901; Measure distance / area</button>
+    </div>
+
+    <!-- Floating measure readout -->
+    <div id="measure-readout" class="hidden">
+      <div id="measure-head">
+        <span class="ms-title">&#8901; MEASURE</span>
+        <div class="ms-actions">
+          <button id="measure-undo" type="button" title="Undo last point">&#8630; Undo</button>
+          <button id="measure-clear" type="button" title="Clear all points">Clear</button>
+          <button id="measure-done" type="button" title="Exit measure mode">&times; Done</button>
+        </div>
+      </div>
+      <div id="measure-stats"></div>
     </div>
 
     <!-- Slide-out survival handbook -->

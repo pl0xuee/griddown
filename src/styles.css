@@ -210,6 +210,7 @@ body {
 #handbook-open,
 #sky-open,
 #marks-open,
+#measure-open,
 #nightvis-toggle {
   margin-top: 6px;
   width: 100%;
@@ -230,9 +231,102 @@ body {
 #handbook-open:hover,
 #sky-open:hover,
 #marks-open:hover,
+#measure-open:hover,
 #nightvis-toggle:hover {
   background: rgba(50, 70, 50, 0.95);
   border-color: rgba(150, 230, 150, 0.7);
+}
+
+#measure-open.on {
+  background: rgba(120, 92, 10, 0.92);
+  border-color: rgba(255, 213, 74, 0.85);
+  color: #ffe9a8;
+}
+
+/* Floating measure readout (top-center) */
+#measure-readout {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  width: min(320px, calc(100vw - 24px));
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 213, 74, 0.5);
+  background: rgba(20, 18, 10, 0.92);
+  color: #f2ecd8;
+  font-family: inherit;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+}
+#measure-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+#measure-head .ms-title {
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  font-weight: 700;
+  color: #ffd54a;
+}
+.ms-actions {
+  display: flex;
+  gap: 4px;
+}
+.ms-actions button {
+  padding: 3px 7px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 213, 74, 0.35);
+  background: rgba(40, 34, 12, 0.9);
+  color: #ffe9a8;
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.ms-actions button:hover {
+  background: rgba(70, 58, 16, 0.95);
+  border-color: rgba(255, 213, 74, 0.7);
+}
+#measure-stats .ms-hint {
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 2px 0;
+}
+.ms-main {
+  margin-bottom: 6px;
+}
+.ms-big {
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 22px;
+  font-weight: 700;
+  color: #ffd54a;
+  line-height: 1.1;
+}
+.ms-sub {
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 1px;
+}
+.ms-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 0;
+  border-top: 1px solid rgba(255, 213, 74, 0.15);
+  font-size: 12px;
+}
+.ms-row .ms-k {
+  opacity: 0.7;
+}
+.ms-row .ms-v {
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  color: #ffe9a8;
+  text-align: right;
 }
 
 /* --- Marks & tracks panel --- */
