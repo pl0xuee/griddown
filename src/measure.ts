@@ -216,21 +216,48 @@ export function initMeasure(map: maplibregl.Map) {
     return out;
   }
 
-  function profileSVG(dist: number[], elev: number[]): string {
+  function profileSVG(dist: number[], elev: number[], sight?: number[]): string {
     const W = 296, H = 104, pad = { l: 4, r: 4, t: 8, b: 4 };
     const pw = W - pad.l - pad.r;
     const ph = H - pad.t - pad.b;
     const dMax = dist[dist.length - 1] || 1;
     let lo = Math.min(...elev), hi = Math.max(...elev);
+    if (sight) { lo = Math.min(lo, ...sight); hi = Math.max(hi, ...sight); }
     if (hi - lo < 1) hi = lo + 1;
     const px = (d: number) => pad.l + (d / dMax) * pw;
     const py = (e: number) => pad.t + (1 - (e - lo) / (hi - lo)) * ph;
     const line = elev.map((e, i) => `${i ? "L" : "M"}${px(dist[i]).toFixed(1)} ${py(e).toFixed(1)}`).join(" ");
     const area = `${line} L${px(dMax).toFixed(1)} ${(H - pad.b).toFixed(1)} L${pad.l} ${(H - pad.b).toFixed(1)} Z`;
+    const sightPath = sight
+      ? `<path d="M${px(dist[0]).toFixed(1)} ${py(sight[0]).toFixed(1)} L${px(dMax).toFixed(1)} ${py(sight[sight.length - 1]).toFixed(1)}" fill="none" stroke="#7fd6ff" stroke-width="1.2" stroke-dasharray="4 3"/>`
+      : "";
     return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img">
       <path d="${area}" fill="rgba(255,213,74,0.16)"/>
       <path d="${line}" fill="none" stroke="#ffd54a" stroke-width="1.5"/>
+      ${sightPath}
     </svg>`;
+  }
+
+  // Line-of-sight between the two endpoints over the terrain, with an
+  // eye/target height and Earth-curvature correction. Optical (no refraction).
+  const EYE_M = 1.7; // observer eye height
+  const TGT_M = 1.7; // target height
+  const EARTH_M = 6371000;
+  function lineOfSight(
+    samples: { d: number }[],
+    elevM: number[]
+  ): { visible: boolean; blockAtMi: number | null } {
+    const D = samples[samples.length - 1].d;
+    const Ho = elevM[0] + EYE_M;
+    const Ht = elevM[elevM.length - 1] + TGT_M;
+    let blockAt: number | null = null;
+    for (let i = 1; i < elevM.length - 1; i++) {
+      const di = samples[i].d;
+      const los = Ho + (Ht - Ho) * (di / D);
+      const bulge = (di * (D - di)) / (2 * EARTH_M); // earth curvature
+      if (los - (elevM[i] + bulge) < 0 && blockAt == null) blockAt = di;
+    }
+    return { visible: blockAt == null, blockAtMi: blockAt == null ? null : blockAt / 1609.344 };
   }
 
   async function showProfile() {
@@ -277,8 +304,23 @@ export function initMeasure(map: maplibregl.Map) {
     const lo = Math.round(Math.min(...elevFt));
     const hi = Math.round(Math.max(...elevFt));
 
+    // Line of sight only makes sense for a straight two-point shot.
+    let sightFt: number[] | undefined;
+    let losRow = "";
+    if (pts.length === 2) {
+      const eyeFt = EYE_M * 3.28084;
+      const tgtFt = TGT_M * 3.28084;
+      const startFt = elevFt[0] + eyeFt;
+      const endFt = elevFt[elevFt.length - 1] + tgtFt;
+      sightFt = distMi.map((_, i) => startFt + (endFt - startFt) * (i / (distMi.length - 1)));
+      const los = lineOfSight(samples, elevM);
+      losRow = los.visible
+        ? `<div class="ms-prow ms-los ms-los-ok"><span>◉ Line of sight</span><span>Visible ✓</span></div>`
+        : `<div class="ms-prow ms-los ms-los-block"><span>◉ Line of sight</span><span>Blocked at ${los.blockAtMi!.toFixed(los.blockAtMi! < 10 ? 2 : 1)} mi ✗</span></div>`;
+    }
+
     profileView.innerHTML = `
-      ${profileSVG(distMi, elevFt)}
+      ${profileSVG(distMi, elevFt, sightFt)}
       <div class="ms-prow">
         <span>↑ <b>${Math.round(gain).toLocaleString()} ft</b> gain</span>
         <span>↓ <b>${Math.round(loss).toLocaleString()} ft</b> loss</span>
@@ -286,7 +328,8 @@ export function initMeasure(map: maplibregl.Map) {
       <div class="ms-prow ms-psub">
         <span>${lo.toLocaleString()}–${hi.toLocaleString()} ft</span>
         <span>${(total / 1609.344).toFixed(total / 1609.344 < 10 ? 2 : 1)} mi</span>
-      </div>`;
+      </div>
+      ${losRow}`;
   }
 
   // --- Mode control ---

@@ -350,6 +350,18 @@ body {
   opacity: 0.68;
   font-size: 11px;
 }
+.ms-prow.ms-los {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 213, 74, 0.2);
+  font-weight: 600;
+}
+.ms-los-ok {
+  color: #7fe0a0;
+}
+.ms-los-block {
+  color: #ff9a9a;
+}
 
 /* --- Marks & tracks panel --- */
 #marks-panel {
