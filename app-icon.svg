@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="40%" r="78%">
+      <stop offset="0%" stop-color="#17281b"/>
+      <stop offset="60%" stop-color="#0c150f"/>
+      <stop offset="100%" stop-color="#050806"/>
+    </radialGradient>
+    <linearGradient id="needle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c7f7c7"/>
+      <stop offset="100%" stop-color="#5fd35f"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect x="0" y="0" width="1024" height="1024"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#frame)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+
+    <!-- faint topographic contour lines -->
+    <g fill="none" stroke="#4aa356" stroke-width="7" opacity="0.28" stroke-linecap="round">
+      <path d="M-40 300 C 180 220, 380 360, 560 300 S 900 200, 1080 300"/>
+      <path d="M-40 400 C 200 330, 400 470, 580 405 S 900 320, 1080 405"/>
+      <path d="M-40 640 C 180 560, 420 700, 600 640 S 900 560, 1080 640"/>
+      <path d="M-40 740 C 200 670, 420 810, 600 745 S 900 670, 1080 745"/>
+    </g>
+
+    <!-- compass ring + grid ticks -->
+    <circle cx="512" cy="512" r="270" fill="none" stroke="#3a7a44" stroke-width="12" opacity="0.75"/>
+    <circle cx="512" cy="512" r="230" fill="#0b120d" opacity="0.55"/>
+    <g stroke="#7dd67d" stroke-width="9" opacity="0.9" stroke-linecap="round">
+      <line x1="512" y1="212" x2="512" y2="262"/>
+      <line x1="512" y1="762" x2="512" y2="812"/>
+      <line x1="212" y1="512" x2="262" y2="512"/>
+      <line x1="762" y1="512" x2="812" y2="512"/>
+    </g>
+
+    <!-- compass rose (4-point star) -->
+    <polygon points="512,232 548,512 512,792 476,512" fill="url(#needle)"/>
+    <polygon points="232,512 512,476 792,512 512,548" fill="#4fbf5a"/>
+    <!-- brighten the north point -->
+    <polygon points="512,232 548,512 512,512 476,512" fill="#eafaea"/>
+
+    <circle cx="512" cy="512" r="20" fill="#eafaea"/>
+    <circle cx="512" cy="512" r="20" fill="none" stroke="#2e5a34" stroke-width="4"/>
+  </g>
+</svg>
