@@ -8,6 +8,7 @@ import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
+import { initGoto } from "./goto";
 import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -432,6 +433,7 @@ async function start() {
 
   initWaypoints(map);
   initMeasure(map);
+  initGoto(map);
 
   void initStateLibrary(switchToSource);
 }

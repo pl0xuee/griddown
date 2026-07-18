@@ -47,6 +47,21 @@
       <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
       <button id="marks-open" type="button">&#9670; Marks &amp; tracks</button>
       <button id="measure-open" type="button">&#8901; Measure distance / area</button>
+      <button id="goto-open" type="button">&#8982; Go to grid / coords</button>
+    </div>
+
+    <!-- Go to coordinates -->
+    <div id="goto-box" class="hidden">
+      <div id="goto-head">
+        <span class="goto-title">&#8982; GO TO</span>
+        <button id="goto-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <input id="goto-input" type="text" placeholder="MGRS grid or lat, lng" autocomplete="off" spellcheck="false" />
+      <div id="goto-actions">
+        <button id="goto-go" type="button">Go</button>
+        <button id="goto-clear" type="button">Clear pin</button>
+      </div>
+      <div id="goto-hint">e.g. <b>18T VK 1234 5678</b> or <b>39.828, -98.579</b></div>
     </div>
 
     <!-- Floating measure readout -->
