@@ -325,25 +325,15 @@ body {
   opacity: 0.9;
 }
 
-/* Go-to target marker */
+/* Go-to target marker (center dot via gradient — no positioned child needed,
+   since MapLibre owns the marker element's position) */
 .goto-marker {
   width: 20px;
   height: 20px;
   border: 2px solid #7fd6ff;
   border-radius: 50%;
-  background: rgba(127, 214, 255, 0.25);
+  background: radial-gradient(circle, #7fd6ff 0 2px, rgba(127, 214, 255, 0.22) 3.5px);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5), 0 0 8px rgba(127, 214, 255, 0.8);
-}
-.goto-marker::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 4px;
-  height: 4px;
-  margin: -2px 0 0 -2px;
-  border-radius: 50%;
-  background: #7fd6ff;
 }
 
 #measure-open.on {
