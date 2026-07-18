@@ -5,6 +5,7 @@ import { layers, namedFlavor } from "@protomaps/basemaps";
 import mlcontour from "maplibre-contour";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
+import { initSky } from "./sky";
 import mgrs from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -407,6 +408,11 @@ async function start() {
     } catch {
       /* clipboard unavailable */
     }
+  });
+
+  initSky(() => {
+    const c = map.getCenter();
+    return { lat: c.lat, lng: c.lng };
   });
 
   void initStateLibrary(switchToSource);

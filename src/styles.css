@@ -208,6 +208,7 @@ body {
 
 #states-open,
 #handbook-open,
+#sky-open,
 #nightvis-toggle {
   margin-top: 6px;
   width: 100%;
@@ -226,6 +227,7 @@ body {
 
 #states-open:hover,
 #handbook-open:hover,
+#sky-open:hover,
 #nightvis-toggle:hover {
   background: rgba(50, 70, 50, 0.95);
   border-color: rgba(150, 230, 150, 0.7);
@@ -638,6 +640,74 @@ body.nightvis {
   padding-top: 8px;
 }
 
+/* --- Sun & moon panel --- */
+#sky-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: 300px;
+  max-width: 90vw;
+  height: 100%;
+  background: rgba(16, 19, 17, 0.97);
+  color: #e6f0e0;
+  border-left: 1px solid rgba(120, 200, 120, 0.3);
+  box-shadow: -8px 0 26px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+#sky-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+#sky-close {
+  background: none;
+  border: none;
+  color: #cdeccd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#sky-sub {
+  font-size: 11px;
+  opacity: 0.7;
+  margin: 6px 0 12px;
+}
+.sky-block {
+  margin-bottom: 14px;
+}
+.sky-block h4 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #7dd67d;
+}
+.sky-moon-name {
+  color: #cfe0ff;
+}
+.sky-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(120, 200, 120, 0.12);
+}
+.sky-row .k {
+  opacity: 0.8;
+}
+.sky-row .v {
+  font-weight: 600;
+}
+.sky-daylen {
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
 /* =========================================================
    Touch / mobile (iOS) responsiveness
    ========================================================= */
@@ -648,7 +718,8 @@ button {
 
 /* Safe-area padding for the slide-out panels (notch / home indicator) */
 #states-panel,
-#handbook-panel {
+#handbook-panel,
+#sky-panel {
   padding-top: calc(14px + env(safe-area-inset-top));
   padding-right: calc(14px + env(safe-area-inset-right));
   padding-bottom: calc(14px + env(safe-area-inset-bottom));
@@ -688,7 +759,8 @@ button {
 /* Phones: panels take the full screen, HUD is a touch narrower */
 @media (max-width: 640px) {
   #states-panel,
-  #handbook-panel {
+  #handbook-panel,
+  #sky-panel {
     width: 100vw;
     max-width: 100vw;
   }
