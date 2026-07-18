@@ -1,5 +1,6 @@
 import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
+import { sampleElevationM } from "./dem";
 
 // Measure tool: tap the map to lay down points, get running distance along the
 // path, the bearing of the last leg, and — with 3+ points — the enclosed area.
@@ -80,6 +81,7 @@ export function initMeasure(map: maplibregl.Map) {
   const btn = document.getElementById("measure-open");
   const box = document.getElementById("measure-readout");
   const stats = document.getElementById("measure-stats");
+  const profileView = document.getElementById("measure-profile-view");
 
   // --- Map layers (re-added on every new style) ---
   function geojson(): any {
@@ -169,6 +171,122 @@ export function initMeasure(map: maplibregl.Map) {
   function update() {
     if (measuring) ensureLayers();
     render();
+    // Any change to the points makes a shown profile stale — collapse it.
+    if (profileView && !profileView.classList.contains("hidden")) {
+      profileView.classList.add("hidden");
+      profileView.innerHTML = "";
+    }
+  }
+
+  // --- Elevation profile along the path (samples the local DEM) ---
+  // Interpolate evenly-spaced points along the multi-segment path.
+  function sampleAlong(path: LL[], n: number): { d: number; lng: number; lat: number }[] {
+    const cum = [0];
+    for (let i = 1; i < path.length; i++) cum.push(cum[i - 1] + haversine(path[i - 1], path[i]));
+    const total = cum[cum.length - 1];
+    const out: { d: number; lng: number; lat: number }[] = [];
+    let seg = 1;
+    for (let k = 0; k < n; k++) {
+      const d = (total * k) / (n - 1);
+      while (seg < path.length - 1 && cum[seg] < d) seg++;
+      const a = path[seg - 1];
+      const b = path[seg];
+      const segLen = cum[seg] - cum[seg - 1] || 1;
+      const f = Math.min(1, Math.max(0, (d - cum[seg - 1]) / segLen));
+      out.push({ d, lng: a[0] + (b[0] - a[0]) * f, lat: a[1] + (b[1] - a[1]) * f });
+    }
+    return out;
+  }
+
+  // Fill isolated null samples by linear interpolation between known neighbors.
+  function fillGaps(v: (number | null)[]): (number | null)[] {
+    const out = v.slice();
+    for (let i = 0; i < out.length; i++) {
+      if (out[i] != null) continue;
+      let lo = i - 1;
+      while (lo >= 0 && out[lo] == null) lo--;
+      let hi = i + 1;
+      while (hi < out.length && out[hi] == null) hi++;
+      if (lo >= 0 && hi < out.length) {
+        const f = (i - lo) / (hi - lo);
+        out[i] = (out[lo] as number) + ((out[hi] as number) - (out[lo] as number)) * f;
+      } else if (lo >= 0) out[i] = out[lo];
+      else if (hi < out.length) out[i] = out[hi];
+    }
+    return out;
+  }
+
+  function profileSVG(dist: number[], elev: number[]): string {
+    const W = 296, H = 104, pad = { l: 4, r: 4, t: 8, b: 4 };
+    const pw = W - pad.l - pad.r;
+    const ph = H - pad.t - pad.b;
+    const dMax = dist[dist.length - 1] || 1;
+    let lo = Math.min(...elev), hi = Math.max(...elev);
+    if (hi - lo < 1) hi = lo + 1;
+    const px = (d: number) => pad.l + (d / dMax) * pw;
+    const py = (e: number) => pad.t + (1 - (e - lo) / (hi - lo)) * ph;
+    const line = elev.map((e, i) => `${i ? "L" : "M"}${px(dist[i]).toFixed(1)} ${py(e).toFixed(1)}`).join(" ");
+    const area = `${line} L${px(dMax).toFixed(1)} ${(H - pad.b).toFixed(1)} L${pad.l} ${(H - pad.b).toFixed(1)} Z`;
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" preserveAspectRatio="none" role="img">
+      <path d="${area}" fill="rgba(255,213,74,0.16)"/>
+      <path d="${line}" fill="none" stroke="#ffd54a" stroke-width="1.5"/>
+    </svg>`;
+  }
+
+  async function showProfile() {
+    if (!profileView) return;
+    if (pts.length < 2) {
+      toast("Add at least two points to profile.", "info");
+      return;
+    }
+    if (!profileView.classList.contains("hidden")) {
+      profileView.classList.add("hidden");
+      profileView.innerHTML = "";
+      return;
+    }
+    profileView.classList.remove("hidden");
+    profileView.innerHTML = `<div class="ms-hint">Reading elevation…</div>`;
+
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + haversine(pts[i - 1], pts[i]));
+    const total = cum[cum.length - 1];
+    const N = Math.min(256, Math.max(2, Math.round(total / 20)));
+    const samples = sampleAlong(pts, N);
+    const rawM = await Promise.all(samples.map((s) => sampleElevationM(s.lng, s.lat)));
+    const known = rawM.filter((m) => m != null).length;
+    if (known < 2) {
+      profileView.innerHTML = `<div class="ms-hint">No elevation data for this area. Terrain is only bundled for the default region.</div>`;
+      return;
+    }
+
+    const elevM = fillGaps(rawM) as number[];
+    const elevFt = elevM.map((m) => m * 3.28084);
+    const distMi = samples.map((s) => s.d / 1609.344);
+
+    // Total climb / descent with a small threshold to suppress DEM noise.
+    const THRESH_FT = 12;
+    let gain = 0, loss = 0, ref = elevFt[0];
+    for (const e of elevFt) {
+      const dd = e - ref;
+      if (Math.abs(dd) >= THRESH_FT) {
+        if (dd > 0) gain += dd;
+        else loss += -dd;
+        ref = e;
+      }
+    }
+    const lo = Math.round(Math.min(...elevFt));
+    const hi = Math.round(Math.max(...elevFt));
+
+    profileView.innerHTML = `
+      ${profileSVG(distMi, elevFt)}
+      <div class="ms-prow">
+        <span>↑ <b>${Math.round(gain).toLocaleString()} ft</b> gain</span>
+        <span>↓ <b>${Math.round(loss).toLocaleString()} ft</b> loss</span>
+      </div>
+      <div class="ms-prow ms-psub">
+        <span>${lo.toLocaleString()}–${hi.toLocaleString()} ft</span>
+        <span>${(total / 1609.344).toFixed(total / 1609.344 < 10 ? 2 : 1)} mi</span>
+      </div>`;
   }
 
   // --- Mode control ---
@@ -206,6 +324,10 @@ export function initMeasure(map: maplibregl.Map) {
     clearLayers();
     box?.classList.add("hidden");
     btn?.classList.remove("on");
+    if (profileView) {
+      profileView.classList.add("hidden");
+      profileView.innerHTML = "";
+    }
   }
 
   function undo() {
@@ -218,6 +340,7 @@ export function initMeasure(map: maplibregl.Map) {
   }
 
   btn?.addEventListener("click", () => (measuring ? exit() : enter()));
+  document.getElementById("measure-profile")?.addEventListener("click", () => void showProfile());
   document.getElementById("measure-undo")?.addEventListener("click", undo);
   document.getElementById("measure-clear")?.addEventListener("click", clearPts);
   document.getElementById("measure-done")?.addEventListener("click", exit);

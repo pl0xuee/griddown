@@ -2,7 +2,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
-import mlcontour from "maplibre-contour";
+import { DEM_TILES, demSource, sampleElevationM } from "./dem";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
@@ -16,7 +16,6 @@ maplibregl.addProtocol("pmtiles", protocol.tile);
 
 // All assets are served locally from /public — nothing here touches the internet.
 const origin = window.location.origin;
-const DEM_TILES = `${origin}/dem/{z}/{x}/{y}.png`;
 
 // The active region (basemap file + starting view) is loaded from a local,
 // gitignored region.json so no specific location is baked into the code.
@@ -38,16 +37,6 @@ async function loadRegion(): Promise<Region> {
 
 // Assigned once the region config is loaded (see start() at the bottom).
 let PMTILES_URL = "";
-
-// Local elevation (DEM) source drives both hillshade and on-the-fly contours,
-// all read from the static tile pyramid under /public/dem (fully offline).
-const demSource = new mlcontour.DemSource({
-  url: DEM_TILES,
-  encoding: "terrarium",
-  maxzoom: 12,
-  worker: false,
-});
-demSource.setupMaplibre(maplibregl);
 
 type ThemeName = "dark" | "light";
 
@@ -411,23 +400,8 @@ async function start() {
   async function centerElevationFt(): Promise<number | null> {
     if (!terrainAvailable) return null;
     const c = map.getCenter();
-    const z = 12;
-    const n = 2 ** z;
-    const xf = ((c.lng + 180) / 360) * n;
-    const latR = (c.lat * Math.PI) / 180;
-    const yf = ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n;
-    const x = Math.floor(xf);
-    const y = Math.floor(yf);
-    try {
-      const tile = await demSource.getDemTile(z, x, y);
-      const w = tile.width;
-      const px = Math.min(w - 1, Math.max(0, Math.floor((xf - x) * w)));
-      const py = Math.min(w - 1, Math.max(0, Math.floor((yf - y) * w)));
-      const m = tile.data[py * w + px];
-      return m == null || isNaN(m) ? null : m * 3.28084;
-    } catch {
-      return null;
-    }
+    const m = await sampleElevationM(c.lng, c.lat);
+    return m == null ? null : m * 3.28084;
   }
   async function updateElevation() {
     const ft = await centerElevationFt();

@@ -328,6 +328,28 @@ body {
   color: #ffe9a8;
   text-align: right;
 }
+#measure-profile-view {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 213, 74, 0.2);
+}
+#measure-profile-view svg {
+  display: block;
+  border-radius: 4px;
+}
+.ms-prow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 12px;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  color: #ffe9a8;
+}
+.ms-prow.ms-psub {
+  opacity: 0.68;
+  font-size: 11px;
+}
 
 /* --- Marks & tracks panel --- */
 #marks-panel {
