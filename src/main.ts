@@ -4,6 +4,7 @@ import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import mlcontour from "maplibre-contour";
 import { initStateLibrary, type SwitchTarget } from "./states";
+import { initHandbook } from "./handbook";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
 const protocol = new Protocol();
@@ -354,6 +355,22 @@ function initChrome() {
   document.getElementById("states-close")?.addEventListener("click", () =>
     panel?.classList.add("hidden")
   );
+
+  // Red night-vision mode (preserves night vision; persists across launches).
+  const nvBtn = document.getElementById("nightvis-toggle");
+  function applyNightVis(on: boolean) {
+    document.body.classList.toggle("nightvis", on);
+    nvBtn?.classList.toggle("on", on);
+    if (nvBtn) nvBtn.textContent = on ? "◉ Night vision: on" : "◑ Night vision: off";
+  }
+  applyNightVis(localStorage.getItem("griddown_nightvis") === "1");
+  nvBtn?.addEventListener("click", () => {
+    const on = !document.body.classList.contains("nightvis");
+    localStorage.setItem("griddown_nightvis", on ? "1" : "0");
+    applyNightVis(on);
+  });
+
+  initHandbook();
 }
 initChrome();
 
