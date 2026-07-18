@@ -6,7 +6,7 @@ import mlcontour from "maplibre-contour";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
-import mgrs from "mgrs";
+import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
 const protocol = new Protocol();
@@ -398,7 +398,7 @@ async function start() {
     const c = map.getCenter();
     lastLL = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
     try {
-      lastGrid = fmtMgrs(mgrs.forward([c.lng, c.lat]));
+      lastGrid = fmtMgrs(mgrsForward([c.lng, c.lat]));
     } catch {
       lastGrid = "—";
     }
