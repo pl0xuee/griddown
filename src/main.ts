@@ -387,8 +387,14 @@ async function start() {
   }
   let lastGrid = "";
   let lastLL = "";
-  function updateCoords() {
+  let lastElev = "";
+  function renderCoords() {
     if (!coordsEl) return;
+    coordsEl.innerHTML = `<span class="c-grid">${lastGrid}</span><span class="c-ll">${lastLL}${
+      lastElev ? " · " + lastElev : ""
+    }</span>`;
+  }
+  function updateCoords() {
     const c = map.getCenter();
     lastLL = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
     try {
@@ -396,13 +402,46 @@ async function start() {
     } catch {
       lastGrid = "—";
     }
-    coordsEl.innerHTML = `<span class="c-grid">${lastGrid}</span><span class="c-ll">${lastLL}</span>`;
+    renderCoords();
   }
+
+  // Sample the local DEM at the crosshair for an elevation readout.
+  async function centerElevationFt(): Promise<number | null> {
+    if (!terrainAvailable) return null;
+    const c = map.getCenter();
+    const z = 12;
+    const n = 2 ** z;
+    const xf = ((c.lng + 180) / 360) * n;
+    const latR = (c.lat * Math.PI) / 180;
+    const yf = ((1 - Math.log(Math.tan(latR) + 1 / Math.cos(latR)) / Math.PI) / 2) * n;
+    const x = Math.floor(xf);
+    const y = Math.floor(yf);
+    try {
+      const tile = await demSource.getDemTile(z, x, y);
+      const w = tile.width;
+      const px = Math.min(w - 1, Math.max(0, Math.floor((xf - x) * w)));
+      const py = Math.min(w - 1, Math.max(0, Math.floor((yf - y) * w)));
+      const m = tile.data[py * w + px];
+      return m == null || isNaN(m) ? null : m * 3.28084;
+    } catch {
+      return null;
+    }
+  }
+  async function updateElevation() {
+    const ft = await centerElevationFt();
+    lastElev = ft == null ? "" : `${Math.round(ft).toLocaleString()} ft`;
+    renderCoords();
+  }
+
   map.on("move", updateCoords);
+  map.on("moveend", updateElevation);
   updateCoords();
+  updateElevation();
   coordsEl?.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(`${lastGrid}  (${lastLL})`);
+      await navigator.clipboard.writeText(
+        `${lastGrid}  (${lastLL})${lastElev ? "  " + lastElev : ""}`
+      );
       coordsEl.classList.add("copied");
       setTimeout(() => coordsEl.classList.remove("copied"), 1200);
     } catch {
