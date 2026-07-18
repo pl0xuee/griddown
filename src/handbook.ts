@@ -1,12 +1,12 @@
-// Offline survival reference. Concise, conservative, widely-accepted guidance.
-// Not medical advice — see the disclaimer in the panel.
+// Offline survival handbook: a curated quick-reference cheat sheet, plus the full
+// public-domain U.S. Army Survival Manual (FM 21-76), bundled and searchable.
 
 interface Section {
   title: string;
-  items: string[];
+  items: string[]; // pre-formatted HTML (authored here, safe to inject)
 }
 
-const HANDBOOK: Section[] = [
+const QUICK: Section[] = [
   {
     title: "Priorities — the Rule of 3s",
     items: [
@@ -19,128 +19,134 @@ const HANDBOOK: Section[] = [
   {
     title: "Water — find & make it safe",
     items: [
-      "Find it: flowing streams, springs, rain, dew, snow (melt it first — don't eat snow cold).",
-      "Prefer clear, moving water over still/stagnant. Avoid water near dead animals or heavy algae.",
-      "<b>Boil</b> to purify: a rolling boil for 1 minute (3 minutes above ~6,500 ft / 2,000 m).",
-      "No fire? Use a filter, then chemical treatment (unscented household bleach: ~2 drops per liter, wait 30 min) or purification tablets.",
-      "Cloudy water: let it settle or filter through cloth before treating.",
-      "Ration sweat, not water — drink when thirsty; dark urine means drink more.",
+      "Find it: flowing streams, springs, rain, dew, snow (melt it first).",
+      "Prefer clear, moving water. Avoid stagnant water or water near dead animals.",
+      "<b>Boil</b> to purify: a rolling boil for 1 minute (3 minutes above ~2,000 m / 6,500 ft).",
+      "No fire? Filter, then chemical treatment (unscented bleach ~2 drops/liter, wait 30 min) or tablets.",
+      "Drink when thirsty; dark urine means drink more.",
     ],
   },
   {
     title: "Shelter & staying warm",
     items: [
-      "Get <b>off the ground</b> — insulate underneath with leaves, boughs, or a pack; the ground steals heat fast.",
-      "Stay <b>dry</b> and block <b>wind</b>. Wet + wind is the fastest route to hypothermia.",
-      "Keep it small — a shelter just bigger than your body traps heat better.",
-      "Use natural cover: rock overhangs, deadfall, dense evergreens. Avoid gullies (cold air, flash floods) and lone tall trees (lightning).",
-      "Layer clothing; avoid sweating — remove a layer before you overheat, add it back at rest.",
-    ],
-  },
-  {
-    title: "Fire",
-    items: [
-      "Gather first: <b>tinder</b> (dry grass, bark, fluff), <b>kindling</b> (pencil-thin twigs), then <b>fuel</b> (wrist-thick). Have plenty before you light.",
-      "Build on bare dirt or rock, sheltered from wind. Clear a 3 ft / 1 m ring of anything flammable.",
-      "Start small, feed gradually. Give it air; don't smother it.",
-      "Dry tinder in a pocket. Birch bark, pine resin/fatwood, and dry pine needles light even when damp.",
-      "Never leave it unattended; drown, stir, and drown again to put it out.",
+      "Get <b>off the ground</b> — insulate underneath; the ground steals heat fast.",
+      "Stay <b>dry</b> and block <b>wind</b>. Wet + wind is the fastest path to hypothermia.",
+      "Keep it small — a shelter just bigger than your body traps heat.",
+      "Avoid gullies (cold air, flash floods) and lone tall trees (lightning).",
     ],
   },
   {
     title: "Signal for rescue",
     items: [
-      "<b>Three</b> of anything = distress: 3 fires in a triangle, 3 whistle blasts, 3 shouts. Repeat.",
-      "Make yourself big and unnatural: ground signals in a clearing (a large <b>V</b> = need assistance, <b>X</b> = need medical help).",
-      "A signal mirror or any shiny surface can be seen for miles — flash toward aircraft/vehicles.",
-      "A whistle carries far and saves your voice. Bright colors and movement draw the eye.",
-      "Smoke by day (add green leaves), flame by night. Keep signals ready to light fast.",
+      "<b>Three</b> of anything = distress: 3 fires in a triangle, 3 whistle blasts, 3 shouts.",
+      "Ground signals in a clearing: a large <b>V</b> = need assistance, <b>X</b> = need medical help.",
+      "A mirror or shiny surface can flash for miles. A whistle carries far and saves your voice.",
+      "Smoke by day (add green leaves), flame by night.",
     ],
   },
   {
     title: "First aid — the big ones",
     items: [
-      "<b>Severe bleeding</b>: press hard directly on the wound with a cloth; keep pressure. For a limb that won't stop, apply a tourniquet 2–3 in above the wound, tighten until bleeding stops, note the time.",
-      "<b>Hypothermia</b> (shivering, confusion, clumsiness): get dry, insulate from the ground, add layers, share body heat, warm sweet drinks if fully alert. Handle gently.",
-      "<b>Heat illness</b>: move to shade, cool with water, sip fluids. Hot dry skin + confusion is an emergency — cool aggressively.",
-      "<b>Dehydration</b>: rest, sip water, shade. Add a pinch of salt + sugar to water if you have it.",
-      "<b>Sprains/breaks</b>: rest, immobilize/splint, elevate. Don't walk on a serious lower-leg injury if avoidable.",
-      "Clean wounds with clean water; cover to keep dirt out; watch for spreading redness (infection).",
+      "<b>Severe bleeding</b>: press hard on the wound. For a limb that won't stop, apply a tourniquet 5–8 cm above it, tighten until bleeding stops, note the time.",
+      "<b>Hypothermia</b>: get dry, insulate from the ground, add layers, share body heat, warm sweet drinks if fully alert.",
+      "<b>Heat illness</b>: shade, cool with water, sip fluids. Hot dry skin + confusion is an emergency — cool aggressively.",
+      "Clean wounds with clean water; cover them; watch for spreading redness.",
     ],
   },
   {
     title: "Navigate without GPS",
     items: [
-      "Sun rises in the <b>east</b>, sets in the <b>west</b>. At midday it sits due south (northern hemisphere).",
-      "Analog watch trick: point the hour hand at the sun; halfway between it and 12 points south.",
+      "Sun rises in the <b>east</b>, sets in the <b>west</b>; at midday it's due south (northern hemisphere).",
       "At night, find <b>Polaris</b> (North Star) off the Big Dipper's pointer stars — it marks true north.",
-      "Pick a distant landmark on your bearing and walk to it, then repeat — you'll drift less.",
-      "Note terrain as you go (ridge, stream, sun angle) so you can back-track. Rivers generally lead downhill to people.",
-    ],
-  },
-  {
-    title: "Food — caution first",
-    items: [
-      "Food is the <b>lowest</b> priority in a short survival situation — water and warmth matter far more.",
-      "Do <b>not</b> eat unknown plants, berries, or mushrooms. Misidentification can kill; the risk rarely beats the reward.",
-      "Safer calories: known nuts, cattail, fish, and (where legal/possible) small game.",
-      "When unsure, go hungry. A few days without food won't harm a healthy adult.",
-    ],
-  },
-  {
-    title: "Essential knots",
-    items: [
-      "<b>Bowline</b>: a fixed loop that won't slip or jam — rescue, securing a line. \"Rabbit out of the hole, round the tree, back down the hole.\"",
-      "<b>Square (reef) knot</b>: join two ropes of equal thickness — right over left, left over right.",
-      "<b>Taut-line hitch</b>: an adjustable loop for tent guy-lines — slides to tension, then holds.",
-      "<b>Two half-hitches</b>: quick, secure tie-off to a post, tree, or ring.",
-      "<b>Clove hitch</b>: fast attach to a pole/tree; easy to adjust.",
-    ],
-  },
-  {
-    title: "Weather & terrain sense",
-    items: [
-      "Falling pressure, thickening/lowering clouds, and rising wind often mean a storm coming.",
-      "In the mountains, storms often build in the afternoon — do exposed travel early.",
-      "Avoid ridgelines and lone trees in lightning; get low, off metal, and crouch on insulation.",
-      "Watch for flash-flood ground (narrow canyons, dry washes) after rain, even from storms miles away.",
-      "Cold air pools in valleys at night — camp slightly above the valley floor if you can.",
+      "Pick a distant landmark on your bearing, walk to it, repeat — you'll drift less.",
+      "Rivers generally lead downhill toward people.",
     ],
   },
 ];
 
-export function initHandbook() {
+interface Chapter {
+  n: number;
+  title: string;
+  text: string;
+}
+let manual: { source: string; chapters: Chapter[] } | null = null;
+
+function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function chapterBodyHtml(text: string): string {
+  return text
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) =>
+      l.startsWith("• ")
+        ? `<div class="hb-bullet">• ${esc(l.slice(2))}</div>`
+        : `<p>${esc(l)}</p>`
+    )
+    .join("");
+}
+
+export async function initHandbook() {
   const content = document.getElementById("handbook-content");
   const panel = document.getElementById("handbook-panel");
   const search = document.getElementById("handbook-search") as HTMLInputElement | null;
 
+  try {
+    manual = await (await fetch("/handbook.json")).json();
+  } catch {
+    manual = null;
+  }
+
   function render() {
     if (!content) return;
     const q = (search?.value || "").toLowerCase().trim();
-    const shown = HANDBOOK.map((sec) => {
+
+    // Quick reference cards
+    const quick = QUICK.map((sec) => {
       const matchTitle = sec.title.toLowerCase().includes(q);
-      const items = q
-        ? sec.items.filter((i) => i.toLowerCase().includes(q) || matchTitle)
-        : sec.items;
-      return { sec, items };
-    }).filter((s) => s.items.length > 0);
+      const items = q ? sec.items.filter((i) => i.toLowerCase().includes(q) || matchTitle) : sec.items;
+      if (items.length === 0) return "";
+      return `<div class="hb-section ${q ? "" : "collapsed"}">
+          <div class="hb-title">${sec.title}<span class="hb-icon">▾</span></div>
+          <div class="hb-body"><ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul></div>
+        </div>`;
+    }).join("");
+
+    // Full manual chapters (bodies rendered lazily on expand)
+    const chaps = (manual?.chapters || [])
+      .filter((c) => !q || c.title.toLowerCase().includes(q) || c.text.toLowerCase().includes(q))
+      .map((c) => {
+        const open = q ? "" : "collapsed";
+        const body = q ? chapterBodyHtml(c.text) : "";
+        return `<div class="hb-section ${open}" data-chapter="${c.n}">
+            <div class="hb-title">${c.n}. ${esc(c.title)}<span class="hb-icon">▾</span></div>
+            <div class="hb-body">${body}</div>
+          </div>`;
+      })
+      .join("");
 
     content.innerHTML =
-      shown
-        .map(
-          ({ sec, items }, idx) => `
-      <div class="hb-section ${q ? "" : idx === 0 ? "" : "collapsed"}">
-        <div class="hb-title">${sec.title}<span class="hb-icon">▾</span></div>
-        <div class="hb-body"><ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul></div>
-      </div>`
-        )
-        .join("") ||
-      `<div style="opacity:.6;font-size:12px;padding:10px">Nothing matches "${q}".</div>`;
+      `<div class="hb-group">Quick reference</div>${quick}` +
+      (manual
+        ? `<div class="hb-group">Field manual — FM 21-76 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${q}".</div>`}`
+        : "");
 
-    content.querySelectorAll(".hb-title").forEach((t) => {
-      t.addEventListener("click", () =>
-        t.parentElement?.classList.toggle("collapsed")
-      );
+    content.querySelectorAll<HTMLElement>(".hb-title").forEach((t) => {
+      t.addEventListener("click", () => {
+        const sec = t.parentElement as HTMLElement;
+        sec.classList.toggle("collapsed");
+        // Lazy-render manual chapter body on first open
+        const chapId = sec.getAttribute("data-chapter");
+        const bodyEl = sec.querySelector<HTMLElement>(".hb-body");
+        if (chapId && bodyEl && !bodyEl.innerHTML) {
+          const ch = manual?.chapters.find((c) => String(c.n) === chapId);
+          if (ch) bodyEl.innerHTML = chapterBodyHtml(ch.text);
+        }
+      });
     });
   }
 

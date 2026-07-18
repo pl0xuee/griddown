@@ -598,6 +598,37 @@ body.nightvis {
   display: none;
 }
 
+.hb-group {
+  margin: 12px 2px 2px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #7dd67d;
+  text-transform: uppercase;
+}
+.hb-group:first-child {
+  margin-top: 0;
+}
+.hb-src {
+  opacity: 0.5;
+  font-weight: 400;
+  letter-spacing: 0.5px;
+  text-transform: none;
+}
+.hb-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  padding: 10px;
+}
+.hb-body p {
+  margin: 0 0 8px;
+}
+.hb-bullet {
+  margin: 0 0 5px 6px;
+  text-indent: -8px;
+  padding-left: 8px;
+}
+
 #handbook-disclaimer {
   margin-top: 10px;
   font-size: 10px;
