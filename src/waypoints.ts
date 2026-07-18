@@ -1,4 +1,5 @@
 import maplibregl from "maplibre-gl";
+import { toast } from "./toast";
 
 // Waypoints (dropped pins) and recorded GPS tracks, stored locally and
 // exportable as standard GPX. Fully offline.
@@ -149,6 +150,7 @@ export function initWaypoints(map: maplibregl.Map) {
     saveWp();
     addMarker(w);
     renderList();
+    toast(`Dropped ${w.name}`, "success");
   }
 
   function renameWp(id: string) {
@@ -178,7 +180,7 @@ export function initWaypoints(map: maplibregl.Map) {
 
   function startRec() {
     if (!("geolocation" in navigator)) {
-      alert("Location isn't available on this device.");
+      toast("Location isn't available on this device.", "error");
       return;
     }
     recording = true;
@@ -220,10 +222,11 @@ export function initWaypoints(map: maplibregl.Map) {
 
   function exportGPX() {
     if (waypoints.length === 0 && tracks.length === 0) {
-      alert("Nothing to export yet — drop a pin or record a track first.");
+      toast("Nothing to export yet — drop a pin or record a track first.");
       return;
     }
     download("griddown.gpx", buildGPX(waypoints, tracks), "application/gpx+xml");
+    toast("Exported griddown.gpx", "success");
   }
 
   // --- Panel list ---

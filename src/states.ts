@@ -1,5 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { toast } from "./toast";
 
 export interface StateEntry {
   abbr: string;
@@ -142,7 +143,7 @@ function updateRow(abbr: string) {
 
 async function download(s: StateEntry) {
   if (!inTauri) {
-    alert("Downloads require the desktop app.");
+    toast("Downloads require the desktop app.", "error");
     return;
   }
   downloading.set(s.abbr, -1);
@@ -156,12 +157,13 @@ async function download(s: StateEntry) {
     downloading.delete(s.abbr);
     await refreshInstalled();
     updateRow(s.abbr);
+    toast(`${s.name} downloaded — ready offline`, "success");
     // Auto-view the freshly downloaded state.
     void activate(s.abbr, true);
   } catch (err) {
     downloading.delete(s.abbr);
     updateRow(s.abbr);
-    alert(`Download failed: ${err}`);
+    toast(`Download failed: ${err}`, "error");
   }
 }
 
@@ -183,7 +185,7 @@ async function activate(abbr: string, fly: boolean) {
     render();
     document.getElementById("states-panel")?.classList.add("hidden");
   } catch (err) {
-    alert(`Couldn't open ${s.name}: ${err}`);
+    toast(`Couldn't open ${s.name}: ${err}`, "error");
   }
 }
 
@@ -200,6 +202,6 @@ async function remove(abbr: string) {
     await refreshInstalled();
     render();
   } catch (err) {
-    alert(`Delete failed: ${err}`);
+    toast(`Delete failed: ${err}`, "error");
   }
 }
