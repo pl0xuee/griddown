@@ -84,6 +84,67 @@ const THEME = {
 
 const TRAIL_KINDS = ["path", "footway", "bridleway", "steps"];
 
+// Survival-resource overlays, filtered from the POIs layer by OSM `kind`.
+const RESOURCE_CATS: Record<string, { color: string; kinds: string[] }> = {
+  water: {
+    color: "#3fa9f5",
+    kinds: ["drinking_water", "water_point", "spring", "water_well", "well", "water_tap"],
+  },
+  shelter: {
+    color: "#e0a33a",
+    kinds: ["shelter", "wilderness_hut", "alpine_hut", "lean_to", "cabin", "hut",
+      "camp_site", "caravan_site", "ranger_station"],
+  },
+  medical: {
+    color: "#ff6a6a",
+    kinds: ["hospital", "clinic", "doctors", "pharmacy", "chemist", "first_aid"],
+  },
+  fuel: {
+    color: "#b98cff",
+    kinds: ["fuel", "gas", "charging_station", "hardware", "supermarket",
+      "convenience", "marketplace"],
+  },
+  emergency: {
+    color: "#ff4d4d",
+    kinds: ["police", "fire_station", "ranger_station", "hospital"],
+  },
+};
+
+let activeResources = new Set<string>(
+  JSON.parse(localStorage.getItem("griddown_resources") || "[]")
+);
+
+function resourceLayers(t: (typeof THEME)[ThemeName]): any[] {
+  const out: any[] = [];
+  for (const cat of activeResources) {
+    const c = RESOURCE_CATS[cat];
+    if (!c) continue;
+    const filter: any = ["in", ["get", "kind"], ["literal", c.kinds]];
+    out.push({
+      id: `res-${cat}-dot`, type: "circle", source: "protomaps", "source-layer": "pois",
+      filter, minzoom: 11,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 14, 5.5, 16, 7.5],
+        "circle-color": c.color,
+        "circle-stroke-color": "#0a0a0a",
+        "circle-stroke-width": 1.5,
+        "circle-opacity": 0.92,
+      },
+    });
+    out.push({
+      id: `res-${cat}-label`, type: "symbol", source: "protomaps", "source-layer": "pois",
+      filter: ["all", filter, ["has", "name"]], minzoom: 14,
+      layout: {
+        "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"],
+        "text-size": 10, "text-offset": [0, 0.9], "text-anchor": "top",
+        "text-optional": true,
+      },
+      paint: { "text-color": c.color, "text-halo-color": t.halo, "text-halo-width": 1.4 },
+    });
+  }
+  return out;
+}
+
 function emphasisLayers(t: (typeof THEME)[ThemeName]): any[] {
   return [
     {
@@ -244,7 +305,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     glyphs: `${origin}/fonts/{fontstack}/{range}.pbf`,
     sprite: `${origin}/sprites/${t.sprite}`,
     sources,
-    layers: [...base, ...emphasisLayers(t), ...contourLabels],
+    layers: [...base, ...emphasisLayers(t), ...resourceLayers(t), ...contourLabels],
   } as maplibregl.StyleSpecification;
 }
 
@@ -296,6 +357,24 @@ async function start() {
     map.jumpTo({ center: t.center, zoom: t.zoom });
     applyThemeUi();
   }
+  // Resource overlay chips (water / shelter / medical / supply / help)
+  function applyResourceUi() {
+    document.querySelectorAll<HTMLElement>(".res-chip").forEach((chip) => {
+      chip.classList.toggle("on", activeResources.has(chip.dataset.res || ""));
+    });
+  }
+  document.querySelectorAll<HTMLElement>(".res-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const cat = chip.dataset.res || "";
+      if (activeResources.has(cat)) activeResources.delete(cat);
+      else activeResources.add(cat);
+      localStorage.setItem("griddown_resources", JSON.stringify([...activeResources]));
+      map.setStyle(buildStyle(currentTheme));
+      applyResourceUi();
+    });
+  });
+  applyResourceUi();
+
   void initStateLibrary(switchToSource);
 }
 

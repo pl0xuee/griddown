@@ -108,6 +108,44 @@ body {
   gap: 4px;
 }
 
+.hud-sub {
+  margin-top: 10px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #7dd67d;
+  font-weight: 700;
+}
+
+#hud-resources {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.res-chip {
+  padding: 5px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 200, 120, 0.35);
+  background: rgba(30, 40, 30, 0.85);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.res-chip:hover {
+  border-color: rgba(150, 230, 150, 0.7);
+}
+
+.res-chip.on {
+  background: rgba(70, 110, 70, 0.9);
+  border-color: rgba(160, 240, 160, 0.9);
+  color: #f0fff0;
+}
+
 .legend-row {
   display: flex;
   align-items: center;
