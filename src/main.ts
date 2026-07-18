@@ -5,6 +5,7 @@ import { layers, namedFlavor } from "@protomaps/basemaps";
 import mlcontour from "maplibre-contour";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
+import mgrs from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
 const protocol = new Protocol();
@@ -374,6 +375,39 @@ async function start() {
     });
   });
   applyResourceUi();
+
+  // Live coordinate readout (MGRS + lat/long) for the center crosshair.
+  const coordsEl = document.getElementById("coords");
+  function fmtMgrs(s: string): string {
+    const m = s.match(/^(\d{1,2}[C-X])([A-Z]{2})(\d+)$/);
+    if (!m) return s;
+    const h = m[3].length / 2;
+    return `${m[1]} ${m[2]} ${m[3].slice(0, h)} ${m[3].slice(h)}`;
+  }
+  let lastGrid = "";
+  let lastLL = "";
+  function updateCoords() {
+    if (!coordsEl) return;
+    const c = map.getCenter();
+    lastLL = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+    try {
+      lastGrid = fmtMgrs(mgrs.forward([c.lng, c.lat]));
+    } catch {
+      lastGrid = "—";
+    }
+    coordsEl.innerHTML = `<span class="c-grid">${lastGrid}</span><span class="c-ll">${lastLL}</span>`;
+  }
+  map.on("move", updateCoords);
+  updateCoords();
+  coordsEl?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(`${lastGrid}  (${lastLL})`);
+      coordsEl.classList.add("copied");
+      setTimeout(() => coordsEl.classList.remove("copied"), 1200);
+    } catch {
+      /* clipboard unavailable */
+    }
+  });
 
   void initStateLibrary(switchToSource);
 }

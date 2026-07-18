@@ -673,3 +673,73 @@ button {
 .maplibregl-ctrl-attrib {
   font-size: 10px;
 }
+
+/* Center crosshair — the point the coordinate readout reports */
+#crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0.8;
+}
+#crosshair::before,
+#crosshair::after {
+  content: "";
+  position: absolute;
+  background: rgba(125, 214, 125, 0.9);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.7);
+}
+#crosshair::before {
+  left: 50%;
+  top: 0;
+  width: 1.5px;
+  height: 100%;
+  margin-left: -0.75px;
+}
+#crosshair::after {
+  top: 50%;
+  left: 0;
+  height: 1.5px;
+  width: 100%;
+  margin-top: -0.75px;
+}
+
+/* Coordinate readout (MGRS + lat/long) */
+#coords {
+  position: absolute;
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.35);
+  background: rgba(18, 20, 18, 0.85);
+  color: #e6f0e0;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  cursor: pointer;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+}
+#coords .c-grid {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #9fe89f;
+}
+#coords .c-ll {
+  font-size: 10px;
+  opacity: 0.75;
+}
+#coords.copied .c-grid::after {
+  content: " ✓ copied";
+  color: #7dd67d;
+}
