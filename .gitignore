@@ -33,6 +33,8 @@ dist-ssr
 # Downloaded go-pmtiles binary (fetch from GitHub releases)
 /tools/pmtiles
 /tools/*.tar.gz
+# Bundled sidecar binaries (large; provisioned from tools/pmtiles per platform)
+/src-tauri/binaries/
 
 # Local region config (copy from region.example.json) — keep your region private
 /public/region.json

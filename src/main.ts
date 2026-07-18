@@ -3,6 +3,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import mlcontour from "maplibre-contour";
+import { initStateLibrary, type SwitchTarget } from "./states";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
 const protocol = new Protocol();
@@ -145,6 +146,9 @@ function emphasisLayers(t: (typeof THEME)[ThemeName]): any[] {
 
 let currentTheme: ThemeName = "dark";
 let terrainOn = true;
+// Terrain (hillshade/contours) only exists for regions with a local DEM.
+let terrainAvailable = true;
+let map: maplibregl.Map;
 
 function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
   const t = THEME[themeName];
@@ -159,7 +163,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     },
   };
 
-  if (terrainOn) {
+  if (terrainOn && terrainAvailable) {
     sources.dem = {
       type: "raster-dem",
       tiles: [DEM_TILES],
@@ -216,7 +220,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     base.splice(at, 0, hillshade, contourLine);
   }
 
-  const contourLabels: any[] = terrainOn
+  const contourLabels: any[] = terrainOn && terrainAvailable
     ? [
         {
           id: "app-contour-labels", type: "symbol", source: "contours", "source-layer": "contours",
@@ -252,7 +256,7 @@ async function start() {
   const stateEl = document.getElementById("hud-state");
   if (stateEl) stateEl.textContent = region.name;
 
-  const map = new maplibregl.Map({
+  map = new maplibregl.Map({
     container: "map",
     center: region.center,
     zoom: region.zoom,
@@ -280,6 +284,18 @@ async function start() {
     applyThemeUi();
   });
   applyThemeUi();
+
+  // Switch the active map source (called when a downloaded state is selected).
+  function switchToSource(t: SwitchTarget) {
+    PMTILES_URL = t.pmtilesUrl;
+    terrainAvailable = t.hasDem;
+    const el = document.getElementById("hud-state");
+    if (el) el.textContent = t.name;
+    map.setStyle(buildStyle(currentTheme));
+    map.jumpTo({ center: t.center, zoom: t.zoom });
+    applyThemeUi();
+  }
+  void initStateLibrary(switchToSource);
 }
 
 // --- HUD wiring: day/night + terrain toggles ---
@@ -292,6 +308,7 @@ function applyThemeUi() {
   if (terrBtn) {
     terrBtn.textContent = terrainOn ? "△ Terrain: on" : "△ Terrain: off";
     terrBtn.classList.toggle("off", !terrainOn);
+    terrBtn.classList.toggle("hidden", !terrainAvailable);
   }
   const fs = document.querySelector<HTMLElement>(".swatch.forest");
   const ts = document.querySelector<HTMLElement>(".swatch.trail");
@@ -317,5 +334,27 @@ function refreshNetStatus() {
 window.addEventListener("online", refreshNetStatus);
 window.addEventListener("offline", refreshNetStatus);
 refreshNetStatus();
+
+// --- Welcome screen (first run) + Map library panel open/close ---
+function initChrome() {
+  const welcome = document.getElementById("welcome");
+  const startBtn = document.getElementById("welcome-start");
+  if (welcome && !localStorage.getItem("griddown_welcomed")) {
+    welcome.classList.remove("hidden");
+  }
+  startBtn?.addEventListener("click", () => {
+    localStorage.setItem("griddown_welcomed", "1");
+    welcome?.classList.add("hidden");
+  });
+
+  const panel = document.getElementById("states-panel");
+  document.getElementById("states-open")?.addEventListener("click", () =>
+    panel?.classList.remove("hidden")
+  );
+  document.getElementById("states-close")?.addEventListener("click", () =>
+    panel?.classList.add("hidden")
+  );
+}
+initChrome();
 
 void start();

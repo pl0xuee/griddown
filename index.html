@@ -27,6 +27,47 @@
         <button id="theme-toggle" type="button">&#9728; Day</button>
         <button id="terrain-toggle" type="button">&#9651; Terrain: on</button>
       </div>
+      <button id="states-open" type="button">&#9636; Map library</button>
+    </div>
+
+    <!-- Slide-out state library -->
+    <div id="states-panel" class="hidden">
+      <div id="states-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Map library</div>
+        </div>
+        <button id="states-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="states-hint">
+        Download a state while you have internet &mdash; then it works forever
+        offline. Tap a downloaded state to view it.
+      </div>
+      <input id="states-search" type="text" placeholder="Search states&hellip;" />
+      <div id="states-list"></div>
+    </div>
+
+    <!-- First-run welcome / info -->
+    <div id="welcome" class="hidden">
+      <div id="welcome-card">
+        <div class="welcome-mark">◈</div>
+        <h1>GridDown</h1>
+        <p class="welcome-tag">Apocalypse-proof offline maps</p>
+        <p>
+          Maps of the United States &mdash; streets, <b>forest service roads</b>,
+          <b>trails</b>, and terrain &mdash; that keep working with <b>no internet
+          at all</b>. Built as an off-grid, emergency replacement for online maps.
+        </p>
+        <ul class="welcome-list">
+          <li><b>Download states</b> while you're online, from the <b>Map library</b>.</li>
+          <li>Everything then runs <b>100% offline</b> &mdash; no signal needed.</li>
+          <li>Toggle <b>Day/Night</b> and <b>Terrain</b> (hillshade + contours).</li>
+        </ul>
+        <p class="welcome-fine">
+          Map data &copy; OpenStreetMap contributors. Elevation: USGS / Terrain Tiles.
+        </p>
+        <button id="welcome-start" type="button">Get started</button>
+      </div>
     </div>
   </body>
 </html>
