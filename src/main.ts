@@ -6,6 +6,7 @@ import mlcontour from "maplibre-contour";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
+import { initWaypoints } from "./waypoints";
 import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -453,6 +454,8 @@ async function start() {
     const c = map.getCenter();
     return { lat: c.lat, lng: c.lng };
   });
+
+  initWaypoints(map);
 
   void initStateLibrary(switchToSource);
 }

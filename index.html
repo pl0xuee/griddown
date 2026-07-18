@@ -45,6 +45,7 @@
       <button id="states-open" type="button">&#9636; Map library</button>
       <button id="handbook-open" type="button">&#9873; Survival handbook</button>
       <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
+      <button id="marks-open" type="button">&#9670; Marks &amp; tracks</button>
     </div>
 
     <!-- Slide-out survival handbook -->
@@ -75,6 +76,23 @@
       </div>
       <div id="sky-sub">For the map center &middot; computed offline</div>
       <div id="sky-content"></div>
+    </div>
+
+    <!-- Marks & tracks panel -->
+    <div id="marks-panel" class="hidden">
+      <div id="marks-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Marks &amp; tracks</div>
+        </div>
+        <button id="marks-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="marks-actions">
+        <button id="marks-drop" type="button">&#9678; Drop pin at crosshair</button>
+        <button id="marks-record" type="button">&#9679; Record track</button>
+        <button id="marks-export" type="button">&#8595; Export GPX</button>
+      </div>
+      <div id="marks-content"></div>
     </div>
 
     <!-- Slide-out state library -->

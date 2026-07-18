@@ -209,6 +209,7 @@ body {
 #states-open,
 #handbook-open,
 #sky-open,
+#marks-open,
 #nightvis-toggle {
   margin-top: 6px;
   width: 100%;
@@ -228,9 +229,138 @@ body {
 #states-open:hover,
 #handbook-open:hover,
 #sky-open:hover,
+#marks-open:hover,
 #nightvis-toggle:hover {
   background: rgba(50, 70, 50, 0.95);
   border-color: rgba(150, 230, 150, 0.7);
+}
+
+/* --- Marks & tracks panel --- */
+#marks-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-width: 90vw;
+  height: 100%;
+  background: rgba(16, 19, 17, 0.97);
+  color: #e6f0e0;
+  border-left: 1px solid rgba(120, 200, 120, 0.3);
+  box-shadow: -8px 0 26px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+#marks-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+#marks-close {
+  background: none;
+  border: none;
+  color: #cdeccd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#marks-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+#marks-actions button {
+  padding: 9px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(30, 40, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+#marks-actions button:hover {
+  background: rgba(50, 70, 50, 0.95);
+}
+#marks-record.recording {
+  border-color: #ff5a5a;
+  color: #ff8a8a;
+  background: rgba(60, 20, 20, 0.6);
+}
+#marks-content {
+  overflow-y: auto;
+  flex: 1;
+}
+.mk-group {
+  margin: 10px 2px 6px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #7dd67d;
+  text-transform: uppercase;
+}
+.mk-empty {
+  opacity: 0.55;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+.mk-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+}
+.mk-info {
+  flex: 1;
+  min-width: 0;
+}
+.mk-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mk-sub {
+  font-size: 10px;
+  opacity: 0.6;
+}
+.mk-btn {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.35);
+  background: rgba(30, 40, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mk-del {
+  background: none;
+  border: none;
+  color: #d98a8a;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* Waypoint pin marker */
+.wp-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: #ffd24a;
+  border: 2px solid #1a1400;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
 }
 
 #nightvis-toggle.on {
@@ -719,7 +849,8 @@ button {
 /* Safe-area padding for the slide-out panels (notch / home indicator) */
 #states-panel,
 #handbook-panel,
-#sky-panel {
+#sky-panel,
+#marks-panel {
   padding-top: calc(14px + env(safe-area-inset-top));
   padding-right: calc(14px + env(safe-area-inset-right));
   padding-bottom: calc(14px + env(safe-area-inset-bottom));
@@ -760,7 +891,8 @@ button {
 @media (max-width: 640px) {
   #states-panel,
   #handbook-panel,
-  #sky-panel {
+  #sky-panel,
+  #marks-panel {
     width: 100vw;
     max-width: 100vw;
   }
