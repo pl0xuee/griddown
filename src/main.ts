@@ -594,6 +594,36 @@ async function start() {
   });
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+
+  // "Where am I" — jumps the map to your position and marks it.
+  //
+  // Tracking is opt-in by a second press rather than automatic: continuous GPS
+  // is the heaviest battery drain the app has, and this is a device you may
+  // need to still be alive tomorrow. The accuracy circle is shown deliberately
+  // — a fix from wifi/cell triangulation can be a kilometre out, and drawing a
+  // confident dot with no indication of that would be the same class of lie
+  // this app works hard to avoid.
+  const geolocate = new maplibregl.GeolocateControl({
+    positionOptions: { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    trackUserLocation: true,
+    showAccuracyCircle: true,
+    showUserLocation: true,
+  });
+  map.addControl(geolocate, "top-right");
+  // Same action from the HUD, where people actually look for it — the map
+  // control is easy to miss next to the zoom buttons, especially on a phone.
+  document.getElementById("locate-me")?.addEventListener("click", () => geolocate.trigger());
+  geolocate.on("error", (e: any) => {
+    // Never fail silently: the user pressed a button and is waiting.
+    const denied = e?.code === 1; // PERMISSION_DENIED
+    toast(
+      denied
+        ? "Location permission denied — allow it in your system settings."
+        : "Couldn't get a location fix. Most desktops have no GPS; this works on a phone or tablet.",
+      "error",
+      6000
+    );
+  });
   map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
 
