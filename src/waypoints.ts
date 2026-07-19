@@ -2,6 +2,7 @@ import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
+import { BACKUP_KEY } from "./readiness";
 
 // Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
 // real file in the app data dir) and exchangeable as standard GPX. Fully offline.
@@ -256,6 +257,7 @@ export async function initWaypoints(map: maplibregl.Map) {
       tracks,
     };
     download("griddown-backup.json", JSON.stringify(payload, null, 2), "application/json");
+    localStorage.setItem(BACKUP_KEY, String(Date.now()));
     toast("Exported griddown-backup.json", "success");
   }
 

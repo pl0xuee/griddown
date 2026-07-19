@@ -14,6 +14,7 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
   { btn: "marks-open", panel: "marks-panel" },
   { btn: "goto-open", panel: "goto-box" },
   { btn: "sky-open", panel: "sky-panel" },
+  { btn: "readiness-open", panel: "readiness-panel" },
 ];
 
 export function initPanels() {

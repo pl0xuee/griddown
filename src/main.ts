@@ -10,6 +10,7 @@ import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
 import { initGoto } from "./goto";
 import { initPanels } from "./panels";
+import { initReadiness } from "./readiness";
 import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -435,6 +436,8 @@ async function start() {
   void initWaypoints(map);
   initMeasure(map);
   initGoto(map);
+  // Read through a getter: terrain availability changes when you switch states.
+  initReadiness(() => terrainAvailable);
   initPanels();
 
   void initStateLibrary(switchToSource);

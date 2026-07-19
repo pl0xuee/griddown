@@ -46,6 +46,7 @@
           <button id="measure-open" type="button">&#8901; Measure</button>
           <button id="goto-open" type="button">&#8982; Go to</button>
           <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
+          <button id="readiness-open" type="button">&#9873; Readiness</button>
         </div>
 
         <div class="hud-sub">RESOURCES</div>
@@ -125,6 +126,18 @@
     </div>
 
     <!-- Marks & tracks panel -->
+    <!-- Preflight: what's missing while you still have a connection -->
+    <div id="readiness-panel" class="hidden">
+      <div id="readiness-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Ready to go dark?</div>
+        </div>
+        <button id="readiness-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="readiness-content"></div>
+    </div>
+
     <div id="marks-panel" class="hidden">
       <div id="marks-head">
         <div>

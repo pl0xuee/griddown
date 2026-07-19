@@ -1272,3 +1272,119 @@ button {
   content: " ✓ copied";
   color: #7dd67d;
 }
+
+/* --- Readiness ("ready to go dark?") panel --- */
+#readiness-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: 340px;
+  max-width: 92vw;
+  height: 100%;
+  background: rgba(16, 19, 17, 0.97);
+  color: #e6f0e0;
+  border-left: 1px solid rgba(120, 200, 120, 0.3);
+  box-shadow: -8px 0 26px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+#readiness-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex: none;
+}
+#readiness-close {
+  background: none;
+  border: none;
+  color: #cdeccd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#readiness-content {
+  overflow-y: auto;
+  flex: 1;
+  margin-top: 12px;
+}
+.rd-verdict {
+  flex: none;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin-bottom: 10px;
+}
+.rd-verdict.ok {
+  background: rgba(90, 200, 90, 0.16);
+  color: #b8f0b8;
+}
+.rd-verdict.warn {
+  background: rgba(220, 180, 70, 0.16);
+  color: #f0dca0;
+}
+.rd-verdict.bad {
+  background: rgba(220, 90, 90, 0.16);
+  color: #f3b6b6;
+}
+.rd-row {
+  flex: none;
+  display: flex;
+  gap: 9px;
+  padding: 9px 2px;
+  border-top: 1px solid rgba(120, 200, 120, 0.14);
+}
+.rd-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.rd-row.ok .rd-icon {
+  background: rgba(90, 200, 90, 0.25);
+  color: #b8f0b8;
+}
+.rd-row.warn .rd-icon {
+  background: rgba(220, 180, 70, 0.25);
+  color: #f0dca0;
+}
+.rd-row.bad .rd-icon {
+  background: rgba(220, 90, 90, 0.25);
+  color: #f3b6b6;
+}
+.rd-info {
+  min-width: 0;
+}
+.rd-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #cdeccd;
+}
+.rd-detail {
+  font-size: 11px;
+  line-height: 1.5;
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.rd-fix {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 4px;
+  padding-left: 8px;
+  border-left: 2px solid rgba(120, 200, 120, 0.35);
+  opacity: 0.9;
+}
+.rd-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  padding: 10px 2px;
+}

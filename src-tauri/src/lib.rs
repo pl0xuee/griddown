@@ -49,6 +49,51 @@ fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Size and age of each installed state pack, for the readiness check.
+///
+/// Age matters off-grid: OSM changes constantly, and a pack you downloaded two
+/// years ago is the map you'll be living with. Surfacing it is the only way the
+/// user finds out while they still have a connection to do something about it.
+#[derive(serde::Serialize)]
+struct PackInfo {
+    abbr: String,
+    bytes: u64,
+    /// Seconds since the Unix epoch; 0 if the filesystem won't say.
+    modified: u64,
+}
+
+#[tauri::command]
+fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
+    let dir = states_dir(&app)?;
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = e.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("pmtiles") {
+            continue;
+        }
+        let Some(abbr) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        let md = match e.metadata() {
+            Ok(md) => md,
+            Err(_) => continue,
+        };
+        let modified = md
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        out.push(PackInfo {
+            abbr: abbr.to_string(),
+            bytes: md.len(),
+            modified,
+        });
+    }
+    out.sort_by(|a, b| a.abbr.cmp(&b.abbr));
+    Ok(out)
+}
+
 /// Locate the bundled go-pmtiles binary (dev: src-tauri/binaries; prod: next to exe).
 fn pmtiles_bin() -> Option<PathBuf> {
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
@@ -246,7 +291,8 @@ pub fn run() {
             delete_state,
             download_state,
             read_marks,
-            write_marks
+            write_marks,
+            pack_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
