@@ -24,7 +24,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-22.04
+          # ubuntu-24.04, not 22.04. The AppImage bundles the whole GTK/GDK/
+          # epoxy/wayland stack of whatever it was built on, and a 2022 stack
+          # cannot initialise EGL against a current compositor + GPU driver —
+          # v0.1.0's AppImage opened to a white window with no map on CachyOS
+          # with an RX 9070, because WebGL was unavailable.
+          - platform: ubuntu-24.04
             triple: x86_64-unknown-linux-gnu
             pm_asset: Linux_x86_64.tar.gz
           - platform: windows-latest
@@ -42,10 +47,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          # 24.04 renamed libappindicator3-dev to the ayatana package.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: Provision go-pmtiles sidecar
         shell: bash
