@@ -72,25 +72,43 @@ function lat2tile(lat: number, z: number) {
 
 /** Tiles covering the corridor between two points, at the best zoom for the trip. */
 function planTiles(a: Endpoint, b: Endpoint, directMeters: number) {
-  // Pad the bounding box so the route can bow away from the straight line.
-  const padLng = Math.max(0.02, Math.abs(a.lng - b.lng) * 0.35);
-  const padLat = Math.max(0.02, Math.abs(a.lat - b.lat) * 0.35);
+  // Pad the corridor by a share of the TRIP LENGTH, on both axes.
+  //
+  // Padding each axis by its own extent looks reasonable and is badly wrong:
+  // for a due-east trip the latitude difference is ~0, so the north-south
+  // corridor collapsed to the 0.02° floor (~2 km). Any route that has to bow
+  // around terrain then falls outside the loaded tiles and reports "no
+  // connected road route" — which is what happened on a 62 km east-west trip
+  // whose real road (US-26 through Government Camp) dips ~10 km south of the
+  // straight line.
+  const padM = Math.max(3000, directMeters * 0.35);
+  const midLat = (a.lat + b.lat) / 2;
+  const padLat = padM / 111320;
+  const padLng = padM / (111320 * Math.max(0.2, Math.cos((midLat * Math.PI) / 180)));
   const west = Math.min(a.lng, b.lng) - padLng;
   const east = Math.max(a.lng, b.lng) + padLng;
   const south = Math.min(a.lat, b.lat) - padLat;
   const north = Math.max(a.lat, b.lat) + padLat;
 
-  // Distance picks the zoom; the tile budget can only push it coarser.
-  const best = zoomForTrip(directMeters);
-  for (const z of ZOOMS.filter((z) => z <= best)) {
+  // Every zoom worth trying, best guess first.
+  //
+  // NO SINGLE ZOOM WINS. Which one connects depends on the corridor, not just
+  // the distance: Bend -> Redmond routes cleanly at z12 and not at all at z14,
+  // while a 38 mi trip over Mt Hood is the reverse — z13 routes it at strict
+  // tolerance and z12 needs a reckless 120 m stitch. So distance only orders
+  // the attempts; the caller walks the list until one connects.
+  const guess = zoomForTrip(directMeters);
+  const order = [...ZOOMS].sort((p, q) => Math.abs(p - guess) - Math.abs(q - guess));
+  const plans = [];
+  for (const z of order) {
     const x0 = lng2tile(west, z);
     const x1 = lng2tile(east, z);
     const y0 = lat2tile(north, z);
     const y1 = lat2tile(south, z);
     const count = (x1 - x0 + 1) * (y1 - y0 + 1);
-    if (count <= MAX_TILES) return { z, x0, x1, y0, y1, count };
+    if (count <= MAX_TILES) plans.push({ z, x0, x1, y0, y1, count });
   }
-  return null;
+  return plans;
 }
 
 async function loadRoads(
@@ -155,6 +173,12 @@ async function loadRoads(
 function miles(m: number) {
   const mi = m / 1609.344;
   return mi < 10 ? mi.toFixed(1) : Math.round(mi).toLocaleString();
+}
+
+/** Short distances in feet, longer ones in miles — imperial throughout. */
+function shortDist(m: number) {
+  const ft = m * 3.28084;
+  return ft < 1000 ? `${Math.round(ft).toLocaleString()} ft` : `${miles(m)} mi`;
 }
 
 export function initRoute(deps: {
@@ -299,7 +323,7 @@ export function initRoute(deps: {
       }
       ${
         r.snappedFromM > 150 || r.snappedToM > 150
-          ? `<div class="rt-warn">⚠ The route starts ${Math.round(r.snappedFromM)} m from your start and ends ${Math.round(r.snappedToM)} m from your destination — that's the nearest connected road.</div>`
+          ? `<div class="rt-warn">⚠ The route starts ${shortDist(r.snappedFromM)} from your start and ends ${shortDist(r.snappedToM)} from your destination — that's the nearest connected road.</div>`
           : ""
       }
       ${
@@ -348,51 +372,68 @@ export function initRoute(deps: {
       return;
     }
     const direct = haversineLL(from, to);
-    const plan = planTiles(from, to, direct);
-    if (!plan) {
+    const plans = planTiles(from, to, direct);
+    if (!plans.length) {
       fail(
         "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
       );
       return;
     }
     busy = true;
-    if (body) body.innerHTML = `<div class="rt-msg">Reading roads from the pack…</div>`;
+    if (body) body.innerHTML = `<div class="rt-msg">Reading roads from the pack&hellip;</div>`;
     try {
-      const { segs, missing } = await loadRoads(deps.sourceUrl(), plan, (d, t) => {
-        if (body) body.innerHTML = `<div class="rt-msg">Reading roads… ${d}/${t} tiles</div>`;
-      });
-      if (!segs.length) {
-        fail("No roads found in this area of the pack.");
-        return;
+      // Walk the zoom candidates, STRICT stitching on every one before trying a
+      // loose pass on any. A strict route at another zoom is more trustworthy
+      // than a loose route at the preferred zoom, because the loose pass can
+      // bridge roads that don't actually meet.
+      const loaded = new Map<number, { segs: RoadSeg[]; missing: number }>();
+      const roadsFor = async (plan: (typeof plans)[number]) => {
+        const hit = loaded.get(plan.z);
+        if (hit) return hit;
+        const got = await loadRoads(deps.sourceUrl(), plan, (d, t) => {
+          if (body) body.innerHTML = `<div class="rt-msg">Reading roads&hellip; ${d}/${t} tiles</div>`;
+        });
+        loaded.set(plan.z, got);
+        return got;
+      };
+
+      let best: { r: RouteResult; plan: (typeof plans)[number]; missing: number; approx: boolean } | null = null;
+      for (const stitch of [undefined, 60]) {
+        for (const plan of plans) {
+          const { segs, missing } = await roadsFor(plan);
+          if (!segs.length) continue;
+          if (body) body.innerHTML = `<div class="rt-msg">Working out the way&hellip;</div>`;
+          const graph = buildRouteGraph(segs, stitch ? { stitchMeters: stitch } : {});
+          const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
+          if (r) {
+            best = { r, plan, missing, approx: stitch !== undefined };
+            break;
+          }
+        }
+        if (best) break;
       }
-      if (body) body.innerHTML = `<div class="rt-msg">Working out the way…</div>`;
-      // Strict stitching first. If that finds nothing, the gaps at tile seams
-      // are wider than usual along this corridor — retry with a looser
-      // tolerance, which recovers many otherwise-unroutable trips (measured:
-      // Bend -> Sisters fails at 25 m and routes via US 20/OR 126 at 60 m).
-      // The looser pass is more likely to bridge two roads that don't really
-      // meet, so anything it produces is flagged as approximate.
-      let approx = false;
-      let graph = buildRouteGraph(segs);
-      let r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
-      if (!r) {
-        approx = true;
-        graph = buildRouteGraph(segs, { stitchMeters: 60 });
-        r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
-      }
-      if (!r) {
+
+      if (!best) {
         // Be explicit that this is a limit of the data, not a claim that no
         // road exists — the network in these tiles is not fully connected.
         fail(
-          `No connected road route found. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
-            haversineLL(from, to)
+          `No connected road route found at any detail level. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
+            direct
           )} mi.`
         );
         return;
       }
-      const next: Shown = { r, z: plan.z, missing, approx, from, to, at: Date.now() };
-      draw(r.coords);
-      fit(r.coords);
+      const next: Shown = {
+        r: best.r,
+        z: best.plan.z,
+        missing: best.missing,
+        approx: best.approx,
+        from,
+        to,
+        at: Date.now(),
+      };
+      draw(best.r.coords);
+      fit(best.r.coords);
       shown = next;
       save(next);
       renderResult(next);

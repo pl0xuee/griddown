@@ -31,12 +31,19 @@ const RAYS = 360;
 // finer steps cost time without resolving more terrain.
 const STEP_M = 50;
 
-export const RADIUS_CHOICES = [8000, 25000, 50000];
-const RADIUS_KEY = "griddown_viewshed_radius";
+// Round MILES, not round kilometres — this is a US map and the rest of the app
+// reads in feet and miles.
+const MI = 1609.344;
+/** Stored and compared in whole MILES — exact integers, no float-equality trap. */
+export const RADIUS_CHOICES_MI = [5, 15, 30];
+const RADIUS_KEY = "griddown_viewshed_radius_mi";
 
-export function viewshedRadiusM(): number {
+export function viewshedRadiusMi(): number {
   const saved = Number(localStorage.getItem(RADIUS_KEY));
-  return RADIUS_CHOICES.includes(saved) ? saved : 25000;
+  return RADIUS_CHOICES_MI.includes(saved) ? saved : 15;
+}
+export function viewshedRadiusM(): number {
+  return viewshedRadiusMi() * MI;
 }
 
 const SRC = "gd-viewshed";
@@ -82,7 +89,7 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   }
 
   const grid = new Float64Array(RAYS * steps).fill(NaN);
-  // Flat typed arrays, not an array of [lng,lat] pairs: at 50 km that would be
+  // Flat typed arrays, not an array of [lng,lat] pairs: at 30 mi that would be
   // 360,000 two-element JS arrays (tens of MB of object overhead) on a webview
   // already documented as fragile under memory pressure.
   const lngs = new Float64Array(RAYS * steps);
@@ -177,7 +184,7 @@ export function initViewshed(getMap: () => maplibregl.Map) {
   const btn = document.getElementById("viewshed-toggle");
   const radiusSel = document.getElementById("viewshed-radius") as HTMLSelectElement | null;
   if (radiusSel) {
-    radiusSel.value = String(viewshedRadiusM());
+    radiusSel.value = String(viewshedRadiusMi());
     radiusSel.addEventListener("change", () => {
       localStorage.setItem(RADIUS_KEY, radiusSel.value);
       // The drawn sweep is for the old radius; make the user re-run it.
@@ -202,8 +209,8 @@ export function initViewshed(getMap: () => maplibregl.Map) {
       btn.classList.add("off");
       return;
     }
-    const km = Math.round(viewshedRadiusM() / 1000);
-    toast(`Computing viewshed from the crosshair (${km} km)…`);
+    const mi = viewshedRadiusMi();
+    toast(`Computing viewshed from the crosshair (${mi} mi)…`);
     btn.setAttribute("disabled", "");
     try {
       const res = await compute(map);
@@ -221,11 +228,11 @@ export function initViewshed(getMap: () => maplibregl.Map) {
         );
       } else if (gaps >= 5) {
         toast(
-          `Green = visible (${km} km). ${gaps}% of the sweep has no terrain data — those areas are unshaded, not blocked.`,
+          `Green = visible (${mi} mi). ${gaps}% of the sweep has no terrain data — those areas are unshaded, not blocked.`,
           "info"
         );
       } else {
-        toast(`Green = visible from here (${km} km sweep).`, "success");
+        toast(`Green = visible from here (${mi} mi sweep).`, "success");
       }
     } finally {
       btn.removeAttribute("disabled");
