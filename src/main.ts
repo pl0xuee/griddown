@@ -17,6 +17,20 @@ import { initCompass } from "./compass";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
 
+// A silent failure must never look like a blank map: surface any uncaught
+// error on the HUD status line, where it can actually be reported.
+function surfaceError(msg: string) {
+  const label = document.getElementById("net-label");
+  const dot = document.getElementById("net-dot");
+  if (label) label.textContent = `ERROR: ${msg}`.slice(0, 120);
+  if (dot) dot.className = "dot";
+  console.error("[griddown]", msg);
+}
+window.addEventListener("error", (e) => surfaceError(e.message || String(e.error)));
+window.addEventListener("unhandledrejection", (e) =>
+  surfaceError(e.reason instanceof Error ? e.reason.message : String(e.reason))
+);
+
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
 const protocol = new Protocol();
 maplibregl.addProtocol("pmtiles", protocol.tile);
