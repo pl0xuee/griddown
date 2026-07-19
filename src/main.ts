@@ -12,6 +12,7 @@ import { initGoto, dropGotoPin } from "./goto";
 import { initSearch } from "./search";
 import { initRoute } from "./route";
 import { initUpdater } from "./updater";
+import { initVersion } from "./version";
 import { initPanels } from "./panels";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
@@ -595,25 +596,56 @@ async function start() {
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
-  // "Where am I" — jumps the map to your position and marks it.
+  // "Where am I" — takes ONE fix, marks it, and centres the map there.
   //
-  // Tracking is opt-in by a second press rather than automatic: continuous GPS
-  // is the heaviest battery drain the app has, and this is a device you may
-  // need to still be alive tomorrow. The accuracy circle is shown deliberately
-  // — a fix from wifi/cell triangulation can be a kilometre out, and drawing a
-  // confident dot with no indication of that would be the same class of lie
-  // this app works hard to avoid.
+  // trackUserLocation is deliberately FALSE. With it on, MapLibre's first press
+  // starts a continuous high-accuracy `watchPosition` that only a second press
+  // stops — and nothing in this app ever stopped it, so one tap to check your
+  // position left GPS polling until the battery died. That is the single
+  // heaviest drain available to us, on a device you may need alive tomorrow,
+  // and it contradicted the rest of the codebase: compass.ts kills its sensor
+  // the moment its panel hides, waypoints.ts clears its watch on stop, and
+  // route.ts uses one-shot positioning. `false` routes to getCurrentPosition.
+  //
+  // The accuracy circle stays: a fix from wifi/cell triangulation can be a
+  // kilometre out, and a confident dot with no sense of that is the same class
+  // of lie as the terrain shadow and the invented elevation profile.
   const geolocate = new maplibregl.GeolocateControl({
     positionOptions: { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-    trackUserLocation: true,
+    trackUserLocation: false,
     showAccuracyCircle: true,
     showUserLocation: true,
   });
   map.addControl(geolocate, "top-right");
+
   // Same action from the HUD, where people actually look for it — the map
   // control is easy to miss next to the zoom buttons, especially on a phone.
-  document.getElementById("locate-me")?.addEventListener("click", () => geolocate.trigger());
+  const locateBtn = document.getElementById("locate-me");
+  const locateIdle = locateBtn?.innerHTML ?? "";
+  function locateDone() {
+    if (!locateBtn) return;
+    locateBtn.removeAttribute("disabled");
+    locateBtn.innerHTML = locateIdle;
+  }
+  locateBtn?.addEventListener("click", () => {
+    // trigger() returns false when the control is still finishing its async
+    // permission check. Without this the button is simply dead for the first
+    // moment after launch, with nothing said — the exact silent failure the
+    // error handler below exists to prevent.
+    const started = geolocate.trigger();
+    if (!started) {
+      toast("Location is still starting up — try again in a second.", "info");
+      return;
+    }
+    // A fix can take the full 15s timeout, so say something is happening
+    // rather than leaving a button that looks like it did nothing.
+    locateBtn.setAttribute("disabled", "");
+    locateBtn.textContent = "◎ Locating…";
+  });
+  geolocate.on("geolocate", locateDone);
+  geolocate.on("trackuserlocationend", locateDone);
   geolocate.on("error", (e: any) => {
+    locateDone();
     // Never fail silently: the user pressed a button and is waiting.
     const denied = e?.code === 1; // PERMISSION_DENIED
     toast(
@@ -799,6 +831,7 @@ async function start() {
     dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
   });
   initUpdater();
+  void initVersion();
   initRoute({
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),

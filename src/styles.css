@@ -1994,3 +1994,15 @@ body.battery.nightvis .maplibregl-ctrl {
   background: rgba(50, 70, 50, 0.95);
   border-color: rgba(150, 230, 150, 0.7);
 }
+
+
+/* Version line at the foot of the HUD menu. Deliberately quiet — you only need
+   it when reporting a problem or checking whether an update applied. */
+#hud-version {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(120, 200, 120, 0.25);
+  font-size: 10px;
+  color: #8fbf8f;
+  letter-spacing: 0.4px;
+}
