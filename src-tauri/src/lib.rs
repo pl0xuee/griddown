@@ -504,6 +504,55 @@ fn latest_build_url(bin: &std::path::Path) -> Result<String, String> {
     Err("No recent map build found — check your internet connection.".into())
 }
 
+/// Accurate download size for an arbitrary bbox, without downloading anything.
+///
+/// `pmtiles extract --dry-run` reports what the extract WOULD weigh. Worth the
+/// round trip for custom areas: a box drawn casually across three states is
+/// gigabytes, and finding that out after committing to the download is a poor
+/// way to learn it. Returns megabytes.
+#[tauri::command]
+async fn estimate_extract_mb(bbox: String, maxzoom: u32) -> Result<u64, String> {
+    let bin = pmtiles_bin().ok_or("go-pmtiles binary not found")?;
+    tauri::async_runtime::spawn_blocking(move || -> Result<u64, String> {
+        use std::process::Command;
+        let planet = latest_build_url(&bin)?;
+        let tmp = std::env::temp_dir().join("_griddown_size.pmtiles");
+        let out = Command::new(&bin)
+            .arg("extract")
+            .arg(&planet)
+            .arg(&tmp)
+            .arg(format!("--bbox={}", bbox))
+            .arg(format!("--maxzoom={}", maxzoom))
+            .arg("--dry-run")
+            .output()
+            .map_err(|e| e.to_string())?;
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        // e.g. "... archive size of 437 MB ..."
+        let idx = text
+            .find("archive size of ")
+            .ok_or("couldn't read a size from the map server")?;
+        let rest = &text[idx + "archive size of ".len()..];
+        let num: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || *c == '.')
+            .collect();
+        let unit: String = rest[num.len()..].trim_start().chars().take(2).collect();
+        let mut mb: f64 = num.parse().map_err(|_| "couldn't parse the size")?;
+        if unit.eq_ignore_ascii_case("GB") {
+            mb *= 1024.0;
+        } else if unit.eq_ignore_ascii_case("KB") {
+            mb /= 1024.0;
+        }
+        Ok(mb.max(1.0).round() as u64)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Download a state basemap by extracting its bbox from a remote Protomaps planet
 /// build using the go-pmtiles CLI. Emits `download-progress` events while running.
 #[tauri::command]
@@ -606,6 +655,7 @@ pub fn run() {
             state_path,
             delete_state,
             download_state,
+            estimate_extract_mb,
             read_marks,
             write_marks,
             pack_info,

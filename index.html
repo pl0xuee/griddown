@@ -71,6 +71,7 @@
         <div class="hud-grid">
           <button id="handbook-open" type="button">&#9873; Handbook</button>
           <button id="states-open" type="button">&#9636; Map packs</button>
+          <button id="area-open" type="button" title="Download just an area you draw">&#9635; Custom area</button>
           <button id="print-open" type="button">&#9113; Print map</button>
           <button id="readiness-open" type="button">&#9873; Readiness</button>
           <button id="update-check" type="button" title="Check for app updates (needs internet)">&#8635; Updates</button>
@@ -136,6 +137,18 @@
         <button id="route-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="route-body"></div>
+    </div>
+
+    <!-- Custom area: draw a box, download only that -->
+    <div id="area-panel" class="hidden">
+      <div id="area-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Custom area</div>
+        </div>
+        <button id="area-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="area-body"></div>
     </div>
 
     <!-- Compass (device magnetometer; phones/tablets) -->

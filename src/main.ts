@@ -3,7 +3,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
-import { initStateLibrary, type SwitchTarget } from "./states";
+import { initStateLibrary, addCustomArea, takenIds, type SwitchTarget } from "./states";
+import { initCustomArea } from "./customarea";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
@@ -829,6 +830,11 @@ async function start() {
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
+  });
+  initCustomArea({
+    map: () => map,
+    takenIds,
+    onCreate: (area) => addCustomArea(area),
   });
   initUpdater();
   void initVersion();
