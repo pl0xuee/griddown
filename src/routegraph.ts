@@ -174,6 +174,11 @@ export function buildRouteGraph(
   };
 
   const endpoints: number[] = [];
+  // Road classes touching each node, as a bitmask. A node can belong to several
+  // segments, so this must accumulate rather than record only the last one.
+  const MAJOR = 1;
+  const kindMask: number[] = [];
+  const maskOf = (kind: string) => (kind === "major_road" ? MAJOR : kind === "minor_road" ? 2 : 4);
   for (const s of segs) {
     if (!isRoutable(s.kind, s.detail) || s.coords.length < 2) continue;
     const mult = costMultiplier(s);
@@ -183,10 +188,13 @@ export function buildRouteGraph(
       kind: s.kind,
       detail: s.detail,
     });
+    const km = maskOf(s.kind);
     let prev = idOf(s.coords[0]);
+    kindMask[prev] = (kindMask[prev] ?? 0) | km;
     endpoints.push(prev);
     for (let i = 1; i < s.coords.length; i++) {
       const cur = idOf(s.coords[i]);
+      kindMask[cur] = (kindMask[cur] ?? 0) | km;
       if (cur !== prev) {
         const m = haversine([lngs[prev], lats[prev]], [lngs[cur], lats[cur]]);
         adj[prev].push({ to: cur, cost: m * mult, meters: m, seg: segIdx });
@@ -212,7 +220,7 @@ export function buildRouteGraph(
   // crossing *over* another mid-way (an overpass) has its endpoints at the
   // ramps, so it is never fused to the road beneath.
   if (stitchMeters > 0 && endpoints.length) {
-    const cell = stitchMeters / 111320; // rough degrees
+    const cell = Math.max(stitchMeters, 250) / 111320; // rough degrees
     const grid = new Map<string, number[]>();
     for (let id = 0; id < lngs.length; id++) {
       const k = `${Math.floor(lngs[id] / cell)},${Math.floor(lats[id] / cell)}`;
@@ -220,12 +228,32 @@ export function buildRouteGraph(
       if (!b) grid.set(k, (b = []));
       b.push(id);
     }
+    // Link to the nearest FEW candidates, not just the single nearest.
+    //
+    // One link per endpoint silently fails in the common case: the closest
+    // vertex is usually one the endpoint is already connected to — its own
+    // segment's duplicate copy from the neighbouring tile, a couple of metres
+    // away — so the endpoint spends its only stitch on a connection it already
+    // had, and the genuine gap just beyond is never bridged. Measured on US-97
+    // north of Bend: whole components sat 5.4 m, 6.2 m and 22.3 m apart and
+    // stayed unstitched at a 25 m tolerance, which is why raising the tolerance
+    // to 60 m changed nothing at all. Distance was never the constraint.
+    const MAX_LINKS = 4;
+    // A gap between two MAJOR roads is nearly always an artifact of how the
+    // tiles were cut, not a real break — a trunk highway does not simply stop
+    // for 200 m. US-97 north of Bend has 219 m and 239 m gaps in it, and while
+    // they remain the router weaves through side streets instead of taking the
+    // highway. Bridging is allowed further between two major roads, and stays
+    // tight for everything else so a driveway never fuses to a highway.
+    const MAJOR_STITCH = Math.max(stitchMeters, 250);
+    const tolFor = (a: number, b: number) =>
+      (kindMask[a] ?? 0) & (kindMask[b] ?? 0) & MAJOR ? MAJOR_STITCH : stitchMeters;
+    const reach = Math.max(stitchMeters, MAJOR_STITCH);
     const linked = new Set<string>();
     for (const id of endpoints) {
       const bx = Math.floor(lngs[id] / cell);
       const by = Math.floor(lats[id] / cell);
-      let best = -1;
-      let bestM = stitchMeters;
+      const near: { id: number; m: number }[] = [];
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           for (const other of grid.get(`${bx + dx},${by + dy}`) ?? []) {
@@ -233,21 +261,20 @@ export function buildRouteGraph(
             // Already joined through real geometry — nothing to bridge.
             if (adj[id].some((e) => e.to === other)) continue;
             const m = haversine([lngs[id], lats[id]], [lngs[other], lats[other]]);
-            if (m < bestM) {
-              bestM = m;
-              best = other;
-            }
+            if (m <= reach && m <= tolFor(id, other)) near.push({ id: other, m });
           }
         }
       }
-      if (best < 0) continue;
-      const pair = id < best ? `${id}:${best}` : `${best}:${id}`;
-      if (linked.has(pair)) continue;
-      linked.add(pair);
-      // Free to traverse: this models one road continuing across a tile seam,
-      // not a new piece of road.
-      adj[id].push({ to: best, cost: bestM, meters: bestM, seg: -1 });
-      adj[best].push({ to: id, cost: bestM, meters: bestM, seg: -1 });
+      near.sort((a, b) => a.m - b.m);
+      for (const cand of near.slice(0, MAX_LINKS)) {
+        const pair = id < cand.id ? `${id}:${cand.id}` : `${cand.id}:${id}`;
+        if (linked.has(pair)) continue;
+        linked.add(pair);
+        // Free to traverse: this models one road continuing across a tile seam,
+        // not a new piece of road.
+        adj[id].push({ to: cand.id, cost: cand.m, meters: cand.m, seg: -1 });
+        adj[cand.id].push({ to: id, cost: cand.m, meters: cand.m, seg: -1 });
+      }
     }
   }
 
