@@ -35,7 +35,9 @@ body {
   top: calc(12px + env(safe-area-inset-top));
   left: calc(12px + env(safe-area-inset-left));
   z-index: 10;
-  width: 236px;
+  /* Wide enough that the longest tool label ("Public land", "Sun & moon")
+     fits its half of the 2-column grid without ellipsis. */
+  width: 252px;
   /* Never taller than the screen — the body scrolls instead of overflowing. */
   max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   display: flex;
