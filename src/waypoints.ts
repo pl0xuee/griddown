@@ -3,6 +3,7 @@ import { toast } from "./toast";
 import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
 import { BACKUP_KEY } from "./readiness";
+import { saveFile } from "./save";
 
 // Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
 // real file in the app data dir) and exchangeable as standard GPX. Fully offline.
@@ -36,16 +37,6 @@ function pickFile(accept: string): Promise<string | null> {
     // simply never resolves, which is harmless here.
     input.click();
   });
-}
-
-function download(name: string, text: string, mime: string) {
-  const blob = new Blob([text], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 export async function initWaypoints(map: maplibregl.Map) {
@@ -210,8 +201,7 @@ export async function initWaypoints(map: maplibregl.Map) {
       toast("Nothing to export yet — drop a pin or record a track first.");
       return;
     }
-    download("griddown.gpx", buildGPX(waypoints, tracks), "application/gpx+xml");
-    toast("Exported griddown.gpx", "success");
+    void saveFile("griddown.gpx", buildGPX(waypoints, tracks), "application/gpx+xml");
   }
 
   async function importGPX() {
@@ -256,9 +246,16 @@ export async function initWaypoints(map: maplibregl.Map) {
       waypoints,
       tracks,
     };
-    download("griddown-backup.json", JSON.stringify(payload, null, 2), "application/json");
-    localStorage.setItem(BACKUP_KEY, String(Date.now()));
-    toast("Exported griddown-backup.json", "success");
+    void saveFile(
+      "griddown-backup.json",
+      JSON.stringify(payload, null, 2),
+      "application/json"
+    ).then((path) => {
+      // Only count it as a backup if it actually landed somewhere.
+      if (path !== null || !("__TAURI_INTERNALS__" in window)) {
+        localStorage.setItem(BACKUP_KEY, String(Date.now()));
+      }
+    });
   }
 
   async function restoreAll() {
