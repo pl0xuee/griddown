@@ -48,14 +48,29 @@ interface Region {
   center: [number, number];
   zoom: number;
 }
-async function loadRegion(): Promise<Region> {
+/**
+ * `configured` distinguishes a fresh install from a broken one.
+ *
+ * A released build ships with no region.json and no bundled basemap — the map
+ * data is far too large to bundle, and you pick your own state in-app. Without
+ * this flag that state is indistinguishable from a working install whose
+ * basemap has gone missing, and a first-time user is greeted by an error about
+ * a file they were never supposed to have.
+ */
+async function loadRegion(): Promise<Region & { configured: boolean }> {
   try {
     const r = await fetch(`${origin}/region.json`, { cache: "no-store" });
-    if (r.ok) return (await r.json()) as Region;
+    if (r.ok) return { ...((await r.json()) as Region), configured: true };
   } catch {
     /* fall through to generic default */
   }
-  return { name: "GridDown", pmtiles: "region.pmtiles", center: [-98.58, 39.83], zoom: 4 };
+  return {
+    name: "GridDown",
+    pmtiles: "region.pmtiles",
+    center: [-98.58, 39.83],
+    zoom: 4,
+    configured: false,
+  };
 }
 
 // Assigned once the region config is loaded (see start() at the bottom).
@@ -584,6 +599,14 @@ async function start() {
 
   void basemapCheck.then((problem) => {
     if (!problem) return;
+    if (!region.configured) {
+      // Fresh install: there is no bundled map yet, and that's expected. Point
+      // at the fix instead of reporting a missing file as a fault.
+      const el = document.getElementById("net-label");
+      if (el) el.textContent = "No map yet — open Map packs";
+      toast("Welcome. Open ▤ Map packs and download your state to get started.", "info", 9000);
+      return;
+    }
     surfaceError(problem);
     toast(problem, "error");
   });
