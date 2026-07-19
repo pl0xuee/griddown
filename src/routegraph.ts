@@ -56,23 +56,6 @@ const DETAIL_COST: Record<string, number> = {
   raceway: 20,
 };
 
-/**
- * Deepest zoom worth routing at for a trip of this length.
- *
- * Counter-intuitively, LOWER zoom routes long trips better. A road crossing
- * many tiles is cut at every seam, and each seam is a chance to lose the
- * connection; at z12 the same road spans a handful of tiles instead of dozens.
- * Measured Bend -> Redmond (~16 mi straight): z14 found no route at all, z13
- * found one via trails, z12 found a clean 22.6 mi road route. Short trips still
- * prefer z14, which is the shallowest zoom carrying `oneway` and the only one
- * with full minor-road detail — and oneway matters most in town.
- */
-export function zoomForTrip(directMeters: number): number {
-  if (directMeters < 8000) return 14;
-  if (directMeters < 20000) return 13;
-  return 12;
-}
-
 /** Kinds that must never carry a route, whatever the geometry suggests. */
 export function isRoutable(kind: string, detail: string): boolean {
   if (kind === "rail" || kind === "aeroway") return false;

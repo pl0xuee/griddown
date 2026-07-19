@@ -6,7 +6,6 @@ import {
   buildRouteGraph,
   findRoute,
   isRoutable,
-  zoomForTrip,
   type RoadSeg,
   type RouteResult,
 } from "./routegraph";
@@ -91,17 +90,18 @@ function planTiles(a: Endpoint, b: Endpoint, directMeters: number) {
   const south = Math.min(a.lat, b.lat) - padLat;
   const north = Math.max(a.lat, b.lat) + padLat;
 
-  // Every zoom worth trying, best guess first.
+  // FINEST zoom first, coarser only as a fallback.
   //
-  // NO SINGLE ZOOM WINS. Which one connects depends on the corridor, not just
-  // the distance: Bend -> Redmond routes cleanly at z12 and not at all at z14,
-  // while a 38 mi trip over Mt Hood is the reverse — z13 routes it at strict
-  // tolerance and z12 needs a reckless 120 m stitch. So distance only orders
-  // the attempts; the caller walks the list until one connects.
-  const guess = zoomForTrip(directMeters);
-  const order = [...ZOOMS].sort((p, q) => Math.abs(p - guess) - Math.abs(q - guess));
+  // This used to be the other way round, on the evidence that long trips
+  // routed better at z12. That was never a property of the data — it was a
+  // symptom of the seam-stitching bug fixed in 1e61b3a. Coarse tiles have
+  // fewer seams, so they suffered least from it. With seams stitched properly
+  // the finest zoom wins on every count: Bend -> Redmond is 17.3 mi at z14
+  // against 18.2 mi at z12 (~17 mi in reality), it is the only zoom carrying
+  // `oneway`, and its geometry actually follows the bends in the road instead
+  // of cutting corners when drawn over a detailed basemap.
   const plans = [];
-  for (const z of order) {
+  for (const z of ZOOMS) {
     const x0 = lng2tile(west, z);
     const x1 = lng2tile(east, z);
     const y0 = lat2tile(north, z);
@@ -262,7 +262,10 @@ export function initRoute(deps: {
     if (map.getSource(SRC)) map.removeSource(SRC);
   }
 
-  function draw(coords: [number, number][]) {
+  // `simplified` = computed from coarse tiles, so the line cuts corners on a
+  // detailed basemap. Dash it, so the shape reads as approximate at a glance
+  // rather than looking like the router ignored the road.
+  function draw(coords: [number, number][], simplified = false) {
     const map = deps.map();
     clearRoute();
     map.addSource(SRC, {
@@ -286,7 +289,11 @@ export function initRoute(deps: {
         type: "line",
         source: SRC,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#4fc3ff", "line-width": 4 },
+        paint: {
+          "line-color": "#4fc3ff",
+          "line-width": 4,
+          ...(simplified ? { "line-dasharray": [2.5, 1.5] as [number, number] } : {}),
+        },
       },
       firstSymbol
     );
@@ -403,7 +410,7 @@ export function initRoute(deps: {
       }
       ${
         plan.z < 14
-          ? `<div class="rt-warn">⚠ Long trip: computed from coarser map detail, so one-way streets and minor roads weren't considered.</div>`
+          ? `<div class="rt-warn">⚠ Long trip: computed from coarser map detail. One-way streets weren't considered, and the drawn line follows the right roads but cuts corners rather than tracing every bend.</div>`
           : ""
       }
       ${
@@ -433,7 +440,7 @@ export function initRoute(deps: {
    */
   function fail(msg: string) {
     if (shown) {
-      draw(shown.r.coords); // may have been cleared by a style rebuild
+      draw(shown.r.coords, shown.z < 14); // may have been cleared by a style rebuild
       renderResult(shown, msg);
     } else {
       renderIdle(msg);
@@ -507,7 +514,7 @@ export function initRoute(deps: {
         to,
         at: Date.now(),
       };
-      draw(best.r.coords);
+      draw(best.r.coords, best.plan.z < 14);
       fit(best.r.coords);
       shown = next;
       save(next);
@@ -613,7 +620,7 @@ export function initRoute(deps: {
       }
     }
     if (shown) {
-      draw(shown.r.coords);
+      draw(shown.r.coords, shown.z < 14);
       renderResult(shown);
     }
     // Load pins BEFORE the first idle paint. Rendering first and refreshing

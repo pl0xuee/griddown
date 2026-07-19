@@ -4,7 +4,6 @@ import {
   findRoute,
   isRoutable,
   costMultiplier,
-  zoomForTrip,
   haversine,
   type RoadSeg,
 } from "../src/routegraph";
@@ -23,25 +22,6 @@ describe("isRoutable", () => {
     expect(isRoutable("aeroway", "runway")).toBe(false);
     expect(isRoutable("major_road", "primary")).toBe(true);
     expect(isRoutable("path", "track")).toBe(true);
-  });
-});
-
-describe("zoomForTrip", () => {
-  it("uses coarser tiles for longer trips", () => {
-    // Counter-intuitive but measured: a road crossing many tiles is cut at
-    // every seam, so z14 found NO route Bend->Redmond while z12 found a clean
-    // one. Short trips keep z14, the only zoom with oneway + full detail.
-    expect(zoomForTrip(2000)).toBe(14);
-    expect(zoomForTrip(12000)).toBe(13);
-    expect(zoomForTrip(26000)).toBe(12); // Bend -> Redmond
-    expect(zoomForTrip(200000)).toBe(12);
-  });
-
-  it("never goes deeper than the oneway-bearing zoom", () => {
-    for (const d of [0, 1, 5000, 7999, 8000, 100000]) {
-      expect(zoomForTrip(d)).toBeLessThanOrEqual(14);
-      expect(zoomForTrip(d)).toBeGreaterThanOrEqual(12);
-    }
   });
 });
 
