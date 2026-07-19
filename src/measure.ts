@@ -1,5 +1,6 @@
 import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
+import { assessGaps, fillGaps } from "./profile";
 import { sampleElevationM } from "./dem";
 
 // Measure tool: tap the map to lay down points, get running distance along the
@@ -198,35 +199,6 @@ export function initMeasure(map: maplibregl.Map) {
     return out;
   }
 
-  /** Longest run of consecutive missing samples — how far any fill has to reach. */
-  function longestNullRun(v: (number | null)[]): number {
-    let worst = 0;
-    let run = 0;
-    for (const m of v) {
-      run = m == null ? run + 1 : 0;
-      if (run > worst) worst = run;
-    }
-    return worst;
-  }
-
-  // Fill isolated null samples by linear interpolation between known neighbors.
-  function fillGaps(v: (number | null)[]): (number | null)[] {
-    const out = v.slice();
-    for (let i = 0; i < out.length; i++) {
-      if (out[i] != null) continue;
-      let lo = i - 1;
-      while (lo >= 0 && out[lo] == null) lo--;
-      let hi = i + 1;
-      while (hi < out.length && out[hi] == null) hi++;
-      if (lo >= 0 && hi < out.length) {
-        const f = (i - lo) / (hi - lo);
-        out[i] = (out[lo] as number) + ((out[hi] as number) - (out[lo] as number)) * f;
-      } else if (lo >= 0) out[i] = out[lo];
-      else if (hi < out.length) out[i] = out[hi];
-    }
-    return out;
-  }
-
   function profileSVG(dist: number[], elev: number[], sight?: number[]): string {
     const W = 296, H = 104, pad = { l: 4, r: 4, t: 8, b: 4 };
     const pw = W - pad.l - pad.r;
@@ -302,10 +274,7 @@ export function initMeasure(map: maplibregl.Map) {
     // larger gets disclosed, and the line-of-sight verdict is withheld rather
     // than computed from invented ground. Without this, 2 real samples out of
     // 256 still produced a confident profile and a precise "Blocked at 0.59 mi".
-    const MAX_FILL_RUN = 3; // ~60 m at the ~20 m sample spacing
-    const missingPct = Math.round(((rawM.length - known) / rawM.length) * 100);
-    const gapRun = longestNullRun(rawM);
-    const trustworthy = gapRun <= MAX_FILL_RUN;
+    const { missingPct, trustworthy } = assessGaps(rawM);
 
     const elevM = fillGaps(rawM) as number[];
     const elevFt = elevM.map((m) => m * 3.28084);
