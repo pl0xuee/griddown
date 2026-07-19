@@ -45,6 +45,7 @@
           <button id="states-open" type="button">&#9636; Map packs</button>
           <button id="handbook-open" type="button">&#9873; Handbook</button>
           <button id="search-open" type="button">&#8981; Find place</button>
+          <button id="route-open" type="button">&#8594; How do I get there</button>
           <button id="marks-open" type="button">&#9670; Marks</button>
           <button id="measure-open" type="button">&#8901; Measure</button>
           <button id="goto-open" type="button">&#8982; Go to</button>
@@ -106,6 +107,18 @@
       <input id="search-input" type="text" placeholder="Town, city, county&hellip;" autocomplete="off" spellcheck="false" />
       <div id="search-results"></div>
       <div id="search-fine">Names come from the map pack itself &mdash; no internet, ever.</div>
+    </div>
+
+    <!-- Route overview: road-following path from A to B, offline from the pack -->
+    <div id="route-panel" class="hidden">
+      <div id="route-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">How do I get there</div>
+        </div>
+        <button id="route-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="route-body"></div>
     </div>
 
     <!-- Compass (device magnetometer; phones/tablets) -->

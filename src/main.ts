@@ -10,6 +10,7 @@ import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
 import { initGoto, dropGotoPin } from "./goto";
 import { initSearch } from "./search";
+import { initRoute } from "./route";
 import { initPanels } from "./panels";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
@@ -727,6 +728,10 @@ async function start() {
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
+  });
+  initRoute({
+    map: () => map,
+    sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
   });
   initPrint({
     getMap: () => map,
