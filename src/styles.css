@@ -930,6 +930,9 @@ body.nightvis {
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
   overflow: hidden;
+  /* #handbook-content is a flex column: without this the ~29 sections all
+     shrink to fit its height and `overflow: hidden` clips the titles away. */
+  flex: none;
 }
 
 .hb-title {
@@ -972,6 +975,7 @@ body.nightvis {
 }
 
 .hb-group {
+  flex: none;
   margin: 12px 2px 2px;
   font-size: 10px;
   letter-spacing: 2px;
@@ -989,6 +993,7 @@ body.nightvis {
   text-transform: none;
 }
 .hb-empty {
+  flex: none;
   opacity: 0.6;
   font-size: 12px;
   padding: 10px;
