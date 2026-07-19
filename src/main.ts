@@ -77,6 +77,9 @@ async function loadRegion(): Promise<Region & { configured: boolean }> {
 // Assigned once the region config is loaded (see start() at the bottom).
 let PMTILES_URL = "";
 
+// True while the HUD is showing "No map yet"; cleared once a pack loads.
+let noMapNotice = false;
+
 type ThemeName = "dark" | "light";
 
 const THEME = {
@@ -603,6 +606,13 @@ async function start() {
     if (!region.configured) {
       // Fresh install: there is no bundled map yet, and that's expected. Point
       // at the fix instead of reporting a missing file as a fault.
+      //
+      // This can be premature: a packaged build runs on a different origin than
+      // dev, so it starts with empty localStorage and no active-state key, even
+      // when packs are already installed. states.ts finds and activates one a
+      // moment later — so the notice has to clear itself when that happens,
+      // rather than sitting there claiming "no map" over a rendered map.
+      noMapNotice = true;
       const el = document.getElementById("net-label");
       if (el) el.textContent = "No map yet — open Map packs";
       toast("Welcome. Open ▤ Map packs and download your state to get started.", "info", 9000);
@@ -638,6 +648,11 @@ async function start() {
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
+    // A map is now loaded, so retract any "no map yet" notice.
+    if (noMapNotice) {
+      noMapNotice = false;
+      refreshNetStatus();
+    }
     // Drop the protocol's cached instance for this file — after a pack refresh
     // the bytes on disk changed but the URL didn't, and a stale cached header/
     // directory would point at the wrong tile offsets.
