@@ -317,12 +317,12 @@ export async function initWaypoints(map: maplibregl.Map) {
     if (!el) return;
     const wpRows = waypoints
       .map(
-        (w) => `<div class="mk-row" data-wp="${w.id}">
+        (w) => `<div class="mk-row" data-wp="${esc(w.id)}">
           <div class="mk-info"><div class="mk-name">◉ ${esc(w.name)}</div>
           <div class="mk-sub">${w.lat.toFixed(4)}, ${w.lng.toFixed(4)}</div></div>
-          <button class="mk-btn" data-fly="${w.id}">Go</button>
-          <button class="mk-btn" data-ren="${w.id}">✎</button>
-          <button class="mk-del" data-delwp="${w.id}">🗑</button></div>`
+          <button class="mk-btn" data-fly="${esc(w.id)}">Go</button>
+          <button class="mk-btn" data-ren="${esc(w.id)}">✎</button>
+          <button class="mk-del" data-delwp="${esc(w.id)}">🗑</button></div>`
       )
       .join("");
     const trRows = tracks
@@ -330,7 +330,7 @@ export async function initWaypoints(map: maplibregl.Map) {
         (t) => `<div class="mk-row">
           <div class="mk-info"><div class="mk-name">〜 ${esc(t.name)}</div>
           <div class="mk-sub">${t.pts.length} points</div></div>
-          <button class="mk-del" data-deltr="${t.id}">🗑</button></div>`
+          <button class="mk-del" data-deltr="${esc(t.id)}">🗑</button></div>`
       )
       .join("");
     el.innerHTML =

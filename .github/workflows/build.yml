@@ -105,13 +105,19 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPIMAGETOOL_SHA256: "46fdd785094c7f6e545b61afcfb0f3d98d8eab243f644b4b17698c01d06083d1"
         run: |
           set -euo pipefail
           cd src-tauri/target/release/bundle/appimage
           APP=$(ls *.AppImage)
           ./"$APP" --appimage-extract >/dev/null
           rm -f squashfs-root/usr/lib/libwayland-*.so* squashfs-root/usr/lib/libepoxy.so*
-          curl -sLo appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          # Pinned, not "continuous": this tool repackages the AppImage that we
+          # then sign with our own key, so a retagged or compromised upstream
+          # build would be signed as legitimate and auto-installed by every
+          # Linux user. Verify the checksum before trusting it.
+          curl -sLo appimagetool https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  appimagetool" | sha256sum -c -
           chmod +x appimagetool
           rm -f "$APP" "$APP.sig"
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APP"

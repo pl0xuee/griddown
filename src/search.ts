@@ -3,6 +3,7 @@ import { PMTiles } from "pmtiles";
 import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { toast } from "./toast";
+import { esc } from "./esc";
 
 // Offline place search. There's no name database anywhere — the towns are
 // already in the map pack's low-zoom `places` tiles, so we decode those once
@@ -186,15 +187,15 @@ export function initSearch(deps: {
       return;
     }
     if (!hits.length) {
-      show(`<div class="search-empty">No places match "${q.replace(/</g, "&lt;")}".</div>`);
+      show(`<div class="search-empty">No places match "${esc(q)}".</div>`);
       return;
     }
     show(
       hits
         .map(
           (p, i) => `<button class="search-hit" data-hit="${i}">
-            <span class="sh-name">${p.name.replace(/</g, "&lt;")}</span>
-            <span class="sh-kind">${label(p)}</span>
+            <span class="sh-name">${esc(p.name)}</span>
+            <span class="sh-kind">${esc(label(p))}</span>
           </button>`
         )
         .join("")

@@ -10,7 +10,15 @@ use tauri::{AppHandle, Emitter, Manager};
 /// place rather than per call site: this was previously applied in
 /// import_pack/dem_dir but NOT in state_path/delete_state/download_state.
 fn safe_abbr(abbr: &str) -> String {
-    abbr.replace(['/', '\\', '.'], "_")
+    // Allow-list rather than strip-list. Stripping separators still lets a
+    // Windows drive-relative prefix ("C:evil") through, and PathBuf::push with
+    // a prefixed-but-rootless argument REPLACES the base path — so the write
+    // would land relative to that drive's CWD instead of app-data.
+    let cleaned: String = abbr
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    if cleaned.is_empty() { "_".into() } else { cleaned }
 }
 
 /// Directory where downloaded state basemaps live (inside the app data dir).
@@ -88,8 +96,13 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
         .decode(b64.as_bytes())
         .map_err(|e| e.to_string())?;
 
-    // Only a plain file name — no path components from the frontend.
-    let name = name.replace(['/', '\\'], "_");
+    // Only a plain file name — no path components, and no Windows drive
+    // prefix, which PathBuf::push would treat as a new base (see safe_abbr).
+    let name: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || "._- ".contains(c) { c } else { '_' })
+        .collect();
+    let name = if name.trim().is_empty() { "export".to_string() } else { name };
     let dir = app
         .path()
         .download_dir()
@@ -577,7 +590,6 @@ async fn download_state(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
 
     // Release builds only. Under `tauri dev` the updater's config deserializes

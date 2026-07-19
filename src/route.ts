@@ -10,6 +10,7 @@ import {
   type RouteResult,
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
+import { esc as escapeHtml } from "./esc";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -169,13 +170,6 @@ async function loadRoads(
     })
   );
   return { segs, missing };
-}
-
-/** Pin names are user-entered; never inject them raw into innerHTML. */
-function escapeHtml(v: string) {
-  return v.replace(/[&<>"']/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!
-  );
 }
 
 function miles(m: number) {
@@ -384,7 +378,8 @@ export function initRoute(deps: {
       .slice(0, 14)
       .map(
         (s) =>
-          `<div class="rt-step"><span>${s.name}</span><span>${miles(s.meters)} mi</span></div>`
+          // Road names come from OSM via the pack — attacker-editable text.
+          `<div class="rt-step"><span>${escapeHtml(s.name)}</span><span>${miles(s.meters)} mi</span></div>`
       )
       .join("");
     body.innerHTML = `
