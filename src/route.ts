@@ -10,6 +10,7 @@ import {
   type RoadSeg,
   type RouteResult,
 } from "./routegraph";
+import { loadMarks, marksUnreadable, type Waypoint } from "./store";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -170,6 +171,13 @@ async function loadRoads(
   return { segs, missing };
 }
 
+/** Pin names are user-entered; never inject them raw into innerHTML. */
+function escapeHtml(v: string) {
+  return v.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!
+  );
+}
+
 function miles(m: number) {
   const mi = m / 1609.344;
   return mi < 10 ? mi.toFixed(1) : Math.round(mi).toLocaleString();
@@ -200,6 +208,25 @@ export function initRoute(deps: {
   //    most need the way out is the moment you can least afford to recompute.
   let shown: Shown | null = null;
   const SAVE_KEY = "griddown_last_route";
+
+  // Saved waypoints, refreshed each time the panel opens so a pin dropped a
+  // moment ago is selectable without a restart.
+  let pins: Waypoint[] = [];
+  let pinsProblem = "";
+  async function refreshPins() {
+    try {
+      const marks = await loadMarks();
+      // An unreadable marks file reads as "you have no pins" — say which it is
+      // rather than quietly offering an empty list.
+      pinsProblem = marksUnreadable()
+        ? "Couldn't read your saved pins — see Readiness."
+        : "";
+      pins = pinsProblem ? [] : marks.waypoints;
+    } catch {
+      pins = [];
+      pinsProblem = "Couldn't read your saved pins.";
+    }
+  }
 
   function save(s: Shown) {
     try {
@@ -275,9 +302,19 @@ export function initRoute(deps: {
     if (!body) return;
     const pt = (e: Endpoint | null, fallback: string) =>
       e ? `${e.label} (${e.lat.toFixed(4)}, ${e.lng.toFixed(4)})` : fallback;
+    const pinBtns =
+      pins.length > 0
+        ? `<div class="rt-btns">
+             <button id="rt-from-pin" type="button">&#9670; Start: a pin</button>
+             <button id="rt-to-pin" type="button">&#9670; Dest: a pin</button>
+           </div>`
+        : `<div class="rt-fine">${
+            pinsProblem || "No saved pins yet — drop one in Marks and it'll show up here."
+          }</div>`;
     body.innerHTML = `
       <div class="rt-row"><span class="rt-k">From</span><span class="rt-v">${pt(from, "not set")}</span></div>
       <div class="rt-row"><span class="rt-k">To</span><span class="rt-v">${pt(to, "not set")}</span></div>
+      ${pinBtns}
       <div class="rt-btns">
         <button id="rt-from-here" type="button">Start: my location</button>
         <button id="rt-from-cross" type="button">Start: crosshair</button>
@@ -289,6 +326,44 @@ export function initRoute(deps: {
       <div class="rt-disclaimer">Overview only, from map data: no turn restrictions,
       gates, private-road or seasonal-closure information. Check the ground before you commit.</div>`;
     wire();
+  }
+
+  /** Pick one of the saved pins as the start or destination. */
+  function renderPinPicker(which: "from" | "to") {
+    if (!body) return;
+    const here = deps.map().getCenter();
+    // Nearest first: the pin you want is usually the one you're looking at.
+    const sorted = [...pins].sort(
+      (a, b) =>
+        haversineLL({ lng: a.lng, lat: a.lat, label: "" }, { lng: here.lng, lat: here.lat, label: "" }) -
+        haversineLL({ lng: b.lng, lat: b.lat, label: "" }, { lng: here.lng, lat: here.lat, label: "" })
+    );
+    body.innerHTML = `
+      <div class="rt-row"><span class="rt-k">${which === "from" ? "Start" : "Destination"}</span><span class="rt-v">pick a pin</span></div>
+      <div class="rt-steps">
+        ${sorted
+          .map((w, i) => {
+            const d = haversineLL(
+              { lng: w.lng, lat: w.lat, label: "" },
+              { lng: here.lng, lat: here.lat, label: "" }
+            );
+            return `<button class="rt-pin" data-i="${i}" type="button"><span>${escapeHtml(
+              w.name || "Unnamed pin"
+            )}</span><span>${miles(d)} mi</span></button>`;
+          })
+          .join("")}
+      </div>
+      <div class="rt-btns"><button id="rt-pin-cancel" type="button">Back</button></div>`;
+    body.querySelectorAll<HTMLButtonElement>(".rt-pin").forEach((b) => {
+      b.addEventListener("click", () => {
+        const w = sorted[Number(b.dataset.i)];
+        const e: Endpoint = { lng: w.lng, lat: w.lat, label: w.name || "pin" };
+        if (which === "from") from = e;
+        else to = e;
+        renderIdle();
+      });
+    });
+    document.getElementById("rt-pin-cancel")?.addEventListener("click", () => renderIdle());
   }
 
   function renderResult(s: Shown, problem = "") {
@@ -501,6 +576,8 @@ export function initRoute(deps: {
     document.getElementById("rt-refresh")?.addEventListener("click", () =>
       useMyLocation(() => void go())
     );
+    document.getElementById("rt-from-pin")?.addEventListener("click", () => renderPinPicker("from"));
+    document.getElementById("rt-to-pin")?.addEventListener("click", () => renderPinPicker("to"));
     document.getElementById("rt-clear")?.addEventListener("click", () => {
       from = to = null;
       shown = null;
@@ -517,6 +594,10 @@ export function initRoute(deps: {
   }
 
   document.getElementById("route-open")?.addEventListener("click", () => {
+    void refreshPins().then(() => {
+      // Only redraw the idle view; a shown result shouldn't be replaced.
+      if (!shown) renderIdle();
+    });
     // Restore the last working route, including across a restart or a crash.
     if (!shown) {
       const saved = loadSaved();

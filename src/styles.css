@@ -1971,3 +1971,24 @@ body.battery.nightvis .maplibregl-ctrl {
   font-size: 10px;
   line-height: 1.4;
 }
+
+/* Pin picker rows in the route panel */
+.rt-pin {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.3);
+  background: rgba(30, 40, 30, 0.85);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.rt-pin:hover {
+  background: rgba(50, 70, 50, 0.95);
+  border-color: rgba(150, 230, 150, 0.7);
+}
