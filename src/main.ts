@@ -16,6 +16,7 @@ import { initPrint } from "./print";
 import { initCompass } from "./compass";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
+import { toast } from "./toast";
 
 // A silent failure must never look like a blank map: surface any uncaught
 // error on the HUD status line, where it can actually be reported.
@@ -476,12 +477,40 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
 
 document.body.style.background = THEME[currentTheme].bg;
 
+/**
+ * Confirm the bundled region's basemap is actually there and is PMTiles.
+ *
+ * A missing file 404s inside the pmtiles protocol, which is not an uncaught
+ * error — `surfaceError` never sees it and the user just gets a blank map with
+ * no explanation. That exact failure (a deleted `public/mapdata/` symlink) went
+ * unnoticed for two days because an active downloaded pack meant the app never
+ * loaded the region file. Check it up front and say so plainly.
+ */
+async function checkBasemap(file: string): Promise<string | null> {
+  try {
+    const r = await fetch(`${origin}/mapdata/${file}`, { headers: { Range: "bytes=0-6" } });
+    if (!r.ok && r.status !== 206) {
+      return `Basemap ${file} is missing (HTTP ${r.status}). Reinstall it or pick a downloaded pack.`;
+    }
+    const magic = new TextDecoder().decode(await r.arrayBuffer());
+    if (!magic.startsWith("PMTiles")) {
+      return `Basemap ${file} isn't a PMTiles archive — it may be truncated.`;
+    }
+    return null;
+  } catch (e) {
+    return `Can't read basemap ${file}: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
 async function start() {
   const region = await loadRegion();
   PMTILES_URL = `pmtiles://${origin}/mapdata/${region.pmtiles}`;
 
   const stateEl = document.getElementById("hud-state");
   if (stateEl) stateEl.textContent = region.name;
+
+  // Only blocks the bundled region; a downloaded pack overrides it moments later.
+  const basemapProblem = await checkBasemap(region.pmtiles);
 
   map = new maplibregl.Map({
     container: "map",
@@ -499,6 +528,11 @@ async function start() {
   map.on("error", (e) => {
     console.error("[map error]", e && (e as any).error ? (e as any).error : e);
   });
+
+  if (basemapProblem) {
+    surfaceError(basemapProblem);
+    toast(basemapProblem, "error");
+  }
 
   document.getElementById("theme-toggle")?.addEventListener("click", () => {
     currentTheme = currentTheme === "dark" ? "light" : "dark";

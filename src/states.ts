@@ -334,6 +334,17 @@ async function sharePack(s: StateEntry) {
     toast(`Copying ${s.name} pack…`);
     const path = await invoke<string>("export_pack", { abbr: s.abbr });
     toast(`Saved to ${path} — copy it to a USB stick to share.`, "success", 7000);
+    // A pack file is the basemap only; terrain lives in a separate tile tree.
+    // Whoever receives this gets no hillshade, contours, elevation, profile or
+    // viewshed until they download terrain themselves — say so at the point of
+    // sharing rather than letting them discover it in the field.
+    if ((packInfo.get(s.abbr)?.dem_bytes ?? 0) > 0) {
+      toast(
+        "Note: terrain isn't included in the pack file. The person you share it with will need to add terrain themselves.",
+        "info",
+        9000
+      );
+    }
   } catch (err) {
     toast(`Export failed: ${err}`, "error");
   }
@@ -371,6 +382,16 @@ async function importPack() {
     await refreshInstalled();
     render();
     toast(`${abbr} imported — works offline now.`, "success");
+    // An imported pack never carries terrain (export copies the .pmtiles only),
+    // so hillshade/contours/elevation stay silently absent. Name it, and point
+    // at the fix, instead of letting it read as a broken import.
+    if ((packInfo.get(abbr)?.dem_bytes ?? 0) === 0) {
+      toast(
+        `${abbr} has no terrain — use "△ Add terrain" for hillshade, contours and elevation.`,
+        "info",
+        9000
+      );
+    }
     void activate(abbr, true);
   } catch (err) {
     toast(`Import failed: ${err}`, "error");
