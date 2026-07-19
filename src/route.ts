@@ -589,15 +589,20 @@ export function initRoute(deps: {
       clearRoute();
       renderIdle();
     });
-    document.getElementById("rt-again")?.addEventListener("click", () => renderIdle());
+    // Re-read pins on the way back: one may have been dropped since the panel
+    // opened. Render immediately so the click always responds.
+    document.getElementById("rt-again")?.addEventListener("click", () => {
+      renderIdle();
+      void refreshPins().then(() => {
+        if (!body?.querySelector("#rt-go")) return; // moved on since
+        renderIdle();
+      });
+    });
     document.getElementById("rt-go")?.addEventListener("click", () => void go());
   }
 
-  document.getElementById("route-open")?.addEventListener("click", () => {
-    void refreshPins().then(() => {
-      // Only redraw the idle view; a shown result shouldn't be replaced.
-      if (!shown) renderIdle();
-    });
+  document.getElementById("route-open")?.addEventListener("click", async () => {
+    panel?.classList.remove("hidden");
     // Restore the last working route, including across a restart or a crash.
     if (!shown) {
       const saved = loadSaved();
@@ -610,10 +615,11 @@ export function initRoute(deps: {
     if (shown) {
       draw(shown.r.coords);
       renderResult(shown);
-    } else {
-      renderIdle();
     }
-    panel?.classList.remove("hidden");
+    // Load pins BEFORE the first idle paint. Rendering first and refreshing
+    // after meant the panel opened claiming there were no saved pins.
+    await refreshPins();
+    if (!shown) renderIdle();
   });
   document.getElementById("route-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");
