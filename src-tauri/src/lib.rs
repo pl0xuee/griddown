@@ -49,6 +49,43 @@ fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Save an exported file (PDF, GPX, backup JSON) to the user's Downloads
+/// folder and return the full path, so the UI can say where it went.
+///
+/// The webview's own `<a download>` is a dead end in WebKitGTK — nothing
+/// handles the download, so files silently vanish. Exports go through here.
+#[tauri::command]
+fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    // Only a plain file name — no path components from the frontend.
+    let name = name.replace(['/', '\\'], "_");
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    // Don't clobber an earlier export: name.pdf, name-2.pdf, name-3.pdf…
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) => (s.to_string(), format!(".{e}")),
+        None => (name.clone(), String::new()),
+    };
+    let mut path = dir.join(&name);
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem}-{n}{ext}"));
+        n += 1;
+    }
+
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 /// Size and age of each installed state pack, for the readiness check.
 ///
 /// Age matters off-grid: OSM changes constantly, and a pack you downloaded two
@@ -60,6 +97,36 @@ struct PackInfo {
     bytes: u64,
     /// Seconds since the Unix epoch; 0 if the filesystem won't say.
     modified: u64,
+    /// Total size of this state's downloaded DEM tiles; 0 = no terrain.
+    dem_bytes: u64,
+}
+
+/// Directory holding a state's DEM tile pyramid ({z}/{x}/{y}.png).
+/// Per-state (not shared) so deleting a state cleanly deletes its terrain.
+fn dem_dir(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
+    let abbr = abbr.replace(['/', '\\', '.'], "_");
+    Ok(app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("dem")
+        .join(abbr))
+}
+
+fn dir_size(dir: &PathBuf) -> u64 {
+    let mut total = 0u64;
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            total += dir_size(&p);
+        } else if let Ok(md) = e.metadata() {
+            total += md.len();
+        }
+    }
+    total
 }
 
 #[tauri::command]
@@ -84,10 +151,12 @@ fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
+        let dem_bytes = dem_dir(&app, abbr).map(|d| dir_size(&d)).unwrap_or(0);
         out.push(PackInfo {
             abbr: abbr.to_string(),
             bytes: md.len(),
             modified,
+            dem_bytes,
         });
     }
     out.sort_by(|a, b| a.abbr.cmp(&b.abbr));
@@ -159,7 +228,145 @@ fn delete_state(app: AppHandle, abbr: String) -> Result<(), String> {
     if p.exists() {
         std::fs::remove_file(&p).map_err(|e| e.to_string())?;
     }
+    // Terrain belongs to the state — remove it too.
+    let dem = dem_dir(&app, &abbr)?;
+    if dem.exists() {
+        let _ = std::fs::remove_dir_all(&dem);
+    }
     Ok(())
+}
+
+/// Absolute path of a state's DEM directory (for convertFileSrc tile URLs).
+#[tauri::command]
+fn dem_path(app: AppHandle, abbr: String) -> Result<String, String> {
+    Ok(dem_dir(&app, &abbr)?.to_string_lossy().to_string())
+}
+
+/// Slippy-map tile coordinates covering a bbox at one zoom level.
+fn tiles_at(z: u32, w: f64, s: f64, e: f64, n: f64) -> Vec<(u32, u32, u32)> {
+    let tiles_across = (1u64 << z) as f64;
+    let lon2x = |lon: f64| ((lon + 180.0) / 360.0 * tiles_across) as i64;
+    let lat2y = |lat: f64| {
+        let r = lat.to_radians();
+        (((1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0) * tiles_across) as i64
+    };
+    let (x0, x1) = (lon2x(w), lon2x(e));
+    let (y0, y1) = (lat2y(n), lat2y(s)); // north = smaller y
+    let max = (1i64 << z) - 1;
+    let mut out = Vec::new();
+    for x in x0.min(x1).max(0)..=x1.max(x0).min(max) {
+        for y in y0.min(y1).max(0)..=y1.max(y0).min(max) {
+            out.push((z, x as u32, y as u32));
+        }
+    }
+    out
+}
+
+/// Download the Terrarium DEM pyramid (z0..maxzoom) for a state's bbox from
+/// the AWS Open Data terrain tiles into app-data. Resumable: existing tiles
+/// are skipped, so an interrupted download just continues next time.
+#[tauri::command]
+async fn download_dem(
+    app: AppHandle,
+    abbr: String,
+    bbox: String,
+    maxzoom: u32,
+) -> Result<u64, String> {
+    let parts: Vec<f64> = bbox
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect();
+    let [w, s, e, n] = parts[..] else {
+        return Err("bad bbox".into());
+    };
+    let dir = dem_dir(&app, &abbr)?;
+    std::fs::create_dir_all(&dir).map_err(|e2| e2.to_string())?;
+
+    let mut todo: Vec<(u32, u32, u32)> = Vec::new();
+    for z in 0..=maxzoom.min(14) {
+        todo.extend(tiles_at(z, w, s, e, n));
+    }
+    let total = todo.len();
+
+    let out = tauri::async_runtime::spawn_blocking(move || -> Result<u64, String> {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Mutex};
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .user_agent("griddown-dem/1.0")
+            .build()
+            .map_err(|e2| e2.to_string())?;
+
+        let queue = Arc::new(Mutex::new(todo));
+        let done = Arc::new(AtomicUsize::new(0));
+        let failed = Arc::new(AtomicUsize::new(0));
+
+        let workers: Vec<_> = (0..12)
+            .map(|_| {
+                let queue = Arc::clone(&queue);
+                let done = Arc::clone(&done);
+                let failed = Arc::clone(&failed);
+                let client = client.clone();
+                let dir = dir.clone();
+                let app = app.clone();
+                let abbr = abbr.clone();
+                std::thread::spawn(move || {
+                    loop {
+                        let Some((z, x, y)) = queue.lock().unwrap().pop() else {
+                            break;
+                        };
+                        let path = dir.join(z.to_string()).join(x.to_string()).join(format!("{y}.png"));
+                        let mut ok = path.metadata().map(|m| m.len() > 0).unwrap_or(false);
+                        if !ok {
+                            let url = format!(
+                                "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+                            );
+                            // A couple of retries, then count it as failed.
+                            for attempt in 0..3 {
+                                let res = client.get(&url).send().and_then(|r| {
+                                    r.error_for_status().map(|r| r.bytes())
+                                });
+                                if let Ok(Ok(bytes)) = res.map(|b| b) {
+                                    let _ = std::fs::create_dir_all(path.parent().unwrap());
+                                    if std::fs::write(&path, &bytes).is_ok() {
+                                        ok = true;
+                                        break;
+                                    }
+                                }
+                                std::thread::sleep(std::time::Duration::from_millis(300 * (attempt + 1)));
+                            }
+                        }
+                        if !ok {
+                            failed.fetch_add(1, Ordering::Relaxed);
+                        }
+                        let n2 = done.fetch_add(1, Ordering::Relaxed) + 1;
+                        if n2 % 100 == 0 || n2 == total {
+                            let _ = app.emit(
+                                "dem-progress",
+                                serde_json::json!({ "abbr": abbr, "done": n2, "total": total }),
+                            );
+                        }
+                    }
+                })
+            })
+            .collect();
+        for wkr in workers {
+            let _ = wkr.join();
+        }
+
+        let nfail = failed.load(Ordering::Relaxed);
+        // Tolerate stragglers (they'll be retried on the next run), but a big
+        // failure count means no/poor connection — say so instead of lying.
+        if nfail * 50 > total.max(1) {
+            return Err(format!("{} of {} tiles failed — check your connection and try again", nfail, total));
+        }
+        Ok(dir_size(&dir))
+    })
+    .await
+    .map_err(|e2| e2.to_string())?;
+
+    out
 }
 
 /// Convert days-since-Unix-epoch to a (year, month, day) civil date.
@@ -292,7 +499,10 @@ pub fn run() {
             download_state,
             read_marks,
             write_marks,
-            pack_info
+            pack_info,
+            save_file,
+            download_dem,
+            dem_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

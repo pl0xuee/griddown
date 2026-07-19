@@ -25,7 +25,7 @@ interface Pack {
   modified: number;
 }
 
-const DAY = 86400;
+export const DAY = 86400;
 
 function hasTauri(): boolean {
   return typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
@@ -37,7 +37,7 @@ function fmtBytes(n: number): string {
   return `${Math.max(1, Math.round(n / 1e3))} KB`;
 }
 
-function fmtAge(secs: number): string {
+export function fmtAge(secs: number): string {
   const days = Math.floor(secs / DAY);
   if (days < 1) return "today";
   if (days === 1) return "yesterday";
@@ -69,7 +69,7 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
       label: "Map packs",
       level: "bad",
       detail: "None downloaded — only the bundled region is available.",
-      fix: "Open Map library and download the states you might travel through.",
+      fix: "Open Map packs and download the states you might travel through.",
     });
   } else {
     checks.push({
@@ -90,14 +90,14 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
         label: "Pack freshness",
         level: "bad",
         detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
-        fix: "Roads and trails change. Re-download it while you have a connection.",
+        fix: "Roads and trails change. Update it (↻ in Map packs) while you have a connection.",
       });
     } else if (age > 365 * DAY) {
       checks.push({
         label: "Pack freshness",
         level: "warn",
         detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
-        fix: "Consider re-downloading it while you can.",
+        fix: "Consider updating it (↻ in Map packs) while you can.",
       });
     } else {
       checks.push({
@@ -116,7 +116,7 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
           label: "Terrain",
           level: "warn",
           detail: "No elevation data for the current map.",
-          fix: "Hillshade, contours, elevation profile and line-of-sight need a DEM. Downloaded states don't include one yet.",
+          fix: "Hillshade, contours, elevation profile and line-of-sight need it. Use “△ Add terrain” on the state in Map packs.",
         }
   );
 

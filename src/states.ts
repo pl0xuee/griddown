@@ -1,6 +1,7 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "./toast";
+import { fmtAge, DAY } from "./readiness";
 
 export interface StateEntry {
   abbr: string;
@@ -16,13 +17,28 @@ export interface SwitchTarget {
   center: [number, number];
   zoom: number;
   hasDem: boolean;
+  /** Tile URL template for this state's downloaded DEM (when hasDem). */
+  demUrl?: string;
+  /** Stable protocol id for that DEM root, e.g. "dem-or". */
+  demId?: string;
+  /** Reload data but leave the camera where it is (used after a pack refresh). */
+  keepView?: boolean;
+}
+
+interface PackInfo {
+  abbr: string;
+  bytes: number;
+  modified: number; // unix seconds, 0 = unknown
+  dem_bytes: number; // 0 = no terrain downloaded
 }
 
 let onSwitch: (t: SwitchTarget) => void = () => {};
 let catalog: StateEntry[] = [];
 let installed = new Set<string>();
+let packInfo = new Map<string, PackInfo>();
 let activeAbbr = localStorage.getItem("griddown_active_state") || "";
 const downloading = new Map<string, number>(); // abbr -> percent (0-100), -1 = indeterminate
+const demDownloading = new Map<string, number>(); // abbr -> percent, -1 = starting
 
 const inTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
 
@@ -43,6 +59,14 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
         updateRow(e.payload.abbr);
       }
     });
+    await listen<{ abbr: string; done: number; total: number }>("dem-progress", (e) => {
+      if (!demDownloading.has(e.payload.abbr)) return; // stale event
+      demDownloading.set(
+        e.payload.abbr,
+        Math.round((e.payload.done / Math.max(1, e.payload.total)) * 100)
+      );
+      updateRow(e.payload.abbr);
+    });
   }
 
   document.getElementById("states-search")?.addEventListener("input", render);
@@ -57,14 +81,53 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
 async function refreshInstalled() {
   if (!inTauri) return;
   try {
-    installed = new Set(await invoke<string[]>("list_installed"));
+    const packs = await invoke<PackInfo[]>("pack_info");
+    packInfo = new Map(packs.map((p) => [p.abbr, p]));
+    installed = new Set(packInfo.keys());
   } catch {
+    packInfo = new Map();
     installed = new Set();
   }
 }
 
 function fmtSize(mb: number): string {
   return mb >= 1000 ? `~${(mb / 1000).toFixed(1)} GB` : `~${mb} MB`;
+}
+
+function fmtBytes(n: number): string {
+  return n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`;
+}
+
+/** "Installed · 240 MB · updated 3 months ago" for the row's sub-line. */
+function installedSub(abbr: string): string {
+  const p = packInfo.get(abbr);
+  if (!p) return "Installed";
+  const parts = [`Installed · ${fmtBytes(p.bytes)}`];
+  if (p.dem_bytes > 0) parts.push(`terrain ${fmtBytes(p.dem_bytes)}`);
+  if (p.modified) {
+    const age = Math.floor(Date.now() / 1000) - p.modified;
+    const stale = age > 365 * DAY;
+    parts.push(
+      `<span class="${stale ? "state-stale" : ""}">updated ${fmtAge(age)}</span>`
+    );
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Rough DEM download size for a bbox: count z12 tiles (the pyramid above them
+ * adds ~1/3) at the ~110 KB/tile the bundled mountainous region averages.
+ */
+function estDemMB(bbox: [number, number, number, number]): number {
+  const [w, s, e, n] = bbox;
+  const n12 = 2 ** 12;
+  const lat2y = (lat: number) => {
+    const r = (lat * Math.PI) / 180;
+    return ((1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2) * n12;
+  };
+  const cols = Math.max(1, ((e - w) / 360) * n12);
+  const rows = Math.max(1, lat2y(s) - lat2y(n));
+  return Math.round((cols * rows * 1.33 * 110) / 1000);
 }
 
 function render() {
@@ -89,6 +152,12 @@ function render() {
       .querySelector(`[data-view="${s.abbr}"]`)
       ?.addEventListener("click", () => activate(s.abbr, true));
     list
+      .querySelector(`[data-refresh="${s.abbr}"]`)
+      ?.addEventListener("click", () => download(s, true));
+    list
+      .querySelector(`[data-dem="${s.abbr}"]`)
+      ?.addEventListener("click", () => downloadDem(s));
+    list
       .querySelector(`[data-del="${s.abbr}"]`)
       ?.addEventListener("click", () => remove(s.abbr));
   }
@@ -99,6 +168,9 @@ function rowHtml(s: StateEntry): string {
   const isActive = activeAbbr === s.abbr;
   const dl = downloading.get(s.abbr);
   const isDownloading = dl !== undefined;
+  const dem = demDownloading.get(s.abbr);
+  const isDemDownloading = dem !== undefined;
+  const hasDem = (packInfo.get(s.abbr)?.dem_bytes ?? 0) > 0;
 
   let action: string;
   if (isDownloading) {
@@ -112,9 +184,25 @@ function rowHtml(s: StateEntry): string {
     action = `<button class="state-action" data-dl="${s.abbr}">Download</button>`;
   }
 
-  const del = isInstalled && !isDownloading
-    ? `<button class="state-delete" data-del="${s.abbr}" title="Delete">🗑</button>`
+  const extras = isInstalled && !isDownloading
+    ? `<button class="state-refresh" data-refresh="${s.abbr}" title="Update this pack (re-download)">↻</button>` +
+      `<button class="state-delete" data-del="${s.abbr}" title="Delete">🗑</button>`
     : "";
+
+  // Terrain: its own sub-row so the big optional download is a clear choice.
+  let demRow = "";
+  if (isInstalled && !isDownloading) {
+    if (isDemDownloading) {
+      demRow = `<div class="state-dem">
+          <span>Downloading terrain… ${dem! >= 0 ? dem + "%" : ""}</span>
+          <div class="state-progress"><span style="width:${dem! >= 0 ? dem : 5}%"></span></div>
+        </div>`;
+    } else if (!hasDem) {
+      demRow = `<div class="state-dem">
+          <button class="state-dem-btn" data-dem="${s.abbr}">△ Add terrain (~${fmtSize(estDemMB(s.bbox))})</button>
+        </div>`;
+    }
+  }
 
   const progress = isDownloading
     ? `<div class="state-progress"><span style="width:${dl! >= 0 ? dl : 15}%"></span></div>`
@@ -123,10 +211,10 @@ function rowHtml(s: StateEntry): string {
   return `<div class="state-row ${isActive ? "active" : ""}" data-row="${s.abbr}">
       <div class="state-info">
         <div class="state-name">${s.name}</div>
-        <div class="state-sub">${isInstalled ? "Installed" : fmtSize(s.estMB) + " download"}</div>
-        ${progress}
+        <div class="state-sub">${isInstalled ? installedSub(s.abbr) : fmtSize(s.estMB) + " download"}</div>
+        ${progress}${demRow}
       </div>
-      ${action}${del}
+      ${action}${extras}
     </div>`;
 }
 
@@ -137,11 +225,40 @@ function updateRow(abbr: string) {
   row.outerHTML = rowHtml(s);
   const list = document.getElementById("states-list");
   list?.querySelector(`[data-view="${abbr}"]`)?.addEventListener("click", () => activate(abbr, true));
+  list?.querySelector(`[data-refresh="${abbr}"]`)?.addEventListener("click", () => download(s, true));
+  list?.querySelector(`[data-dem="${abbr}"]`)?.addEventListener("click", () => downloadDem(s));
   list?.querySelector(`[data-del="${abbr}"]`)?.addEventListener("click", () => remove(abbr));
   list?.querySelector(`[data-dl="${abbr}"]`)?.addEventListener("click", () => download(s));
 }
 
-async function download(s: StateEntry) {
+async function downloadDem(s: StateEntry) {
+  if (!inTauri) {
+    toast("Downloads require the desktop app.", "error");
+    return;
+  }
+  demDownloading.set(s.abbr, -1);
+  updateRow(s.abbr);
+  try {
+    await invoke<number>("download_dem", {
+      abbr: s.abbr,
+      bbox: s.bbox.join(","),
+      maxzoom: 12,
+    });
+    demDownloading.delete(s.abbr);
+    await refreshInstalled();
+    updateRow(s.abbr);
+    toast(`${s.name} terrain ready — hillshade, contours and elevation now work offline.`, "success");
+    // If it's on screen, reload so terrain appears right away.
+    if (activeAbbr === s.abbr) void activate(s.abbr, false);
+  } catch (err) {
+    demDownloading.delete(s.abbr);
+    updateRow(s.abbr);
+    toast(`Terrain download failed: ${err}`, "error");
+    toast("Already-downloaded tiles are kept — trying again resumes.", "info");
+  }
+}
+
+async function download(s: StateEntry, refresh = false) {
   if (!inTauri) {
     toast("Downloads require the desktop app.", "error");
     return;
@@ -157,13 +274,21 @@ async function download(s: StateEntry) {
     downloading.delete(s.abbr);
     await refreshInstalled();
     updateRow(s.abbr);
-    toast(`${s.name} downloaded — ready offline`, "success");
-    // Auto-view the freshly downloaded state.
-    void activate(s.abbr, true);
+    if (refresh) {
+      toast(`${s.name} updated to the latest map data`, "success");
+      // Reload it only if it's what's on screen — don't yank the view otherwise.
+      if (activeAbbr === s.abbr) void activate(s.abbr, false);
+    } else {
+      toast(`${s.name} downloaded — ready offline`, "success");
+      // Auto-view the freshly downloaded state.
+      void activate(s.abbr, true);
+    }
   } catch (err) {
     downloading.delete(s.abbr);
     updateRow(s.abbr);
-    toast(`Download failed: ${err}`, "error");
+    const verb = refresh ? "Update" : "Download";
+    toast(`${verb} failed: ${err}`, "error");
+    if (refresh) toast("Your existing pack is untouched.", "info");
   }
 }
 
@@ -173,14 +298,23 @@ async function activate(abbr: string, fly: boolean) {
   try {
     const path = await invoke<string>("state_path", { abbr });
     const url = `pmtiles://${convertFileSrc(path)}`;
+    const hasDem = (packInfo.get(abbr)?.dem_bytes ?? 0) > 0;
+    let demUrl: string | undefined;
+    if (hasDem) {
+      const demDir = await invoke<string>("dem_path", { abbr });
+      demUrl = `${convertFileSrc(demDir)}/{z}/{x}/{y}.png`;
+    }
     activeAbbr = abbr;
     localStorage.setItem("griddown_active_state", abbr);
     onSwitch({
       pmtilesUrl: url,
       name: s.name,
       center: s.center,
-      zoom: fly ? 7 : 7,
-      hasDem: false,
+      zoom: 7,
+      hasDem,
+      demUrl,
+      demId: `dem-${abbr.toLowerCase()}`,
+      keepView: !fly,
     });
     render();
     document.getElementById("states-panel")?.classList.add("hidden");
