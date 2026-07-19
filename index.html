@@ -36,16 +36,19 @@
           <button id="theme-toggle" type="button">&#9728; Day</button>
           <button id="terrain-toggle" type="button">&#9651; Terrain</button>
           <button id="nightvis-toggle" type="button">&#9681; Night vis</button>
+          <button id="publicland-toggle" type="button">&#9634; Public land</button>
         </div>
 
         <div class="hud-sub">TOOLS</div>
         <div class="hud-grid">
-          <button id="states-open" type="button">&#9636; Map library</button>
+          <button id="states-open" type="button">&#9636; Map packs</button>
           <button id="handbook-open" type="button">&#9873; Handbook</button>
           <button id="marks-open" type="button">&#9670; Marks</button>
           <button id="measure-open" type="button">&#8901; Measure</button>
           <button id="goto-open" type="button">&#8982; Go to</button>
+          <button id="compass-open" type="button">&#10686; Compass</button>
           <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
+          <button id="print-open" type="button">&#9113; Print map</button>
           <button id="readiness-open" type="button">&#9873; Readiness</button>
         </div>
 
@@ -62,6 +65,8 @@
           <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
           <div class="legend-row"><span class="swatch trail"></span>Trail</div>
           <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+          <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Public / protected land</div>
+          <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
         </div>
       </div>
     </div>
@@ -78,6 +83,22 @@
         <button id="goto-clear" type="button">Clear pin</button>
       </div>
       <div id="goto-hint">e.g. <b>18T VK 1234 5678</b> or <b>39.828, -98.579</b></div>
+    </div>
+
+    <!-- Compass (device magnetometer; phones/tablets) -->
+    <div id="compass-box" class="hidden">
+      <div id="compass-head">
+        <span class="goto-title">&#10686; COMPASS</span>
+        <button id="compass-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="compass-rose">
+        <div id="compass-needle">
+          <span class="cn-n">N</span>
+          <span class="cn-arrow"></span>
+        </div>
+        <div id="compass-readout">&mdash;</div>
+      </div>
+      <div id="compass-note">Listening for the compass&hellip;</div>
     </div>
 
     <!-- Floating measure readout -->
@@ -138,6 +159,44 @@
       <div id="readiness-content"></div>
     </div>
 
+    <!-- Printable map export — the paper backup -->
+    <div id="print-panel" class="hidden">
+      <div id="print-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Print map</div>
+        </div>
+        <button id="print-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="print-hint">
+        Exports the current view as a PDF with scale bars, grid coordinates and a
+        north arrow &mdash; paper keeps working when batteries don't.
+      </div>
+      <label class="print-field">
+        <span>Title</span>
+        <input id="print-title" type="text" placeholder="(uses region name)" autocomplete="off" />
+      </label>
+      <div class="print-row">
+        <label class="print-field">
+          <span>Paper</span>
+          <select id="print-paper">
+            <option value="letter" selected>Letter</option>
+            <option value="a4">A4</option>
+          </select>
+        </label>
+        <label class="print-field">
+          <span>Orientation</span>
+          <select id="print-orient">
+            <option value="landscape" selected>Landscape</option>
+            <option value="portrait">Portrait</option>
+          </select>
+        </label>
+      </div>
+      <button id="print-export" type="button">&#9113; Export PDF</button>
+      <div id="print-status"></div>
+      <div id="print-fine">Prints in day colors, north-up, centered on the current view.</div>
+    </div>
+
     <div id="marks-panel" class="hidden">
       <div id="marks-head">
         <div>
@@ -162,7 +221,7 @@
       <div id="states-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
-          <div class="panel-title">Map library</div>
+          <div class="panel-title">Map packs</div>
         </div>
         <button id="states-close" type="button" aria-label="Close">&times;</button>
       </div>
@@ -186,7 +245,7 @@
           at all</b>. Built as an off-grid, emergency replacement for online maps.
         </p>
         <ul class="welcome-list">
-          <li><b>Download states</b> while you're online, from the <b>Map library</b>.</li>
+          <li><b>Download states</b> while you're online, from <b>Map packs</b>.</li>
           <li>Everything then runs <b>100% offline</b> &mdash; no signal needed.</li>
           <li>Toggle <b>Day/Night</b> and <b>Terrain</b> (hillshade + contours).</li>
         </ul>

@@ -2,7 +2,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
-import { DEM_TILES, demSource, sampleElevationM } from "./dem";
+import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
 import { initStateLibrary, type SwitchTarget } from "./states";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
@@ -11,6 +11,8 @@ import { initMeasure } from "./measure";
 import { initGoto } from "./goto";
 import { initPanels } from "./panels";
 import { initReadiness } from "./readiness";
+import { initPrint } from "./print";
+import { initCompass } from "./compass";
 import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -109,6 +111,63 @@ const RESOURCE_CATS: Record<string, { color: string; kinds: string[] }> = {
 let activeResources = new Set<string>(
   JSON.parse(localStorage.getItem("griddown_resources") || "[]")
 );
+
+// Public-land overlay: where you can legally be — and where you really can't.
+// Both come from the basemap's `landuse` polygons, so it works fully offline
+// in every downloaded pack.
+let publicLandOn = localStorage.getItem("griddown_publicland") === "1";
+const PUBLIC_KINDS = ["national_park", "protected_area", "nature_reserve"];
+const MILITARY_KINDS = ["military", "naval_base", "airfield"];
+
+/** Shading fills — inserted under roads/labels so they tint land, not text. */
+function publicLandFills(themeName: ThemeName): any[] {
+  const dark = themeName === "dark";
+  return [
+    {
+      id: "app-publicland-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", PUBLIC_KINDS]],
+      paint: {
+        "fill-color": dark ? "#3ddc63" : "#2e8b3d",
+        "fill-opacity": dark ? 0.16 : 0.18,
+      },
+    },
+    {
+      id: "app-military-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", MILITARY_KINDS]],
+      paint: {
+        "fill-color": dark ? "#ff4545" : "#c03030",
+        "fill-opacity": dark ? 0.22 : 0.2,
+      },
+    },
+  ];
+}
+
+/** Boundary lines — drawn on top so the legal edge is unmistakable. */
+function publicLandLines(themeName: ThemeName): any[] {
+  const dark = themeName === "dark";
+  return [
+    {
+      id: "app-publicland-line", type: "line", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", PUBLIC_KINDS]],
+      paint: {
+        "line-color": dark ? "#4ade4a" : "#1f7a1f",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 0.8, 12, 1.6],
+        "line-dasharray": [3, 2],
+        "line-opacity": 0.8,
+      },
+    },
+    {
+      id: "app-military-line", type: "line", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", MILITARY_KINDS]],
+      paint: {
+        "line-color": dark ? "#ff5555" : "#b02020",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 6, 1.0, 12, 2.0],
+        "line-dasharray": [1.5, 1.2],
+        "line-opacity": 0.85,
+      },
+    },
+  ];
+}
 
 function resourceLayers(t: (typeof THEME)[ThemeName]): any[] {
   const out: any[] = [];
@@ -224,7 +283,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
   if (terrainOn && terrainAvailable) {
     sources.dem = {
       type: "raster-dem",
-      tiles: [DEM_TILES],
+      tiles: [demTiles()],
       encoding: "terrarium",
       tileSize: 256,
       maxzoom: 12,
@@ -234,7 +293,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     sources.contours = {
       type: "vector",
       tiles: [
-        demSource.contourProtocolUrl({
+        demContourUrl({
           multiplier: 3.28084, // meters -> feet
           overzoom: 1,
           elevationKey: "ele",
@@ -278,6 +337,14 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     base.splice(at, 0, hillshade, contourLine);
   }
 
+  if (publicLandOn) {
+    // Fills go under the roads (over hillshade); boundary lines go on top.
+    const firstRoad = base.findIndex(
+      (l) => typeof l.id === "string" && l.id.startsWith("roads")
+    );
+    base.splice(firstRoad >= 0 ? firstRoad : base.length, 0, ...publicLandFills(themeName));
+  }
+
   const contourLabels: any[] = terrainOn && terrainAvailable
     ? [
         {
@@ -301,7 +368,13 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     glyphs: `${origin}/fonts/{fontstack}/{range}.pbf`,
     sprite: `${origin}/sprites/${t.sprite}`,
     sources,
-    layers: [...base, ...emphasisLayers(t), ...resourceLayers(t), ...contourLabels],
+    layers: [
+      ...base,
+      ...(publicLandOn ? publicLandLines(themeName) : []),
+      ...emphasisLayers(t),
+      ...resourceLayers(t),
+      ...contourLabels,
+    ],
   } as maplibregl.StyleSpecification;
 }
 
@@ -341,16 +414,30 @@ async function start() {
     map.setStyle(buildStyle(currentTheme));
     applyThemeUi();
   });
+  document.getElementById("publicland-toggle")?.addEventListener("click", () => {
+    publicLandOn = !publicLandOn;
+    localStorage.setItem("griddown_publicland", publicLandOn ? "1" : "0");
+    map.setStyle(buildStyle(currentTheme));
+    applyThemeUi();
+  });
   applyThemeUi();
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
+    // Drop the protocol's cached instance for this file — after a pack refresh
+    // the bytes on disk changed but the URL didn't, and a stale cached header/
+    // directory would point at the wrong tile offsets.
+    protocol.tiles.delete(t.pmtilesUrl.replace(/^pmtiles:\/\//, ""));
     PMTILES_URL = t.pmtilesUrl;
     terrainAvailable = t.hasDem;
+    // Point terrain machinery at this state's DEM (or back at the bundled one).
+    setDemRoot(t.demUrl ?? null, t.demId ?? "dem");
     const el = document.getElementById("hud-state");
     if (el) el.textContent = t.name;
-    map.setStyle(buildStyle(currentTheme));
-    map.jumpTo({ center: t.center, zoom: t.zoom });
+    // diff:false on a refresh — the style is unchanged (same URL), so a diffed
+    // setStyle would keep the old source and its already-loaded stale tiles.
+    map.setStyle(buildStyle(currentTheme), { diff: !t.keepView });
+    if (!t.keepView) map.jumpTo({ center: t.center, zoom: t.zoom });
     applyThemeUi();
   }
   // Resource overlay chips (water / shelter / medical / supply / help)
@@ -438,6 +525,13 @@ async function start() {
   initGoto(map);
   // Read through a getter: terrain availability changes when you switch states.
   initReadiness(() => terrainAvailable);
+  initCompass();
+  initPrint({
+    getMap: () => map,
+    // Paper is always the light theme — dark maps waste ink and scan badly.
+    printStyle: () => buildStyle("light"),
+    regionName: () => document.getElementById("hud-state")?.textContent || "",
+  });
   initPanels();
 
   void initStateLibrary(switchToSource);
@@ -457,6 +551,15 @@ function applyThemeUi() {
     terrBtn.classList.toggle("off", !terrainOn);
     terrBtn.classList.toggle("hidden", !terrainAvailable);
   }
+  const plBtn = document.getElementById("publicland-toggle");
+  if (plBtn) {
+    plBtn.title = publicLandOn ? "Public land: on" : "Public land: off";
+    plBtn.classList.toggle("off", !publicLandOn);
+  }
+  // Legend rows for the overlay only make sense while it's on.
+  document.querySelectorAll<HTMLElement>(".legend-row.publicland").forEach((el) => {
+    el.classList.toggle("hidden", !publicLandOn);
+  });
   const fs = document.querySelector<HTMLElement>(".swatch.forest");
   const ts = document.querySelector<HTMLElement>(".swatch.trail");
   const cs = document.querySelector<HTMLElement>(".swatch.contour");
