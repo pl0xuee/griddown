@@ -10,30 +10,6 @@ export interface StateEntry {
   bbox: [number, number, number, number];
   center: [number, number];
   estMB: number;
-  /** User-drawn area rather than a state from the bundled catalog. */
-  custom?: boolean;
-}
-
-// Custom areas live in localStorage, not states.json — the catalog is a
-// bundled asset. Without persisting them a downloaded custom pack would be on
-// disk but absent from the catalog, so nothing could list or activate it.
-const CUSTOM_KEY = "griddown_custom_areas";
-
-function loadCustomAreas(): StateEntry[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(CUSTOM_KEY) || "[]");
-    return Array.isArray(v) ? v.filter((a) => a?.abbr && Array.isArray(a?.bbox)) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCustomAreas(list: StateEntry[]) {
-  try {
-    localStorage.setItem(CUSTOM_KEY, JSON.stringify(list));
-  } catch {
-    /* storage full or disabled — the pack still works, it just won't relist */
-  }
 }
 
 export interface SwitchTarget {
@@ -71,9 +47,8 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
   onSwitch = cb;
   try {
     catalog = await (await fetch("/states.json")).json();
-    catalog = catalog.concat(loadCustomAreas());
   } catch {
-    catalog = loadCustomAreas();
+    catalog = [];
   }
   await refreshInstalled();
 
@@ -429,14 +404,6 @@ async function importPack() {
 }
 
 async function remove(abbr: string) {
-  // A deleted custom area should leave the list too — a state stays because the
-  // bundled catalog still offers it, but a user-drawn box has nothing to return
-  // to and would linger as an undownloadable row.
-  const custom = loadCustomAreas();
-  if (custom.some((a) => a.abbr === abbr)) {
-    saveCustomAreas(custom.filter((a) => a.abbr !== abbr));
-    catalog = catalog.filter((c) => c.abbr !== abbr);
-  }
   if (!inTauri) return;
   const s = catalog.find((c) => c.abbr === abbr);
   if (!confirm(`Delete the downloaded map for ${s?.name ?? abbr}?`)) return;
@@ -451,26 +418,4 @@ async function remove(abbr: string) {
   } catch (err) {
     toast(`Delete failed: ${err}`, "error");
   }
-}
-
-
-/** Abbreviations already in use, so a new custom area can't collide with one. */
-export function takenIds(): string[] {
-  return catalog.map((c) => c.abbr).concat([...installed]);
-}
-
-/**
- * Register a user-drawn area and start its download.
- *
- * Persisted before the download starts, not after: if the app dies mid-download
- * the pack is still listed, so the partial can be seen and retried rather than
- * sitting on disk with nothing referencing it.
- */
-export function addCustomArea(area: StateEntry) {
-  const list = loadCustomAreas().filter((a) => a.abbr !== area.abbr);
-  list.push(area);
-  saveCustomAreas(list);
-  catalog = catalog.filter((c) => c.abbr !== area.abbr).concat([area]);
-  render();
-  void download(area);
 }
