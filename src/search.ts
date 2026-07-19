@@ -44,6 +44,12 @@ async function buildIndex(
   const header = await pm.getHeader();
   const west = header.minLon, south = header.minLat;
   const east = header.maxLon, north = header.maxLat;
+  // Low-zoom tiles cover far more than the pack's bbox (a z1 tile is a quarter
+  // of the planet), so they contain places you have no map for. Only index
+  // what's inside the downloaded area (with a small margin for edge towns).
+  const M = 0.05;
+  const inPack = (lng: number, lat: number) =>
+    lng >= west - M && lng <= east + M && lat >= south - M && lat <= north + M;
 
   // Places live in low-zoom tiles. Go as deep as z10 (villages/hamlets show
   // up by then) but cap the tile count so a huge pack can't take forever.
@@ -87,6 +93,7 @@ async function buildIndex(
               if (!g) continue;
               const lng = tile2lng(x + g.x / feat.extent, z);
               const lat = tile2lat(y + g.y / feat.extent, z);
+              if (!inPack(lng, lat)) continue;
               const key = `${name}|${kind}|${Math.round(lng * 50)}|${Math.round(lat * 50)}`;
               if (!seen.has(key)) {
                 seen.set(key, {
