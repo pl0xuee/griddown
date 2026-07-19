@@ -51,7 +51,9 @@ jobs:
         run: |
           sudo apt-get update
           # 24.04 renamed libappindicator3-dev to the ayatana package.
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          # desktop-file-utils: pinned appimagetool 1.9.0 requires
+          # desktop-file-validate, which the "continuous" build did not.
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils
 
       - name: Provision go-pmtiles sidecar
         shell: bash

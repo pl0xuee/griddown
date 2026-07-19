@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self' blob:; worker-src 'self' blob:; img-src 'self' data: blob: asset: http://asset.localhost; connect-src 'self' data: blob: asset: http://asset.localhost ipc: http://ipc.localhost https://build.protomaps.com https://s3.amazonaws.com https://github.com https://objects.githubusercontent.com; style-src 'self' 'unsafe-inline'; font-src 'self' data:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'none'",
       "assetProtocol": {
         "enable": true,
         "scope": [
