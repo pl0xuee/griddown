@@ -1696,6 +1696,21 @@ button {
   margin-top: 6px;
 }
 
+/* The declination line is a navigation fact, not a status message — it stays
+   readable where the note below it is deliberately faint. */
+#compass-dec {
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(120, 200, 120, 0.2);
+  color: #b8f0b8;
+}
+
+#compass-dec:empty {
+  display: none;
+}
+
 /* --- Offline place search --- */
 #search-panel {
   position: absolute;

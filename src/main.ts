@@ -824,7 +824,10 @@ async function start() {
   initGoto(map);
   // Read through a getter: terrain availability changes when you switch states.
   initReadiness(() => terrainAvailable);
-  initCompass();
+  initCompass(() => {
+    const c = map.getCenter();
+    return { lat: c.lat, lng: c.lng };
+  });
   initViewshed(() => map);
   initSearch({
     map: () => map,

@@ -5,6 +5,20 @@
 // Android/others: `deviceorientationabsolute` (or absolute deviceorientation)
 // with `alpha`, where heading = 360 - alpha.
 // Desktops usually have no magnetometer — say so instead of spinning aimlessly.
+//
+// Headings are shown relative to TRUE north, because that is what the map and
+// any bearing taken off it use. The sensor reports magnetic north, so every
+// reading gets the local declination added (geomag.ts). In the western US that
+// correction is 10-15° — a mile and a half of error over ten miles, which is
+// the difference between finding a trailhead and not.
+
+import {
+  declination,
+  formatDeclination,
+  magneticToTrue,
+  modelValidFor,
+  WMM_VALID_TO,
+} from "./geomag";
 
 const NO_SENSOR =
   "No compass on this device. Most desktops have no magnetometer — use a phone or tablet in the field.";
@@ -26,25 +40,57 @@ function headingFrom(e: DeviceOrientationEvent): number | null {
   return null;
 }
 
-export function initCompass() {
+/** @param here where the user is — declination is a function of position. */
+export function initCompass(here: () => { lat: number; lng: number }) {
   const box = document.getElementById("compass-box");
   const readout = document.getElementById("compass-readout");
   const needle = document.getElementById("compass-needle");
   const note = document.getElementById("compass-note");
+  const decEl = document.getElementById("compass-dec");
 
   let listening = false;
   let gotReading = false;
   let noSensorTimer = 0;
+  // Declination is recomputed when the panel opens, not per reading: it changes
+  // by about a degree per 100 km, so it is constant for anyone standing still,
+  // and the field model is a 90-term sum.
+  let dec: number | null = null;
+
+  function refreshDeclination() {
+    const expired = !modelValidFor();
+    if (expired) {
+      // Refuse to correct with a model past its validity rather than apply a
+      // drifting one silently: a stale correction looks exactly like a good one.
+      dec = null;
+      if (decEl)
+        decEl.textContent = `Magnetic model expired (${WMM_VALID_TO.toFixed(0)}) — headings are magnetic, uncorrected.`;
+      return;
+    }
+    const { lat, lng } = here();
+    dec = declination(lat, lng);
+    if (decEl)
+      decEl.textContent = `Declination here: ${formatDeclination(dec)} — true north is ${
+        dec > 0 ? "left of" : dec < 0 ? "right of" : "the same as"
+      } the needle.`;
+  }
 
   function onOrientation(e: DeviceOrientationEvent) {
-    const h = headingFrom(e);
-    if (h == null) return;
+    const mag = headingFrom(e);
+    if (mag == null) return;
     gotReading = true;
     window.clearTimeout(noSensorTimer);
-    if (note) note.textContent = "Magnetic heading — true north differs by local declination.";
-    if (readout) readout.textContent = `${Math.round(h)}° ${cardinal(h)}`;
+
+    const corrected = dec != null;
+    const heading = corrected ? magneticToTrue(mag, dec!) : mag;
+
+    if (note)
+      note.textContent = corrected
+        ? `True heading, corrected for declination. Magnetic reads ${Math.round(mag)}°.`
+        : "Magnetic heading — true north differs by local declination.";
+    if (readout)
+      readout.textContent = `${Math.round(heading)}° ${cardinal(heading)}${corrected ? " true" : " mag"}`;
     // The needle shows where NORTH is relative to the way you're facing.
-    if (needle) needle.style.transform = `rotate(${-h}deg)`;
+    if (needle) needle.style.transform = `rotate(${-heading}deg)`;
   }
 
   function start() {
@@ -76,6 +122,9 @@ export function initCompass() {
     // undeclared binding throws ReferenceError before any `?.` can guard it —
     // which killed the whole handler on Linux instead of showing the fallback.
     const doe = (window as any).DeviceOrientationEvent;
+    // Declination is worth showing even with no magnetometer: it's the number
+    // you write on a printed map before navigating from it with a real compass.
+    refreshDeclination();
     if (!doe) {
       box?.classList.remove("hidden");
       if (readout) readout.textContent = "—";
