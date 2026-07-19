@@ -1,5 +1,6 @@
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "./toast";
 import { fmtAge, DAY } from "./readiness";
 
@@ -70,6 +71,7 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
   }
 
   document.getElementById("states-search")?.addEventListener("input", render);
+  document.getElementById("states-import")?.addEventListener("click", () => void importPack());
   render();
 
   // Restore a previously-active downloaded state.
@@ -158,6 +160,9 @@ function render() {
       .querySelector(`[data-dem="${s.abbr}"]`)
       ?.addEventListener("click", () => downloadDem(s));
     list
+      .querySelector(`[data-share="${s.abbr}"]`)
+      ?.addEventListener("click", () => sharePack(s));
+    list
       .querySelector(`[data-del="${s.abbr}"]`)
       ?.addEventListener("click", () => remove(s.abbr));
   }
@@ -186,6 +191,7 @@ function rowHtml(s: StateEntry): string {
 
   const extras = isInstalled && !isDownloading
     ? `<button class="state-refresh" data-refresh="${s.abbr}" title="Update this pack (re-download)">↻</button>` +
+      `<button class="state-refresh" data-share="${s.abbr}" title="Export to Downloads (share via USB/SD)">⇪</button>` +
       `<button class="state-delete" data-del="${s.abbr}" title="Delete">🗑</button>`
     : "";
 
@@ -320,6 +326,54 @@ async function activate(abbr: string, fly: boolean) {
     document.getElementById("states-panel")?.classList.add("hidden");
   } catch (err) {
     toast(`Couldn't open ${s.name}: ${err}`, "error");
+  }
+}
+
+async function sharePack(s: StateEntry) {
+  try {
+    toast(`Copying ${s.name} pack…`);
+    const path = await invoke<string>("export_pack", { abbr: s.abbr });
+    toast(`Saved to ${path} — copy it to a USB stick to share.`, "success", 7000);
+  } catch (err) {
+    toast(`Export failed: ${err}`, "error");
+  }
+}
+
+async function importPack() {
+  if (!inTauri) {
+    toast("Importing requires the desktop app.", "error");
+    return;
+  }
+  const picked = await openDialog({
+    multiple: false,
+    filters: [{ name: "PMTiles map pack", extensions: ["pmtiles"] }],
+  });
+  if (!picked) return;
+  const path = String(picked);
+  // Guess the state from a "griddown-XX.pmtiles" name, else ask.
+  const m = path.match(/griddown-([A-Za-z]{2})(?:-\d+)?\.pmtiles$/);
+  let abbr = m ? m[1].toUpperCase() : "";
+  if (!abbr || !catalog.some((c) => c.abbr === abbr)) {
+    const typed = prompt(
+      "Which state is this pack? Enter its 2-letter code (e.g. OR):",
+      abbr
+    );
+    if (!typed) return;
+    abbr = typed.trim().toUpperCase();
+    if (!catalog.some((c) => c.abbr === abbr)) {
+      toast(`"${abbr}" isn't a state code I know.`, "error");
+      return;
+    }
+  }
+  try {
+    toast("Importing pack…");
+    await invoke("import_pack", { abbr, path });
+    await refreshInstalled();
+    render();
+    toast(`${abbr} imported — works offline now.`, "success");
+    void activate(abbr, true);
+  } catch (err) {
+    toast(`Import failed: ${err}`, "error");
   }
 }
 

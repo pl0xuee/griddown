@@ -29,10 +29,19 @@ function parseCoord(raw: string): [number, number] | null {
   return null;
 }
 
+let marker: maplibregl.Marker | null = null;
+
+/** Drop (or move) the target pin — also used by place search results. */
+export function dropGotoPin(map: maplibregl.Map, lng: number, lat: number) {
+  marker?.remove();
+  const el = document.createElement("div");
+  el.className = "goto-marker";
+  marker = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+}
+
 export function initGoto(map: maplibregl.Map) {
   const box = document.getElementById("goto-box");
   const input = document.getElementById("goto-input") as HTMLInputElement | null;
-  let marker: maplibregl.Marker | null = null;
 
   function open() {
     box?.classList.remove("hidden");
@@ -50,10 +59,7 @@ export function initGoto(map: maplibregl.Map) {
       toast("Couldn't read that — try an MGRS grid or “lat, lng”.", "error");
       return;
     }
-    marker?.remove();
-    const el = document.createElement("div");
-    el.className = "goto-marker";
-    marker = new maplibregl.Marker({ element: el }).setLngLat(pt).addTo(map);
+    dropGotoPin(map, pt[0], pt[1]);
     map.flyTo({ center: pt, zoom: Math.max(map.getZoom(), 13) });
     toast(`Jumped to ${pt[1].toFixed(5)}, ${pt[0].toFixed(5)}`, "success");
     close();

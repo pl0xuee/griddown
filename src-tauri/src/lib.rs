@@ -86,6 +86,56 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Copy an installed pack out to the Downloads folder, so it can be moved to
+/// another device on a USB stick / SD card — no internet needed on either end.
+#[tauri::command]
+fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
+    let src = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
+    if !src.exists() {
+        return Err("that state isn't downloaded".into());
+    }
+    let dir = app
+        .path()
+        .download_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(|e| e.to_string())?;
+    let name = format!("griddown-{}.pmtiles", abbr);
+    let mut dest = dir.join(&name);
+    let mut n = 2;
+    while dest.exists() {
+        dest = dir.join(format!("griddown-{}-{}.pmtiles", abbr, n));
+        n += 1;
+    }
+    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+    Ok(dest.to_string_lossy().to_string())
+}
+
+/// Import a .pmtiles file from disk as a state pack (the other half of
+/// export_pack). Copies into app-data under the given abbreviation.
+#[tauri::command]
+fn import_pack(app: AppHandle, abbr: String, path: String) -> Result<(), String> {
+    let src = PathBuf::from(&path);
+    if !src.exists() {
+        return Err("file not found".into());
+    }
+    // Cheap sanity check: PMTiles archives start with the magic "PMTiles".
+    let mut head = [0u8; 7];
+    {
+        use std::io::Read;
+        let mut f = std::fs::File::open(&src).map_err(|e| e.to_string())?;
+        f.read_exact(&mut head).map_err(|e| e.to_string())?;
+    }
+    if &head != b"PMTiles" {
+        return Err("that file isn't a PMTiles map pack".into());
+    }
+    let abbr = abbr.replace(['/', '\\', '.'], "_");
+    let dest = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
+    let tmp = dest.with_extension("part");
+    std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Size and age of each installed state pack, for the readiness check.
 ///
 /// Age matters off-grid: OSM changes constantly, and a pack you downloaded two
@@ -492,6 +542,7 @@ async fn download_state(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_installed,
             state_path,
@@ -502,7 +553,9 @@ pub fn run() {
             pack_info,
             save_file,
             download_dem,
-            dem_path
+            dem_path,
+            export_pack,
+            import_pack
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

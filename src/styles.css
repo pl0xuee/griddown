@@ -219,6 +219,7 @@ body {
 
 /* Public-land legend swatches are area fills, not line styles */
 .swatch.publicland,
+.swatch.forestland,
 .swatch.military {
   height: 9px;
   border-top: none;
@@ -227,6 +228,10 @@ body {
 .swatch.publicland {
   background: rgba(61, 220, 99, 0.35);
   border: 1px dashed #4ade4a;
+}
+.swatch.forestland {
+  background: rgba(61, 220, 99, 0.16);
+  border: 1px solid rgba(74, 222, 74, 0.35);
 }
 .swatch.military {
   background: rgba(255, 69, 69, 0.35);
@@ -1634,4 +1639,137 @@ button {
   line-height: 1.5;
   opacity: 0.65;
   margin-top: 6px;
+}
+
+/* --- Offline place search --- */
+#search-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-width: 92vw;
+  height: 100%;
+  background: rgba(16, 19, 17, 0.97);
+  color: #e6f0e0;
+  border-left: 1px solid rgba(120, 200, 120, 0.3);
+  box-shadow: -8px 0 26px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+#search-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex: none;
+}
+#search-close {
+  background: none;
+  border: none;
+  color: #cdeccd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(10, 14, 10, 0.9);
+  color: #eaf5e6;
+  font-family: inherit;
+  font-size: 14px;
+}
+#search-input:focus {
+  outline: none;
+  border-color: rgba(150, 230, 150, 0.8);
+}
+#search-results {
+  overflow-y: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.search-hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  color: #e6f0e0;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.search-hit:hover {
+  border-color: rgba(150, 230, 150, 0.6);
+  background: rgba(50, 70, 50, 0.5);
+}
+.sh-kind {
+  font-size: 10px;
+  opacity: 0.55;
+  flex: none;
+}
+.search-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  padding: 10px 2px;
+}
+#search-fine {
+  font-size: 10px;
+  opacity: 0.55;
+  line-height: 1.5;
+}
+@media (max-width: 640px) {
+  #search-panel {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
+
+#states-import {
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 8px;
+  border: 1px dashed rgba(120, 200, 120, 0.45);
+  background: none;
+  color: #a8d8a8;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  flex: none;
+}
+#states-import:hover {
+  background: rgba(50, 70, 50, 0.5);
+}
+
+/* --- Battery saver: dim everything (screen light is the big battery cost) --- */
+body.battery #map {
+  filter: brightness(0.55);
+}
+body.battery.nightvis #map {
+  /* Compose with night vision when both are on */
+  filter: grayscale(1) brightness(0.4) sepia(1) hue-rotate(-38deg) saturate(7)
+    contrast(1.05);
+}
+body.battery #hud,
+body.battery .maplibregl-ctrl {
+  filter: brightness(0.7);
+}
+body.battery.nightvis #hud,
+body.battery.nightvis .maplibregl-ctrl {
+  filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(7) brightness(0.6);
 }

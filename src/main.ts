@@ -8,11 +8,13 @@ import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
-import { initGoto } from "./goto";
+import { initGoto, dropGotoPin } from "./goto";
+import { initSearch } from "./search";
 import { initPanels } from "./panels";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
 import { initCompass } from "./compass";
+import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
 
 // --- Register the pmtiles:// protocol so MapLibre can read a local .pmtiles file ---
@@ -116,13 +118,25 @@ let activeResources = new Set<string>(
 // Both come from the basemap's `landuse` polygons, so it works fully offline
 // in every downloaded pack.
 let publicLandOn = localStorage.getItem("griddown_publicland") === "1";
-const PUBLIC_KINDS = ["national_park", "protected_area", "nature_reserve"];
+// Strongly protected: parks, designated protected areas, reserves. US national
+// forests are often tagged as plain landuse=forest in OSM (kind "forest"), so
+// they get their own, fainter class — shown, but ownership varies.
+const PUBLIC_KINDS = ["national_park", "protected_area", "nature_reserve", "park"];
+const FOREST_KINDS = ["forest", "wood"];
 const MILITARY_KINDS = ["military", "naval_base", "airfield"];
 
 /** Shading fills — inserted under roads/labels so they tint land, not text. */
 function publicLandFills(themeName: ThemeName): any[] {
   const dark = themeName === "dark";
   return [
+    {
+      id: "app-forestland-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", FOREST_KINDS]],
+      paint: {
+        "fill-color": dark ? "#3ddc63" : "#2e8b3d",
+        "fill-opacity": dark ? 0.08 : 0.1,
+      },
+    },
     {
       id: "app-publicland-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
       filter: ["in", ["get", "kind"], ["literal", PUBLIC_KINDS]],
@@ -263,13 +277,41 @@ function emphasisLayers(t: (typeof THEME)[ThemeName]): any[] {
 
 let currentTheme: ThemeName = "dark";
 let terrainOn = true;
+// Battery saver: dim the screen and drop the GPU-heavy layers (hillshade/
+// contours). Off-grid, screen brightness and GPU are most of the battery.
+let batteryOn = localStorage.getItem("griddown_battery") === "1";
 // Terrain (hillshade/contours) only exists for regions with a local DEM.
 let terrainAvailable = true;
 let map: maplibregl.Map;
 
+// The stock dark flavor draws roads in #333–#47 greys on a near-black
+// background — nearly invisible in the field. Lift them to clear greys,
+// brighter the more important the road. Casings/tunnels stay dark so the
+// contrast still reads.
+const DARK_ROAD_COLORS: [RegExp, string][] = [
+  [/_highway(_late|_early)?$/, "#b0b6c2"],
+  [/_major(_late|_early)?$/, "#9aa1ad"],
+  [/_(minor|link)$/, "#7e8694"],
+  [/_(minor_service|other|taxiway|runway|pier)$/, "#636b78"],
+];
+
+function brightenDarkRoads(base: any[]) {
+  for (const l of base) {
+    if (l.type !== "line" || typeof l.id !== "string") continue;
+    if (!l.id.startsWith("roads_") || l.id.includes("casing") || l.id.includes("tunnels")) continue;
+    for (const [re, color] of DARK_ROAD_COLORS) {
+      if (re.test(l.id)) {
+        l.paint = { ...l.paint, "line-color": color };
+        break;
+      }
+    }
+  }
+}
+
 function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
   const t = THEME[themeName];
   const base = layers("protomaps", namedFlavor(t.flavor), { lang: "en" }) as any[];
+  if (themeName === "dark") brightenDarkRoads(base);
 
   const sources: any = {
     protomaps: {
@@ -280,7 +322,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     },
   };
 
-  if (terrainOn && terrainAvailable) {
+  if (terrainOn && terrainAvailable && !batteryOn) {
     sources.dem = {
       type: "raster-dem",
       tiles: [demTiles()],
@@ -345,7 +387,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     base.splice(firstRoad >= 0 ? firstRoad : base.length, 0, ...publicLandFills(themeName));
   }
 
-  const contourLabels: any[] = terrainOn && terrainAvailable
+  const contourLabels: any[] = terrainOn && terrainAvailable && !batteryOn
     ? [
         {
           id: "app-contour-labels", type: "symbol", source: "contours", "source-layer": "contours",
@@ -417,6 +459,12 @@ async function start() {
   document.getElementById("publicland-toggle")?.addEventListener("click", () => {
     publicLandOn = !publicLandOn;
     localStorage.setItem("griddown_publicland", publicLandOn ? "1" : "0");
+    map.setStyle(buildStyle(currentTheme));
+    applyThemeUi();
+  });
+  document.getElementById("battery-toggle")?.addEventListener("click", () => {
+    batteryOn = !batteryOn;
+    localStorage.setItem("griddown_battery", batteryOn ? "1" : "0");
     map.setStyle(buildStyle(currentTheme));
     applyThemeUi();
   });
@@ -526,6 +574,12 @@ async function start() {
   // Read through a getter: terrain availability changes when you switch states.
   initReadiness(() => terrainAvailable);
   initCompass();
+  initViewshed(() => map);
+  initSearch({
+    map: () => map,
+    sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
+    dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
+  });
   initPrint({
     getMap: () => map,
     // Paper is always the light theme — dark maps waste ink and scan badly.
@@ -556,6 +610,14 @@ function applyThemeUi() {
     plBtn.title = publicLandOn ? "Public land: on" : "Public land: off";
     plBtn.classList.toggle("off", !publicLandOn);
   }
+  const batBtn = document.getElementById("battery-toggle");
+  if (batBtn) {
+    batBtn.title = batteryOn
+      ? "Battery saver: on (dimmed, terrain off)"
+      : "Battery saver: off";
+    batBtn.classList.toggle("off", !batteryOn);
+  }
+  document.body.classList.toggle("battery", batteryOn);
   // Legend rows for the overlay only make sense while it's on.
   document.querySelectorAll<HTMLElement>(".legend-row.publicland").forEach((el) => {
     el.classList.toggle("hidden", !publicLandOn);
