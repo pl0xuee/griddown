@@ -1964,3 +1964,10 @@ body.battery.nightvis .maplibregl-ctrl {
     max-width: 100vw;
   }
 }
+
+/* Quiet note under a route result — smaller than a warning, not a disclaimer. */
+.rt-fine {
+  color: #9fb6a6;
+  font-size: 10px;
+  line-height: 1.4;
+}

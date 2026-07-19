@@ -36,6 +36,25 @@ interface Endpoint {
   label: string;
 }
 
+/** A computed route plus everything needed to redraw it later. */
+interface Shown {
+  r: RouteResult;
+  z: number;
+  missing: number;
+  approx: boolean;
+  from: Endpoint;
+  to: Endpoint;
+  at: number;
+}
+
+function ago(ms: number): string {
+  const m = Math.round((Date.now() - ms) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h} hr ago` : `${Math.round(h / 24)} day(s) ago`;
+}
+
 function tile2lng(x: number, z: number) {
   return (x / 2 ** z) * 360 - 180;
 }
@@ -149,6 +168,43 @@ export function initRoute(deps: {
   let to: Endpoint | null = null;
   let busy = false;
 
+  // The last route that actually worked. Two jobs, both about never being left
+  // worse off than before you asked:
+  //  - a failed recompute must not take away the route you already had;
+  //  - a route survives a reload or a webview crash (which this platform does
+  //    do — see the WebKitGTK crashes in the notes), because the moment you
+  //    most need the way out is the moment you can least afford to recompute.
+  let shown: Shown | null = null;
+  const SAVE_KEY = "griddown_last_route";
+
+  function save(s: Shown) {
+    try {
+      // Coordinates rounded to ~1 m: this is a map line, not a survey, and a
+      // long route is thousands of points.
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({
+          ...s,
+          r: { ...s.r, coords: s.r.coords.map(([a, b]) => [+a.toFixed(5), +b.toFixed(5)]) },
+        })
+      );
+    } catch {
+      // Out of quota or storage disabled — the in-memory copy still works.
+    }
+  }
+
+  function loadSaved(): Shown | null {
+    try {
+      const raw = localStorage.getItem(SAVE_KEY);
+      if (!raw) return null;
+      const s = JSON.parse(raw) as Shown;
+      if (!s?.r?.coords?.length || !s.from || !s.to) return null;
+      return s;
+    } catch {
+      return null;
+    }
+  }
+
   function clearRoute() {
     const map = deps.map();
     for (const id of [LINE, CASING]) if (map.getLayer(id)) map.removeLayer(id);
@@ -211,8 +267,11 @@ export function initRoute(deps: {
     wire();
   }
 
-  function renderResult(r: RouteResult, plan: { z: number }, missing: number, approx: boolean) {
+  function renderResult(s: Shown, problem = "") {
     if (!body) return;
+    const { r, missing, approx } = s;
+    const plan = { z: s.z };
+    const stale = Date.now() - s.at > 60000;
     const detour = r.meters / Math.max(1, r.directMeters);
     const steps = r.steps
       .filter((s) => s.meters > 40)
@@ -223,6 +282,7 @@ export function initRoute(deps: {
       )
       .join("");
     body.innerHTML = `
+      ${problem ? `<div class="rt-warn">⚠ ${problem} Showing the previous route, worked out ${ago(s.at)}.</div>` : ""}
       <div class="rt-summary">
         <div class="rt-dist">${miles(r.meters)} mi</div>
         <div class="rt-sub">by road · ${miles(r.directMeters)} mi straight line (${detour.toFixed(1)}×)</div>
@@ -253,13 +313,32 @@ export function initRoute(deps: {
           : ""
       }
       <div class="rt-steps">${steps || `<div class="rt-step"><span>Unnamed roads the whole way</span></div>`}</div>
+      <button id="rt-refresh" type="button" class="rt-go">↻ Recompute from where I am</button>
       <div class="rt-btns">
         <button id="rt-again" type="button">New route</button>
         <button id="rt-clear" type="button">Clear</button>
       </div>
+      <div class="rt-fine">This route doesn't follow you &mdash; it was worked out
+      ${stale ? ago(s.at) : "just now"}, from the start point. Recompute when you've moved.</div>
       <div class="rt-disclaimer">Overview only, from map data: no turn restrictions,
       gates, private-road or seasonal-closure information. Check the ground before you commit.</div>`;
     wire();
+  }
+
+  /**
+   * Report a failure WITHOUT throwing away a route that already worked.
+   *
+   * A recompute that can't find a way — no fix, tiles unreadable, gaps in the
+   * network — must never leave you with less than you had a moment ago. The
+   * previous line stays on the map and on screen; only the reason changes.
+   */
+  function fail(msg: string) {
+    if (shown) {
+      draw(shown.r.coords); // may have been cleared by a style rebuild
+      renderResult(shown, msg);
+    } else {
+      renderIdle(msg);
+    }
   }
 
   async function go() {
@@ -271,7 +350,7 @@ export function initRoute(deps: {
     const direct = haversineLL(from, to);
     const plan = planTiles(from, to, direct);
     if (!plan) {
-      renderIdle(
+      fail(
         "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
       );
       return;
@@ -283,7 +362,7 @@ export function initRoute(deps: {
         if (body) body.innerHTML = `<div class="rt-msg">Reading roads… ${d}/${t} tiles</div>`;
       });
       if (!segs.length) {
-        renderIdle("No roads found in this area of the pack.");
+        fail("No roads found in this area of the pack.");
         return;
       }
       if (body) body.innerHTML = `<div class="rt-msg">Working out the way…</div>`;
@@ -304,19 +383,21 @@ export function initRoute(deps: {
       if (!r) {
         // Be explicit that this is a limit of the data, not a claim that no
         // road exists — the network in these tiles is not fully connected.
-        renderIdle(
+        fail(
           `No connected road route found. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
             haversineLL(from, to)
           )} mi.`
         );
-        clearRoute();
         return;
       }
+      const next: Shown = { r, z: plan.z, missing, approx, from, to, at: Date.now() };
       draw(r.coords);
       fit(r.coords);
-      renderResult(r, plan, missing, approx);
+      shown = next;
+      save(next);
+      renderResult(next);
     } catch (err) {
-      renderIdle(`Couldn't build the route: ${err instanceof Error ? err.message : String(err)}`);
+      fail(`Couldn't build the route: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       busy = false;
     }
@@ -337,6 +418,30 @@ export function initRoute(deps: {
     return { lng: c.lng, lat: c.lat, label: "crosshair" };
   }
 
+  /** Set `from` to the current GPS fix, then continue — or explain why not. */
+  function useMyLocation(then: () => void) {
+    if (!("geolocation" in navigator)) {
+      fail("Location isn't available on this device — use the crosshair instead.");
+      return;
+    }
+    if (body) body.innerHTML = `<div class="rt-msg">Getting your location…</div>`;
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        from = { lng: p.coords.longitude, lat: p.coords.latitude, label: "my location" };
+        then();
+      },
+      (err) => {
+        // Never leave this silent: the user is waiting on a fix that isn't coming.
+        fail(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission denied — use the crosshair instead."
+            : "Couldn't get a location fix — use the crosshair instead."
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  }
+
   function wire() {
     document.getElementById("rt-from-cross")?.addEventListener("click", () => {
       from = center();
@@ -346,30 +451,23 @@ export function initRoute(deps: {
       to = center();
       renderIdle();
     });
-    document.getElementById("rt-from-here")?.addEventListener("click", () => {
-      if (!("geolocation" in navigator)) {
-        renderIdle("Location isn't available on this device — use the crosshair instead.");
-        return;
-      }
-      renderIdle("Getting your location…");
-      navigator.geolocation.getCurrentPosition(
-        (p) => {
-          from = { lng: p.coords.longitude, lat: p.coords.latitude, label: "my location" };
-          renderIdle();
-        },
-        (err) => {
-          // Never leave this silent: the user is waiting on a fix that isn't coming.
-          renderIdle(
-            err.code === err.PERMISSION_DENIED
-              ? "Location permission denied — use the crosshair instead."
-              : "Couldn't get a location fix — use the crosshair instead."
-          );
-        },
-        { enableHighAccuracy: true, timeout: 15000 }
-      );
-    });
+    document.getElementById("rt-from-here")?.addEventListener("click", () =>
+      useMyLocation(() => renderIdle())
+    );
+    // Recompute from where you are now. The route is a one-shot overview, not
+    // live navigation — this is the deliberate manual equivalent, so a stale
+    // line is only ever replaced when you ask for it.
+    document.getElementById("rt-refresh")?.addEventListener("click", () =>
+      useMyLocation(() => void go())
+    );
     document.getElementById("rt-clear")?.addEventListener("click", () => {
       from = to = null;
+      shown = null;
+      try {
+        localStorage.removeItem(SAVE_KEY);
+      } catch {
+        /* storage unavailable — the in-memory clear is what matters */
+      }
       clearRoute();
       renderIdle();
     });
@@ -378,7 +476,21 @@ export function initRoute(deps: {
   }
 
   document.getElementById("route-open")?.addEventListener("click", () => {
-    renderIdle();
+    // Restore the last working route, including across a restart or a crash.
+    if (!shown) {
+      const saved = loadSaved();
+      if (saved) {
+        shown = saved;
+        from = saved.from;
+        to = saved.to;
+      }
+    }
+    if (shown) {
+      draw(shown.r.coords);
+      renderResult(shown);
+    } else {
+      renderIdle();
+    }
     panel?.classList.remove("hidden");
   });
   document.getElementById("route-close")?.addEventListener("click", () => {
