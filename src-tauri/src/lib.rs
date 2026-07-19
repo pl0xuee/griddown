@@ -12,6 +12,43 @@ fn states_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Path of the marks file (waypoints + tracks) inside the app data dir.
+///
+/// This is the user's own irreplaceable data — pins they dropped and tracks they
+/// walked. It used to live in `localStorage`, which is a webview cache directory
+/// that a reinstall or webview update can wipe. It lives in a real file now.
+fn marks_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join("marks.json"))
+}
+
+#[tauri::command]
+fn read_marks(app: AppHandle) -> Result<String, String> {
+    let p = marks_path(&app)?;
+    match std::fs::read_to_string(&p) {
+        Ok(s) => Ok(s),
+        // Fall back to the previous good copy if the main file is unreadable.
+        Err(_) => Ok(std::fs::read_to_string(p.with_extension("bak")).unwrap_or_default()),
+    }
+}
+
+#[tauri::command]
+fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
+    let p = marks_path(&app)?;
+    // Write to a temp file and rename over the target, so an interrupted write
+    // (crash, dead battery) can't leave a half-written file behind. Keep the
+    // previous version as .bak — cheap insurance for the one thing we can't
+    // regenerate from the map packs.
+    let tmp = p.with_extension("tmp");
+    std::fs::write(&tmp, json.as_bytes()).map_err(|e| e.to_string())?;
+    if p.exists() {
+        let _ = std::fs::copy(&p, p.with_extension("bak"));
+    }
+    std::fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Locate the bundled go-pmtiles binary (dev: src-tauri/binaries; prod: next to exe).
 fn pmtiles_bin() -> Option<PathBuf> {
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
@@ -207,7 +244,9 @@ pub fn run() {
             list_installed,
             state_path,
             delete_state,
-            download_state
+            download_state,
+            read_marks,
+            write_marks
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

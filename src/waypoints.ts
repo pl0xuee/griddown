@@ -1,35 +1,11 @@
 import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
+import { buildGPX, parseGPX } from "./gpx";
+import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
 
-// Waypoints (dropped pins) and recorded GPS tracks, stored locally and
-// exportable as standard GPX. Fully offline.
+// Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
+// real file in the app data dir) and exchangeable as standard GPX. Fully offline.
 
-interface Waypoint {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  note?: string;
-  t: number;
-}
-type Pt = [number, number, number?]; // lng, lat, ele?
-interface Track {
-  id: string;
-  name: string;
-  pts: Pt[];
-  t: number;
-}
-
-const WP_KEY = "griddown_waypoints";
-const TR_KEY = "griddown_tracks";
-
-function load<T>(key: string): T[] {
-  try {
-    return JSON.parse(localStorage.getItem(key) || "[]");
-  } catch {
-    return [];
-  }
-}
 function rid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -41,25 +17,24 @@ function esc(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildGPX(wps: Waypoint[], trks: Track[]): string {
-  let s = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  s += `<gpx version="1.1" creator="GridDown" xmlns="http://www.topografix.com/GPX/1/1">\n`;
-  for (const w of wps) {
-    s += `  <wpt lat="${w.lat}" lon="${w.lng}"><name>${esc(w.name)}</name>`;
-    if (w.note) s += `<desc>${esc(w.note)}</desc>`;
-    s += `</wpt>\n`;
-  }
-  for (const t of trks) {
-    s += `  <trk><name>${esc(t.name)}</name><trkseg>\n`;
-    for (const p of t.pts) {
-      s += `    <trkpt lat="${p[1]}" lon="${p[0]}">`;
-      if (p[2] != null) s += `<ele>${p[2]}</ele>`;
-      s += `</trkpt>\n`;
-    }
-    s += `  </trkseg></trk>\n`;
-  }
-  s += `</gpx>\n`;
-  return s;
+/** Prompt for a file and hand back its text. Resolves null if cancelled. */
+function pickFile(accept: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.addEventListener("change", () => {
+      const f = input.files?.[0];
+      if (!f) return resolve(null);
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ""));
+      r.onerror = () => resolve(null);
+      r.readAsText(f);
+    });
+    // No "cancel" event we can rely on across webviews; an abandoned picker
+    // simply never resolves, which is harmless here.
+    input.click();
+  });
 }
 
 function download(name: string, text: string, mime: string) {
@@ -72,17 +47,26 @@ function download(name: string, text: string, mime: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export function initWaypoints(map: maplibregl.Map) {
-  let waypoints: Waypoint[] = load<Waypoint>(WP_KEY);
-  let tracks: Track[] = load<Track>(TR_KEY);
+export async function initWaypoints(map: maplibregl.Map) {
+  const initial = await loadMarks();
+  let waypoints: Waypoint[] = initial.waypoints;
+  let tracks: Track[] = initial.tracks;
   const markers = new Map<string, maplibregl.Marker>();
 
   let recording = false;
   let recPts: Pt[] = [];
   let watchId: number | null = null;
 
-  const saveWp = () => localStorage.setItem(WP_KEY, JSON.stringify(waypoints));
-  const saveTr = () => localStorage.setItem(TR_KEY, JSON.stringify(tracks));
+  // Persisting is async now, but callers are all UI handlers that don't need to
+  // wait — surface a failure as a toast rather than swallowing it, since a
+  // silent save failure is exactly the kind of thing this change exists to stop.
+  const save = () => {
+    void saveMarks({ waypoints, tracks }).catch(() =>
+      toast("Couldn't save your marks to disk.", "error")
+    );
+  };
+  const saveWp = save;
+  const saveTr = save;
 
   // --- Waypoint markers (DOM markers survive setStyle) ---
   function addMarker(w: Waypoint) {
@@ -229,6 +213,84 @@ export function initWaypoints(map: maplibregl.Map) {
     toast("Exported griddown.gpx", "success");
   }
 
+  async function importGPX() {
+    const xml = await pickFile(".gpx,application/gpx+xml,text/xml");
+    if (xml == null) return;
+    let parsed;
+    try {
+      parsed = parseGPX(xml);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Couldn't read that GPX file.", "error");
+      return;
+    }
+    if (!parsed.waypoints.length && !parsed.tracks.length) {
+      toast("No waypoints or tracks found in that file.", "error");
+      return;
+    }
+    // Merge, never replace — an import shouldn't be able to destroy what you
+    // already have in the field.
+    waypoints = waypoints.concat(parsed.waypoints);
+    tracks = tracks.concat(parsed.tracks);
+    save();
+    refreshMarkers();
+    ensureTrackLayer();
+    renderList();
+    toast(
+      `Imported ${parsed.waypoints.length} pin(s) and ${parsed.tracks.length} track(s).`,
+      "success"
+    );
+  }
+
+  function backupAll() {
+    if (waypoints.length === 0 && tracks.length === 0) {
+      toast("Nothing to back up yet — drop a pin or record a track first.");
+      return;
+    }
+    const payload = {
+      app: "GridDown",
+      kind: "marks-backup",
+      version: 1,
+      exported: new Date().toISOString(),
+      settings: { ...localStorage },
+      waypoints,
+      tracks,
+    };
+    download("griddown-backup.json", JSON.stringify(payload, null, 2), "application/json");
+    toast("Exported griddown-backup.json", "success");
+  }
+
+  async function restoreAll() {
+    const text = await pickFile(".json,application/json");
+    if (text == null) return;
+    let data: any;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      toast("That file isn't valid JSON.", "error");
+      return;
+    }
+    const restored = normalize(data);
+    if (!restored.waypoints.length && !restored.tracks.length) {
+      toast("No marks found in that backup.", "error");
+      return;
+    }
+    // A restore replaces, so make the user say yes — with the counts, so they
+    // can see they're not about to trade a full set for an empty one.
+    const ok = confirm(
+      `Replace your current ${waypoints.length} pin(s) and ${tracks.length} track(s) ` +
+        `with ${restored.waypoints.length} pin(s) and ${restored.tracks.length} track(s) ` +
+        `from this backup?`
+    );
+    if (!ok) return;
+    waypoints = restored.waypoints;
+    tracks = restored.tracks;
+    save();
+    refreshMarkers();
+    ensureTrackLayer();
+    renderList();
+    toast("Backup restored.", "success");
+  }
+
   // --- Panel list ---
   function renderList() {
     const el = document.getElementById("marks-content");
@@ -288,6 +350,9 @@ export function initWaypoints(map: maplibregl.Map) {
     recording ? stopRec() : startRec()
   );
   document.getElementById("marks-export")?.addEventListener("click", exportGPX);
+  document.getElementById("marks-import")?.addEventListener("click", () => void importGPX());
+  document.getElementById("marks-backup")?.addEventListener("click", backupAll);
+  document.getElementById("marks-restore")?.addEventListener("click", () => void restoreAll());
 
   refreshMarkers();
   updateRecUi();

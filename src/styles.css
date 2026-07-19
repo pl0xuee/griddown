@@ -513,6 +513,12 @@ body {
   flex-direction: column;
   gap: 6px;
   margin: 10px 0;
+  /* #marks-panel is a flex column — without this the action row shrinks as
+     buttons are added, squashing them instead of scrolling the list below. */
+  flex: none;
+}
+#marks-actions button {
+  flex: none;
 }
 #marks-actions button {
   padding: 9px 10px;

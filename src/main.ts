@@ -432,7 +432,7 @@ async function start() {
     return { lat: c.lat, lng: c.lng };
   });
 
-  initWaypoints(map);
+  void initWaypoints(map);
   initMeasure(map);
   initGoto(map);
   initPanels();
