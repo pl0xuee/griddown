@@ -90,6 +90,61 @@ jobs:
           releaseName: "GridDown ${{ github.ref_name }}"
           releaseDraft: true
 
+      # The AppImage bundles libwayland-* and libepoxy from the build machine.
+      # Those talk to the HOST compositor and GPU driver, so a bundled 2022/2024
+      # copy fails to initialise EGL on a current rolling distro: v0.1.0 opened
+      # to a white window with no map on CachyOS + RX 9070, because WebGL was
+      # never available. Verified locally that deleting exactly these libs, so
+      # the host's own copies get used, fixes it.
+      #
+      # Repackaging changes the bytes, so the signature tauri-action produced no
+      # longer matches — the AppImage must be re-signed or the updater would
+      # reject it.
+      - name: Use the host graphics stack in the AppImage
+        if: startsWith(matrix.platform, 'ubuntu')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          cd src-tauri/target/release/bundle/appimage
+          APP=$(ls *.AppImage)
+          ./"$APP" --appimage-extract >/dev/null
+          rm -f squashfs-root/usr/lib/libwayland-*.so* squashfs-root/usr/lib/libepoxy.so*
+          curl -sLo appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          rm -f "$APP" "$APP.sig"
+          ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APP"
+          rm -rf squashfs-root appimagetool
+          cd "$GITHUB_WORKSPACE"
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/gd.key
+          npx tauri signer sign -f /tmp/gd.key -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
+            "src-tauri/target/release/bundle/appimage/$APP"
+          rm -f /tmp/gd.key
+          echo "APPIMAGE_NAME=$APP" >> "$GITHUB_ENV"
+
+      # tauri-action already uploaded the pre-fix AppImage (and a latest.json
+      # naming its old signature) when this run is for a tag. Replace both, or
+      # every Linux user downloads the broken one and no update verifies.
+      - name: Replace the released AppImage with the fixed one
+        if: startsWith(matrix.platform, 'ubuntu') && github.ref_type == 'tag'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          D=src-tauri/target/release/bundle/appimage
+          gh release upload "${{ github.ref_name }}" \
+            "$D/$APPIMAGE_NAME" "$D/$APPIMAGE_NAME.sig" --clobber
+          NEWSIG=$(cat "$D/$APPIMAGE_NAME.sig")
+          gh release download "${{ github.ref_name }}" -p latest.json -D /tmp --clobber
+          jq --arg sig "$NEWSIG" '.platforms |= with_entries(
+                if (.key | startswith("linux-"))
+                   and ((.value.url // "") | ascii_downcase | test("appimage"))
+                then .value.signature = $sig else . end)' \
+            /tmp/latest.json > /tmp/latest.fixed.json
+          mv /tmp/latest.fixed.json /tmp/latest.json
+          gh release upload "${{ github.ref_name }}" /tmp/latest.json --clobber
+
       # tauri-action only publishes installers when run on a tag. Manual runs
       # built them and threw them away, which made "test the real build" a
       # dead end — upload them so any run produces something downloadable.
