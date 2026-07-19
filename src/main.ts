@@ -446,7 +446,9 @@ function applyThemeUi() {
   if (themeBtn) themeBtn.textContent = currentTheme === "dark" ? "☀ Day" : "☾ Night";
   const terrBtn = document.getElementById("terrain-toggle");
   if (terrBtn) {
-    terrBtn.textContent = terrainOn ? "△ Terrain: on" : "△ Terrain: off";
+    // Label stays short ("Terrain"); on/off is shown by the dimmed .off state.
+    terrBtn.textContent = "△ Terrain";
+    terrBtn.title = terrainOn ? "Terrain: on" : "Terrain: off";
     terrBtn.classList.toggle("off", !terrainOn);
     terrBtn.classList.toggle("hidden", !terrainAvailable);
   }
@@ -477,6 +479,16 @@ refreshNetStatus();
 
 // --- Welcome screen (first run) + Map library panel open/close ---
 function initChrome() {
+  // Menu collapse toggle (☰) — hides everything but the bar; choice persists.
+  const hud = document.getElementById("hud");
+  if (hud && localStorage.getItem("griddown_menu_collapsed") === "1") {
+    hud.classList.add("collapsed");
+  }
+  document.getElementById("hud-toggle")?.addEventListener("click", () => {
+    const collapsed = hud?.classList.toggle("collapsed");
+    localStorage.setItem("griddown_menu_collapsed", collapsed ? "1" : "0");
+  });
+
   const welcome = document.getElementById("welcome");
   const startBtn = document.getElementById("welcome-start");
   if (welcome && !localStorage.getItem("griddown_welcomed")) {
@@ -500,7 +512,7 @@ function initChrome() {
   function applyNightVis(on: boolean) {
     document.body.classList.toggle("nightvis", on);
     nvBtn?.classList.toggle("on", on);
-    if (nvBtn) nvBtn.textContent = on ? "◉ Night vision: on" : "◑ Night vision: off";
+    if (nvBtn) nvBtn.textContent = on ? "◉ Night vis" : "◑ Night vis";
   }
   applyNightVis(localStorage.getItem("griddown_nightvis") === "1");
   nvBtn?.addEventListener("click", () => {

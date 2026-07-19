@@ -17,37 +17,52 @@
     <button id="coords" type="button" title="Tap to copy">&mdash;</button>
 
     <div id="hud">
-      <div id="hud-title">GRIDDOWN</div>
-      <div id="hud-state">&mdash;</div>
-      <div id="hud-status">
-        <span class="dot" id="net-dot"></span>
-        <span id="net-label">checking&hellip;</span>
-      </div>
-      <div id="hud-legend">
-        <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
-        <div class="legend-row"><span class="swatch trail"></span>Trail</div>
-        <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+      <div id="hud-bar">
+        <button id="hud-toggle" type="button" aria-label="Show or hide menu">&#9776;</button>
+        <div id="hud-brand">
+          <div id="hud-title">GRIDDOWN</div>
+          <div id="hud-state">&mdash;</div>
+        </div>
       </div>
 
-      <div class="hud-sub">RESOURCES</div>
-      <div id="hud-resources">
-        <button class="res-chip" data-res="water" type="button">💧 Water</button>
-        <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
-        <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
-        <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
-        <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
+      <div id="hud-body">
+        <div id="hud-status">
+          <span class="dot" id="net-dot"></span>
+          <span id="net-label">checking&hellip;</span>
+        </div>
+
+        <div class="hud-sub">VIEW</div>
+        <div class="hud-grid">
+          <button id="theme-toggle" type="button">&#9728; Day</button>
+          <button id="terrain-toggle" type="button">&#9651; Terrain</button>
+          <button id="nightvis-toggle" type="button">&#9681; Night vis</button>
+        </div>
+
+        <div class="hud-sub">TOOLS</div>
+        <div class="hud-grid">
+          <button id="states-open" type="button">&#9636; Map library</button>
+          <button id="handbook-open" type="button">&#9873; Handbook</button>
+          <button id="marks-open" type="button">&#9670; Marks</button>
+          <button id="measure-open" type="button">&#8901; Measure</button>
+          <button id="goto-open" type="button">&#8982; Go to</button>
+          <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
+        </div>
+
+        <div class="hud-sub">RESOURCES</div>
+        <div id="hud-resources">
+          <button class="res-chip" data-res="water" type="button">💧 Water</button>
+          <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
+          <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
+          <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
+          <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
+        </div>
+
+        <div id="hud-legend">
+          <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
+          <div class="legend-row"><span class="swatch trail"></span>Trail</div>
+          <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+        </div>
       </div>
-      <div id="hud-controls">
-        <button id="theme-toggle" type="button">&#9728; Day</button>
-        <button id="terrain-toggle" type="button">&#9651; Terrain: on</button>
-      </div>
-      <button id="nightvis-toggle" type="button">&#9681; Night vision: off</button>
-      <button id="states-open" type="button">&#9636; Map library</button>
-      <button id="handbook-open" type="button">&#9873; Survival handbook</button>
-      <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
-      <button id="marks-open" type="button">&#9670; Marks &amp; tracks</button>
-      <button id="measure-open" type="button">&#8901; Measure distance / area</button>
-      <button id="goto-open" type="button">&#8982; Go to grid / coords</button>
     </div>
 
     <!-- Go to coordinates -->

@@ -95,12 +95,6 @@ export async function initHandbook() {
   const panel = document.getElementById("handbook-panel");
   const search = document.getElementById("handbook-search") as HTMLInputElement | null;
 
-  try {
-    manual = await (await fetch("/handbook.json")).json();
-  } catch {
-    manual = null;
-  }
-
   function render() {
     if (!content) return;
     const q = (search?.value || "").toLowerCase().trim();
@@ -150,13 +144,22 @@ export async function initHandbook() {
     });
   }
 
-  search?.addEventListener("input", render);
-  render();
-
+  // Bind open/close + search and show the quick cards immediately, so the
+  // button always responds even before the (larger) field manual loads.
   document.getElementById("handbook-open")?.addEventListener("click", () => {
     panel?.classList.remove("hidden");
   });
   document.getElementById("handbook-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");
   });
+  search?.addEventListener("input", render);
+  render();
+
+  // Load the full public-domain field manual, then re-render to include it.
+  try {
+    manual = await (await fetch(`${location.origin}/handbook.json`)).json();
+  } catch {
+    manual = null;
+  }
+  render();
 }
