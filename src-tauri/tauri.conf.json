@@ -28,7 +28,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENEOEY1RTY4MEFBRkJGMEIKUldRTHY2OEthRjZQellYSnVoaFpTSU5LWmMxK2ZrR2NrdFRUNk5wekVBV0I5UmVTbVJ5eHNBMnUK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE0NzRBMjFFNjg5NzFGNzgKUldSNEg1ZG9IcUowRkpMVmJCUXZicmJXZm1BNzRNN0NGWldiNFI3Z2VqQnZOUjNpd01NZTI4SmUK",
       "endpoints": [
         "https://github.com/pl0xuee/griddown/releases/latest/download/latest.json"
       ]
