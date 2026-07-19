@@ -437,18 +437,26 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
       ]
     : [];
 
+  // Layer order is legibility: our line overlays (trails, forest roads,
+  // public-land boundaries) must sit ABOVE base roads but BELOW every label,
+  // or they strike through town names. Only our own labels + POI dots go on top.
+  const emph = emphasisLayers(t);
+  const emphLines = emph.filter((l) => l.type !== "symbol");
+  const emphLabels = emph.filter((l) => l.type === "symbol");
+  const overlayLines = [
+    ...(publicLandOn ? publicLandLines(themeName) : []),
+    ...emphLines,
+  ];
+  const firstSymbol = base.findIndex((l) => l.type === "symbol");
+  const at = firstSymbol >= 0 ? firstSymbol : base.length;
+  base.splice(at, 0, ...overlayLines);
+
   return {
     version: 8,
     glyphs: `${origin}/fonts/{fontstack}/{range}.pbf`,
     sprite: `${origin}/sprites/${t.sprite}`,
     sources,
-    layers: [
-      ...base,
-      ...(publicLandOn ? publicLandLines(themeName) : []),
-      ...emphasisLayers(t),
-      ...resourceLayers(t),
-      ...contourLabels,
-    ],
+    layers: [...base, ...emphLabels, ...resourceLayers(t), ...contourLabels],
   } as maplibregl.StyleSpecification;
 }
 

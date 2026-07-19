@@ -110,12 +110,17 @@ async function compute(map: maplibregl.Map): Promise<boolean> {
     existing.updateImage({ url, coordinates: coordsBox });
   } else {
     map.addSource(SRC, { type: "image", url, coordinates: coordsBox });
-    map.addLayer({
-      id: SRC,
-      type: "raster",
-      source: SRC,
-      paint: { "raster-opacity": 0.85, "raster-fade-duration": 0 },
-    });
+    // Under the labels — the tint should never drown a town name.
+    const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    map.addLayer(
+      {
+        id: SRC,
+        type: "raster",
+        source: SRC,
+        paint: { "raster-opacity": 0.85, "raster-fade-duration": 0 },
+      },
+      firstSymbol
+    );
   }
   return true;
 }
