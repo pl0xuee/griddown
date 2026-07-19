@@ -1,6 +1,18 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// A state abbreviation that is safe to paste into a path.
+///
+/// Every command below builds a filename from a caller-supplied abbreviation.
+/// Real ones are two letters, but nothing enforces that at the boundary, and a
+/// value containing `/`, `\` or `.` would escape the app-data directory — so
+/// `delete_state("../../x")` could remove a file outside it. Sanitize in one
+/// place rather than per call site: this was previously applied in
+/// import_pack/dem_dir but NOT in state_path/delete_state/download_state.
+fn safe_abbr(abbr: &str) -> String {
+    abbr.replace(['/', '\\', '.'], "_")
+}
+
 /// Directory where downloaded state basemaps live (inside the app data dir).
 fn states_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
@@ -29,7 +41,22 @@ fn read_marks(app: AppHandle) -> Result<String, String> {
     match std::fs::read_to_string(&p) {
         Ok(s) => Ok(s),
         // Fall back to the previous good copy if the main file is unreadable.
-        Err(_) => Ok(std::fs::read_to_string(p.with_extension("bak")).unwrap_or_default()),
+        Err(e) => match std::fs::read_to_string(p.with_extension("bak")) {
+            Ok(s) => Ok(s),
+            // Only "there is no file yet" may report as empty. Any other error
+            // (permissions, IO, bad UTF-8) must NOT look like a first run: the
+            // caller would render "no waypoints" and then save that emptiness
+            // straight over the user's real, irreplaceable marks.
+            Err(be) => {
+                if e.kind() == std::io::ErrorKind::NotFound
+                    && be.kind() == std::io::ErrorKind::NotFound
+                {
+                    Ok(String::new())
+                } else {
+                    Err(format!("couldn't read your saved marks: {e}"))
+                }
+            }
+        },
     }
 }
 
@@ -90,6 +117,7 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
 /// another device on a USB stick / SD card — no internet needed on either end.
 #[tauri::command]
 fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
+    let abbr = safe_abbr(&abbr);
     let src = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
     if !src.exists() {
         return Err("that state isn't downloaded".into());
@@ -128,7 +156,7 @@ fn import_pack(app: AppHandle, abbr: String, path: String) -> Result<(), String>
     if &head != b"PMTiles" {
         return Err("that file isn't a PMTiles map pack".into());
     }
-    let abbr = abbr.replace(['/', '\\', '.'], "_");
+    let abbr = safe_abbr(&abbr);
     let dest = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
     let tmp = dest.with_extension("part");
     std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
@@ -154,7 +182,7 @@ struct PackInfo {
 /// Directory holding a state's DEM tile pyramid ({z}/{x}/{y}.png).
 /// Per-state (not shared) so deleting a state cleanly deletes its terrain.
 fn dem_dir(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
-    let abbr = abbr.replace(['/', '\\', '.'], "_");
+    let abbr = safe_abbr(abbr);
     Ok(app
         .path()
         .app_data_dir()
@@ -267,14 +295,14 @@ fn list_installed(app: AppHandle) -> Result<Vec<String>, String> {
 #[tauri::command]
 fn state_path(app: AppHandle, abbr: String) -> Result<String, String> {
     Ok(states_dir(&app)?
-        .join(format!("{}.pmtiles", abbr))
+        .join(format!("{}.pmtiles", safe_abbr(&abbr)))
         .to_string_lossy()
         .to_string())
 }
 
 #[tauri::command]
 fn delete_state(app: AppHandle, abbr: String) -> Result<(), String> {
-    let p = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
+    let p = states_dir(&app)?.join(format!("{}.pmtiles", safe_abbr(&abbr)));
     if p.exists() {
         std::fs::remove_file(&p).map_err(|e| e.to_string())?;
     }
@@ -379,7 +407,15 @@ async fn download_dem(
                                 });
                                 if let Ok(Ok(bytes)) = res.map(|b| b) {
                                     let _ = std::fs::create_dir_all(path.parent().unwrap());
-                                    if std::fs::write(&path, &bytes).is_ok() {
+                                    // Write-then-rename. A plain write isn't atomic, so an
+                                    // interrupted download leaves a truncated PNG with a
+                                    // non-zero length — which the resume check above treats
+                                    // as "already have it", making the corrupt tile permanent
+                                    // and surfacing forever as a hole in the terrain.
+                                    let tmp = path.with_extension("part");
+                                    if std::fs::write(&tmp, &bytes).is_ok()
+                                        && std::fs::rename(&tmp, &path).is_ok()
+                                    {
                                         ok = true;
                                         break;
                                     }
@@ -466,8 +502,8 @@ async fn download_state(
 ) -> Result<String, String> {
     let bin = pmtiles_bin().ok_or("go-pmtiles binary not found")?;
     let dir = states_dir(&app)?;
-    let final_path = dir.join(format!("{}.pmtiles", abbr));
-    let tmp_path = dir.join(format!("{}.pmtiles.part", abbr));
+    let final_path = dir.join(format!("{}.pmtiles", safe_abbr(&abbr)));
+    let tmp_path = dir.join(format!("{}.pmtiles.part", safe_abbr(&abbr)));
 
     let app2 = app.clone();
     let abbr2 = abbr.clone();

@@ -198,6 +198,17 @@ export function initMeasure(map: maplibregl.Map) {
     return out;
   }
 
+  /** Longest run of consecutive missing samples — how far any fill has to reach. */
+  function longestNullRun(v: (number | null)[]): number {
+    let worst = 0;
+    let run = 0;
+    for (const m of v) {
+      run = m == null ? run + 1 : 0;
+      if (run > worst) worst = run;
+    }
+    return worst;
+  }
+
   // Fill isolated null samples by linear interpolation between known neighbors.
   function fillGaps(v: (number | null)[]): (number | null)[] {
     const out = v.slice();
@@ -286,6 +297,16 @@ export function initMeasure(map: maplibregl.Map) {
       return;
     }
 
+    // Interpolating across a long gap invents terrain that was never measured.
+    // A short dropout (isolated DEM noise) is fine to bridge silently; anything
+    // larger gets disclosed, and the line-of-sight verdict is withheld rather
+    // than computed from invented ground. Without this, 2 real samples out of
+    // 256 still produced a confident profile and a precise "Blocked at 0.59 mi".
+    const MAX_FILL_RUN = 3; // ~60 m at the ~20 m sample spacing
+    const missingPct = Math.round(((rawM.length - known) / rawM.length) * 100);
+    const gapRun = longestNullRun(rawM);
+    const trustworthy = gapRun <= MAX_FILL_RUN;
+
     const elevM = fillGaps(rawM) as number[];
     const elevFt = elevM.map((m) => m * 3.28084);
     const distMi = samples.map((s) => s.d / 1609.344);
@@ -313,10 +334,16 @@ export function initMeasure(map: maplibregl.Map) {
       const startFt = elevFt[0] + eyeFt;
       const endFt = elevFt[elevFt.length - 1] + tgtFt;
       sightFt = distMi.map((_, i) => startFt + (endFt - startFt) * (i / (distMi.length - 1)));
-      const los = lineOfSight(samples, elevM);
-      losRow = los.visible
-        ? `<div class="ms-prow ms-los ms-los-ok"><span>◉ Line of sight</span><span>Visible ✓</span></div>`
-        : `<div class="ms-prow ms-los ms-los-block"><span>◉ Line of sight</span><span>Blocked at ${los.blockAtMi!.toFixed(los.blockAtMi! < 10 ? 2 : 1)} mi ✗</span></div>`;
+      if (!trustworthy) {
+        // "Visible" and "Blocked at 0.59 mi" both read as measurements. Neither
+        // is one when the ground under the line was interpolated, so say so.
+        losRow = `<div class="ms-prow ms-los ms-los-unknown"><span>◉ Line of sight</span><span>Can't tell — terrain data missing</span></div>`;
+      } else {
+        const los = lineOfSight(samples, elevM);
+        losRow = los.visible
+          ? `<div class="ms-prow ms-los ms-los-ok"><span>◉ Line of sight</span><span>Visible ✓</span></div>`
+          : `<div class="ms-prow ms-los ms-los-block"><span>◉ Line of sight</span><span>Blocked at ${los.blockAtMi!.toFixed(los.blockAtMi! < 10 ? 2 : 1)} mi ✗</span></div>`;
+      }
     }
 
     profileView.innerHTML = `
@@ -329,6 +356,11 @@ export function initMeasure(map: maplibregl.Map) {
         <span>${lo.toLocaleString()}–${hi.toLocaleString()} ft</span>
         <span>${(total / 1609.344).toFixed(total / 1609.344 < 10 ? 2 : 1)} mi</span>
       </div>
+      ${
+        trustworthy
+          ? ""
+          : `<div class="ms-prow ms-gap"><span>⚠ ${missingPct}% of this path has no terrain data — the profile is drawn across the gaps, not measured.</span></div>`
+      }
       ${losRow}`;
   }
 

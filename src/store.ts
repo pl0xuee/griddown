@@ -78,6 +78,16 @@ function isTrack(t: any): t is Track {
   return t && typeof t.id === "string" && Array.isArray(t.pts);
 }
 
+// Set when the stored marks could not be read or parsed. While true we must
+// never write: "I couldn't read your marks" and "you have no marks" are the
+// same value in memory, and saving that emptiness destroys the real file.
+let readFailed = false;
+
+/** Did the last load fail? Callers should not present an empty list as fact. */
+export function marksUnreadable(): boolean {
+  return readFailed;
+}
+
 export async function loadMarks(): Promise<Marks> {
   if (!hasTauri()) return readLocalStorage();
 
@@ -85,8 +95,13 @@ export async function loadMarks(): Promise<Marks> {
   try {
     const raw = await invoke<string>("read_marks");
     if (raw.trim()) fromFile = normalize(JSON.parse(raw));
-  } catch {
-    fromFile = empty();
+    readFailed = false;
+  } catch (e) {
+    // Either the backend refused (a real IO error, not a missing file) or the
+    // JSON is corrupt. Both mean "unknown", not "empty".
+    readFailed = true;
+    console.error("[griddown] marks unreadable", e);
+    return empty();
   }
 
   // One-time migration: if the file is empty but localStorage still holds the
@@ -102,6 +117,14 @@ export async function loadMarks(): Promise<Marks> {
 }
 
 export async function saveMarks(m: Marks): Promise<void> {
+  // Refuse to write over marks we failed to read. Otherwise the first UI action
+  // after a failed load persists an empty set on top of the user's real data —
+  // and the .bak gets overwritten with it on the write after that.
+  if (readFailed) {
+    throw new Error(
+      "Not saving: your existing marks couldn't be read, and saving now would overwrite them. Restart the app; if it persists, restore from a backup."
+    );
+  }
   // Mirror to localStorage too: harmless, and it keeps a second copy around on
   // the off chance the app data dir is lost.
   writeLocalStorage(m);

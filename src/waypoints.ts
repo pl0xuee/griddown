@@ -170,7 +170,23 @@ export async function initWaypoints(map: maplibregl.Map) {
         ]);
         ensureTrackLayer();
       },
-      () => {},
+      // Swallowing this left the button reading "■ Stop recording" while nothing
+      // was ever captured — the user believes they're recording the route they
+      // walked, and finds out only when the track isn't there afterwards.
+      (err) => {
+        const why =
+          err.code === err.PERMISSION_DENIED
+            ? "location permission denied"
+            : err.code === err.POSITION_UNAVAILABLE
+              ? "no position fix available"
+              : "location timed out";
+        if (recPts.length === 0) {
+          toast(`Can't record a track — ${why}.`, "error", 6000);
+          stopRec();
+        } else {
+          toast(`Track recording interrupted — ${why}.`, "error", 5000);
+        }
+      },
       { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
     );
     updateRecUi();
@@ -182,6 +198,11 @@ export async function initWaypoints(map: maplibregl.Map) {
     if (recPts.length > 1) {
       tracks.push({ id: rid(), name: `Track ${tracks.length + 1}`, pts: recPts, t: Date.now() });
       saveTr();
+      toast(`Track saved — ${recPts.length} points.`, "success");
+    } else if (recPts.length > 0) {
+      // One point isn't a track, but discarding it without a word looks like
+      // the recording simply vanished.
+      toast("Not enough movement to save a track — nothing recorded.", "error");
     }
     recPts = [];
     ensureTrackLayer();

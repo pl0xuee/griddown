@@ -86,9 +86,14 @@ async function refreshInstalled() {
     const packs = await invoke<PackInfo[]>("pack_info");
     packInfo = new Map(packs.map((p) => [p.abbr, p]));
     installed = new Set(packInfo.keys());
-  } catch {
+  } catch (err) {
+    // Emptying these turns "I couldn't find out" into "you have nothing
+    // installed and no terrain" everywhere downstream — the Terrain button
+    // disappears and elevation/profile/viewshed all report no data for a state
+    // whose DEM is sitting on disk. Keep the failure visible.
     packInfo = new Map();
     installed = new Set();
+    toast(`Couldn't read your installed packs: ${err}`, "error", 6000);
   }
 }
 

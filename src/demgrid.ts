@@ -53,33 +53,69 @@ export function pixelAt(tile: DemTile, xf: number, yf: number): number | null {
 export async function loadElevationGrid(
   source: DemTileSource,
   bounds: { west: number; south: number; east: number; north: number },
-  z = 12
+  z = 12,
+  opts: { concurrency?: number; maxTiles?: number } = {}
 ): Promise<ElevationGrid> {
   const n = 2 ** z;
-  const x0 = Math.floor(tileXf(bounds.west, n));
-  const x1 = Math.floor(tileXf(bounds.east, n));
-  const y0 = Math.floor(tileYf(bounds.north, n)); // north = smaller y
-  const y1 = Math.floor(tileYf(bounds.south, n));
+  const { concurrency = 12, maxTiles = 2048 } = opts;
+
+  // Clamp latitude to the Mercator limit BEFORE projecting. tileYf(-90) is
+  // +Infinity (tan+sec cancels, log(0) = -Infinity), and a loop bounded by
+  // `y <= Infinity` never ends — a hard freeze of the webview, not a slow load.
+  const yTile = (lat: number) => {
+    const yf = tileYf(Math.min(85.0511, Math.max(-85.0511, lat)), n);
+    return Math.min(n - 1, Math.max(0, Math.floor(yf)));
+  };
+  const yTop = yTile(bounds.north); // north = smaller y
+  const yBot = yTile(bounds.south);
+
+  // Longitude wraps: a bbox straddling the antimeridian (the Aleutians are US
+  // territory and do straddle it) comes in with west > east once `destination`
+  // normalizes into (-180, 180]. Walking x0..x1 there covers nothing at all,
+  // which surfaced as "no elevation data" on a fully-installed DEM. Cover it
+  // as two runs instead.
+  const wrap = (v: number) => ((v % n) + n) % n;
+  const xL = wrap(Math.floor(tileXf(bounds.west, n)));
+  const xR = wrap(Math.floor(tileXf(bounds.east, n)));
+  const xs: number[] = [];
+  if (xL <= xR) {
+    for (let x = xL; x <= xR; x++) xs.push(x);
+  } else {
+    for (let x = xL; x < n; x++) xs.push(x);
+    for (let x = 0; x <= xR; x++) xs.push(x);
+  }
+
+  const wanted: [number, number][] = [];
+  for (const x of xs) {
+    for (let y = Math.min(yTop, yBot); y <= Math.max(yTop, yBot); y++) wanted.push([x, y]);
+  }
+  if (wanted.length > maxTiles) {
+    throw new Error(
+      `That area needs ${wanted.length} elevation tiles (limit ${maxTiles}). Use a smaller area or a lower zoom.`
+    );
+  }
 
   const tiles = new Map<string, DemTile>();
   let tilesMissing = 0;
-  const jobs: Promise<void>[] = [];
-  for (let x = x0; x <= x1; x++) {
-    for (let y = y0; y <= y1; y++) {
-      if (x < 0 || y < 0 || x >= n || y >= n) continue;
-      jobs.push(
-        source
-          .getDemTile(z, x, y)
-          .then((t) => {
-            tiles.set(`${x}/${y}`, t);
-          })
-          .catch(() => {
-            tilesMissing++;
-          })
-      );
+
+  // Bounded concurrency, NOT one promise per tile. The source times out
+  // individual fetches (~10 s in mlcontour) and its cache is smaller than a
+  // large working set, so firing hundreds at once makes the tail time out and
+  // thrash — reintroducing the dropped-sample bug this module exists to fix.
+  let next = 0;
+  const worker = async () => {
+    while (next < wanted.length) {
+      const [x, y] = wanted[next++];
+      try {
+        tiles.set(`${x}/${y}`, await source.getDemTile(z, x, y));
+      } catch {
+        tilesMissing++;
+      }
     }
-  }
-  await Promise.all(jobs);
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, wanted.length) }, () => worker())
+  );
 
   return {
     tilesLoaded: tiles.size,
@@ -87,7 +123,8 @@ export async function loadElevationGrid(
     sample(lng: number, lat: number) {
       const xf = tileXf(lng, n);
       const yf = tileYf(lat, n);
-      const tile = tiles.get(`${Math.floor(xf)}/${Math.floor(yf)}`);
+      if (!Number.isFinite(xf) || !Number.isFinite(yf)) return null;
+      const tile = tiles.get(`${wrap(Math.floor(xf))}/${Math.floor(yf)}`);
       return tile ? pixelAt(tile, xf, yf) : null;
     },
   };

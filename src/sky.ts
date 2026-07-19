@@ -7,6 +7,21 @@ function fmt(d: Date | undefined | null): string {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * Moonrise/moonset rows, honouring SunCalc's alwaysUp/alwaysDown flags.
+ *
+ * Without them both cases render as "—", so "the moon is up all night" (very
+ * good for moving after dark) is indistinguishable from "no result" — at high
+ * latitudes, where it actually happens, and where that light matters most.
+ */
+function moonUpDown(mt: { rise?: Date; set?: Date; alwaysUp?: boolean; alwaysDown?: boolean }): string {
+  const row = (k: string, v: string) =>
+    `<div class="sky-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
+  if (mt.alwaysUp) return row("Moon", "Up all night");
+  if (mt.alwaysDown) return row("Moon", "Never rises today");
+  return row("Moonrise", fmt(mt.rise)) + row("Moonset", fmt(mt.set));
+}
+
 function moonPhaseName(phase: number): string {
   if (phase < 0.03 || phase > 0.97) return "New moon";
   if (phase < 0.22) return "Waxing crescent";
@@ -63,8 +78,7 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
         <h4>☾ MOON</h4>
         <div class="sky-row"><span class="k">Phase</span><span class="v sky-moon-name">${moonPhaseName(moon.phase)}</span></div>
         <div class="sky-row"><span class="k">Illumination</span><span class="v">${Math.round(moon.fraction * 100)}%</span></div>
-        <div class="sky-row"><span class="k">Moonrise</span><span class="v">${fmt(mt.rise)}</span></div>
-        <div class="sky-row"><span class="k">Moonset</span><span class="v">${fmt(mt.set)}</span></div>
+        ${moonUpDown(mt)}
       </div>`;
   }
 

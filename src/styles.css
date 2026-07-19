@@ -543,6 +543,16 @@ body {
 .ms-los-block {
   color: #ff9a9a;
 }
+/* Neither visible nor blocked — the terrain under the line is unknown. */
+.ms-los-unknown {
+  color: #ffd54a;
+}
+/* Gap disclosure: the profile is drawn across missing data, not measured. */
+.ms-gap {
+  color: #ffd54a;
+  font-size: 10px;
+  line-height: 1.35;
+}
 
 /* --- Marks & tracks panel --- */
 #marks-panel {

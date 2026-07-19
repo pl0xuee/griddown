@@ -125,8 +125,18 @@ const RESOURCE_CATS: Record<string, { color: string; kinds: string[] }> = {
   },
 };
 
+// Parsed defensively: this runs at module scope, so a corrupt value would throw
+// before start() and the app would never boot again — with no way to recover
+// short of clearing storage by hand. A lost overlay preference is nothing.
 let activeResources = new Set<string>(
-  JSON.parse(localStorage.getItem("griddown_resources") || "[]")
+  (() => {
+    try {
+      const v = JSON.parse(localStorage.getItem("griddown_resources") || "[]");
+      return Array.isArray(v) ? (v as string[]) : [];
+    } catch {
+      return [];
+    }
+  })()
 );
 
 // Public-land overlay: where you can legally be — and where you really can't.
@@ -487,19 +497,53 @@ document.body.style.background = THEME[currentTheme].bg;
  * loaded the region file. Check it up front and say so plainly.
  */
 async function checkBasemap(file: string): Promise<string | null> {
+  // Never wait forever on a check whose only job is to explain a failure.
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 5000);
   try {
-    const r = await fetch(`${origin}/mapdata/${file}`, { headers: { Range: "bytes=0-6" } });
-    if (!r.ok && r.status !== 206) {
+    const r = await fetch(`${origin}/mapdata/${file}`, {
+      headers: { Range: "bytes=0-6" },
+      signal: ctl.signal,
+    });
+    if (!r.ok) {
       return `Basemap ${file} is missing (HTTP ${r.status}). Reinstall it or pick a downloaded pack.`;
     }
-    const magic = new TextDecoder().decode(await r.arrayBuffer());
-    if (!magic.startsWith("PMTiles")) {
+    // Read only the first bytes off the stream. NOT `r.arrayBuffer()`: a server
+    // that ignores Range answers 200 with the whole archive, and buffering a
+    // ~500 MB basemap to check 7 characters would hang or OOM the app at
+    // startup — the opposite of what this check is for.
+    const head = r.body ? await firstBytes(r.body, 7) : new Uint8Array();
+    if (!new TextDecoder().decode(head).startsWith("PMTiles")) {
       return `Basemap ${file} isn't a PMTiles archive — it may be truncated.`;
     }
     return null;
   } catch (e) {
+    // A timeout says the read was slow, not that the file is absent — don't
+    // cry wolf about a basemap that may be perfectly fine.
+    if (ctl.signal.aborted) return null;
     return `Can't read basemap ${file}: ${e instanceof Error ? e.message : String(e)}`;
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** First n bytes of a stream, then cancel it — never buffers the whole body. */
+async function firstBytes(body: ReadableStream<Uint8Array>, n: number): Promise<Uint8Array> {
+  const reader = body.getReader();
+  const out = new Uint8Array(n);
+  let got = 0;
+  try {
+    while (got < n) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = Math.min(n - got, value.length);
+      out.set(value.subarray(0, take), got);
+      got += take;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  return out.subarray(0, got);
 }
 
 async function start() {
@@ -509,8 +553,16 @@ async function start() {
   const stateEl = document.getElementById("hud-state");
   if (stateEl) stateEl.textContent = region.name;
 
-  // Only blocks the bundled region; a downloaded pack overrides it moments later.
-  const basemapProblem = await checkBasemap(region.pmtiles);
+  // Start the check but DON'T await it here: nothing about creating the map
+  // depends on the answer, and awaiting would let a slow or stalled read delay
+  // — or with no timeout, permanently prevent — the map ever being built.
+  //
+  // Skip it entirely when a downloaded pack is active: that pack replaces the
+  // bundled region seconds later, so complaining about a region file nothing
+  // will read is a false alarm for anyone running purely off packs.
+  const basemapCheck = localStorage.getItem("griddown_active_state")
+    ? Promise.resolve(null)
+    : checkBasemap(region.pmtiles);
 
   map = new maplibregl.Map({
     container: "map",
@@ -529,10 +581,11 @@ async function start() {
     console.error("[map error]", e && (e as any).error ? (e as any).error : e);
   });
 
-  if (basemapProblem) {
-    surfaceError(basemapProblem);
-    toast(basemapProblem, "error");
-  }
+  void basemapCheck.then((problem) => {
+    if (!problem) return;
+    surfaceError(problem);
+    toast(problem, "error");
+  });
 
   document.getElementById("theme-toggle")?.addEventListener("click", () => {
     currentTheme = currentTheme === "dark" ? "light" : "dark";
@@ -629,8 +682,15 @@ async function start() {
     const m = await sampleElevationM(c.lng, c.lat);
     return m == null ? null : m * 3.28084;
   }
+  // Coordinates update synchronously on `move`, elevation resolves async — so
+  // without a generation token a slow lookup from an earlier position can land
+  // after a later one and be displayed beside the *current* lat/lng. A wrong
+  // elevation that looks authoritative is worse than none.
+  let elevGen = 0;
   async function updateElevation() {
+    const gen = ++elevGen;
     const ft = await centerElevationFt();
+    if (gen !== elevGen) return; // superseded by a newer position
     lastElev = ft == null ? "" : `${Math.round(ft).toLocaleString()} ft`;
     renderCoords();
   }

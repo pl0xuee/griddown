@@ -61,22 +61,40 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   const south = destination(c.lng, c.lat, Math.PI, radiusM)[1];
 
   // One fetch per DEM tile over the whole sweep, then sample synchronously.
-  const dem = await loadElevationGrid({ west, south, east, north });
+  let dem;
+  try {
+    dem = await loadElevationGrid({ west, south, east, north });
+  } catch (e) {
+    toast(e instanceof Error ? e.message : String(e), "error");
+    return { ok: false, radiusM, noData: 0, total: 0, tilesMissing: 0 };
+  }
   const obs = dem.sample(c.lng, c.lat);
   if (obs == null) {
-    toast("No elevation data here — viewshed needs terrain.", "error");
+    // Distinguish "this pack has no terrain" from "the terrain failed to load".
+    // Telling someone to download terrain they already have is a dead end.
+    toast(
+      dem.tilesMissing > 0 && dem.tilesLoaded === 0
+        ? `Couldn't load terrain here — all ${dem.tilesMissing} elevation tiles failed. Try again, or a smaller range.`
+        : "No elevation data here — viewshed needs terrain.",
+      "error"
+    );
     return { ok: false, radiusM, noData: 0, total: 0, tilesMissing: dem.tilesMissing };
   }
 
   const grid = new Float64Array(RAYS * steps).fill(NaN);
-  const coords: [number, number][] = new Array(RAYS * steps);
+  // Flat typed arrays, not an array of [lng,lat] pairs: at 50 km that would be
+  // 360,000 two-element JS arrays (tens of MB of object overhead) on a webview
+  // already documented as fragile under memory pressure.
+  const lngs = new Float64Array(RAYS * steps);
+  const lats = new Float64Array(RAYS * steps);
   let noData = 0;
   for (let r = 0; r < RAYS; r++) {
     const bearing = (r / RAYS) * 2 * Math.PI;
     for (let s = 1; s <= steps; s++) {
       const [lng, lat] = destination(c.lng, c.lat, bearing, s * STEP_M);
       const i = r * steps + (s - 1);
-      coords[i] = [lng, lat];
+      lngs[i] = lng;
+      lats[i] = lat;
       const e = dem.sample(lng, lat);
       if (e == null) noData++;
       else grid[i] = e;
@@ -99,12 +117,19 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   canvas.width = SIZE;
   canvas.height = SIZE;
   const ctx = canvas.getContext("2d")!;
+  // Degrees east of the west edge, wrapping the antimeridian. A raw
+  // `lng - west` goes negative for a bbox straddling ±180 (the Aleutians),
+  // putting every dot off-canvas.
+  const lngSpan = ((east - west) % 360 + 360) % 360 || 360;
+  const eastOf = (lng: number) => (((lng - west) % 360) + 360) % 360;
   ctx.fillStyle = "rgba(80, 220, 120, 0.4)";
   for (let r = 0; r < RAYS; r++) {
     for (let s = 0; s < steps; s++) {
-      if (!result.visible[r * steps + s]) continue;
-      const [lng, lat] = coords[r * steps + s];
-      const x = ((lng - west) / (east - west)) * SIZE;
+      const i = r * steps + s;
+      if (!result.visible[i]) continue;
+      const lng = lngs[i];
+      const lat = lats[i];
+      const x = (eastOf(lng) / lngSpan) * SIZE;
       const y = ((north - lat) / (north - south)) * SIZE;
       // Dot size grows with distance so the ray fan stays gap-free.
       const px = (1.6 + (s / steps) * 2.6) * (SIZE / 512);
@@ -117,10 +142,13 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   ctx.arc(SIZE / 2, SIZE / 2, 4, 0, 2 * Math.PI);
   ctx.fill();
 
+  // Use an unwrapped east edge (may exceed 180) so the quad stays non-degenerate
+  // across the antimeridian; MapLibre accepts continuous longitudes here.
+  const eastBox = west + lngSpan;
   const coordsBox: [[number, number], [number, number], [number, number], [number, number]] = [
     [west, north],
-    [east, north],
-    [east, south],
+    [eastBox, north],
+    [eastBox, south],
     [west, south],
   ];
   const existing = map.getSource(SRC) as maplibregl.ImageSource | undefined;
@@ -185,7 +213,13 @@ export function initViewshed(getMap: () => maplibregl.Map) {
       // No-data reads as "not visible" on the map, so name it rather than let
       // a gap in the terrain masquerade as a blocked sightline.
       const gaps = res.total ? Math.round((res.noData / res.total) * 100) : 0;
-      if (gaps >= 5) {
+      if (res.tilesMissing > 0) {
+        toast(
+          `${res.tilesMissing} elevation tile(s) failed to load — the unshaded areas may be data gaps, not blocked ground.`,
+          "error",
+          8000
+        );
+      } else if (gaps >= 5) {
         toast(
           `Green = visible (${km} km). ${gaps}% of the sweep has no terrain data — those areas are unshaded, not blocked.`,
           "info"

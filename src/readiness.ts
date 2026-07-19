@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { loadMarks } from "./store";
+import { loadMarks, marksUnreadable } from "./store";
 
 // "Are you ready to go dark?" — a preflight check.
 //
@@ -122,15 +122,35 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
 
   // --- Your own data ---
   const marks = await loadMarks();
+  const unreadable = marksUnreadable();
   const n = marks.waypoints.length + marks.tracks.length;
-  checks.push({
-    label: "Your marks",
-    level: "ok",
-    detail: `${marks.waypoints.length} pin(s), ${marks.tracks.length} track(s), saved to disk.`,
-  });
+  if (unreadable) {
+    // The whole point of this panel is catching exactly this before it matters.
+    // An empty list here means "couldn't read", not "none" — reporting it as
+    // healthy is the worst answer available.
+    checks.push({
+      label: "Your marks",
+      level: "bad",
+      detail: "Couldn't read your saved marks — the file may be damaged.",
+      fix: "Restart the app. If this persists, restore from your most recent backup — don't add new pins first, that could overwrite them.",
+    });
+  } else {
+    checks.push({
+      label: "Your marks",
+      level: "ok",
+      detail: `${marks.waypoints.length} pin(s), ${marks.tracks.length} track(s), saved to disk.`,
+    });
+  }
 
   const last = Number(localStorage.getItem(BACKUP_KEY) || 0);
-  if (n === 0) {
+  if (unreadable) {
+    checks.push({
+      label: "Backup",
+      level: "bad",
+      detail: "Can't tell — your marks couldn't be read.",
+      fix: "Sort out the marks problem above first.",
+    });
+  } else if (n === 0) {
     checks.push({
       label: "Backup",
       level: "ok",
