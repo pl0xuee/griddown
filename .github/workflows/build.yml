@@ -117,10 +117,10 @@ jobs:
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run squashfs-root "$APP"
           rm -rf squashfs-root appimagetool
           cd "$GITHUB_WORKSPACE"
-          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/gd.key
-          npx tauri signer sign -f /tmp/gd.key -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" \
-            "src-tauri/target/release/bundle/appimage/$APP"
-          rm -f /tmp/gd.key
+          # No -f/-p flags: the CLI already reads TAURI_SIGNING_PRIVATE_KEY and
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD from the environment, and passing
+          # a key path as well is rejected as a conflicting argument.
+          npx tauri signer sign "src-tauri/target/release/bundle/appimage/$APP"
           echo "APPIMAGE_NAME=$APP" >> "$GITHUB_ENV"
 
       # tauri-action already uploaded the pre-fix AppImage (and a latest.json
