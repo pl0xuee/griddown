@@ -6,6 +6,9 @@
 // with `alpha`, where heading = 360 - alpha.
 // Desktops usually have no magnetometer — say so instead of spinning aimlessly.
 
+const NO_SENSOR =
+  "No compass on this device. Most desktops have no magnetometer — use a phone or tablet in the field.";
+
 const CARDINALS = [
   "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
@@ -56,10 +59,7 @@ export function initCompass() {
     window.addEventListener("deviceorientation", onOrientation);
 
     noSensorTimer = window.setTimeout(() => {
-      if (!gotReading && note) {
-        note.textContent =
-          "No compass on this device. Most desktops have no magnetometer — use a phone or tablet in the field.";
-      }
+      if (!gotReading && note) note.textContent = NO_SENSOR;
     }, 3000);
   }
 
@@ -71,10 +71,20 @@ export function initCompass() {
   }
 
   document.getElementById("compass-open")?.addEventListener("click", async () => {
+    // Read the constructor off `window`, never as a bare global: WebKitGTK
+    // doesn't define DeviceOrientationEvent at all, and a bare reference to an
+    // undeclared binding throws ReferenceError before any `?.` can guard it —
+    // which killed the whole handler on Linux instead of showing the fallback.
+    const doe = (window as any).DeviceOrientationEvent;
+    if (!doe) {
+      box?.classList.remove("hidden");
+      if (readout) readout.textContent = "—";
+      if (note) note.textContent = NO_SENSOR;
+      return;
+    }
     // iOS gates the sensor behind a permission prompt that MUST come from a
     // user gesture — this click is that gesture.
-    const doe = DeviceOrientationEvent as any;
-    if (typeof doe?.requestPermission === "function") {
+    if (typeof doe.requestPermission === "function") {
       try {
         const res = await doe.requestPermission();
         if (res !== "granted") {
