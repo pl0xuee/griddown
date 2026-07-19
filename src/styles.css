@@ -277,6 +277,49 @@ body {
   opacity: 0.5;
 }
 
+/* Range picker sitting in the tool grid — match the buttons around it.
+   appearance:none is load-bearing: without it WebKit paints its own control
+   chrome (a blue field on this platform) straight through the theme. */
+.hud-grid select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 7px 18px 7px 6px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background-color: rgba(30, 40, 30, 0.9);
+  /* Caret drawn inline so it stays offline-safe (no external asset). */
+  background-image: linear-gradient(45deg, transparent 50%, #cdeccd 50%),
+    linear-gradient(135deg, #cdeccd 50%, transparent 50%);
+  background-position: right 9px center, right 5px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.2px;
+  text-align: left;
+  cursor: pointer;
+  pointer-events: auto;
+  width: 100%;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.hud-grid select:hover {
+  background-color: rgba(50, 70, 50, 0.95);
+  border-color: rgba(150, 230, 150, 0.7);
+}
+
+.hud-grid select:focus {
+  outline: none;
+  border-color: rgba(150, 230, 150, 0.7);
+}
+
+/* The dropdown list itself is drawn by the platform — theme what we can. */
+.hud-grid select option {
+  background: #1e281e;
+  color: #cdeccd;
+}
+
 
 /* Go-to coordinates box (top-center, like the measure readout) */
 #goto-box {
