@@ -295,14 +295,46 @@ const DARK_ROAD_COLORS: [RegExp, string][] = [
   [/_(minor_service|other|taxiway|runway|pier)$/, "#636b78"],
 ];
 
+// Labels get the same treatment: the stock flavor's #3d–#7a greys drown in
+// hillshade and overlay shading. Bright text + a strong dark halo.
+const DARK_LABEL_COLORS: [RegExp, string][] = [
+  [/^places_locality$/, "#eef1f6"], // cities & towns — the ones you navigate by
+  [/^places_subplace$/, "#c3cad4"],
+  [/^places_region$/, "#a8afba"],
+  [/^places_country$/, "#8f96a3"],
+  [/^roads_labels_major$/, "#c9cfd9"],
+  [/^roads_labels_minor$/, "#a5acb8"],
+  [/^(water_|earth_label)/, "#8fa8c4"],
+  [/^address_label$/, "#7d8490"],
+];
+
 function brightenDarkRoads(base: any[]) {
   for (const l of base) {
-    if (l.type !== "line" || typeof l.id !== "string") continue;
-    if (!l.id.startsWith("roads_") || l.id.includes("casing") || l.id.includes("tunnels")) continue;
-    for (const [re, color] of DARK_ROAD_COLORS) {
-      if (re.test(l.id)) {
-        l.paint = { ...l.paint, "line-color": color };
-        break;
+    if (typeof l.id !== "string") continue;
+    if (
+      l.type === "line" &&
+      l.id.startsWith("roads_") &&
+      !l.id.includes("casing") &&
+      !l.id.includes("tunnels")
+    ) {
+      for (const [re, color] of DARK_ROAD_COLORS) {
+        if (re.test(l.id)) {
+          l.paint = { ...l.paint, "line-color": color };
+          break;
+        }
+      }
+    }
+    if (l.type === "symbol") {
+      for (const [re, color] of DARK_LABEL_COLORS) {
+        if (re.test(l.id)) {
+          l.paint = {
+            ...l.paint,
+            "text-color": color,
+            "text-halo-color": "#0b0d11",
+            "text-halo-width": 1.7,
+          };
+          break;
+        }
       }
     }
   }
