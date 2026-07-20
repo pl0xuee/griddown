@@ -686,6 +686,8 @@ async function start() {
       noMapNotice = true;
       const el = document.getElementById("net-label");
       if (el) el.textContent = "No map yet — open Map packs";
+      watchPlaceholderStyleReloads(map);
+      void showPlaceholderStates(map);
       toast("Welcome. Open ▤ Map packs and download your state to get started.", "info", 9000);
       return;
     }
@@ -724,11 +726,13 @@ async function start() {
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
-    // A map is now loaded, so retract any "no map yet" notice.
+    // A map is now loaded, so retract any "no map yet" notice — and the
+    // placeholder outlines with it, or they would sit on top of the real map.
     if (noMapNotice) {
       noMapNotice = false;
       refreshNetStatus();
     }
+    hidePlaceholderStates(map);
     // Drop the protocol's cached instance for this file — after a pack refresh
     // the bytes on disk changed but the URL didn't, and a stale cached header/
     // directory would point at the wrong tile offsets.
@@ -951,6 +955,143 @@ window.addEventListener("online", refreshNetStatus);
 window.addEventListener("offline", refreshNetStatus);
 refreshNetStatus();
 
+// --- First-run placeholder ---
+
+/** Source and layer ids for the placeholder, so it can be removed cleanly. */
+const PLACEHOLDER_SRC = "griddown-placeholder-states";
+const PLACEHOLDER_LAYERS = [
+  "griddown-placeholder-fill",
+  "griddown-placeholder-line",
+  "griddown-placeholder-label",
+];
+
+/**
+ * Whether the placeholder should be on screen at all.
+ *
+ * Two separate problems need this, and both are invisible without it:
+ *
+ * Changing the theme, terrain, public land, battery saver or any overlay chip
+ * rebuilds the whole style, which drops every layer added to it — so the
+ * outlines would disappear on the first tap and never return. Every other
+ * custom layer here already re-adds itself on `style.load`; this one did not.
+ *
+ * And the state list can activate an already-installed pack a moment after the
+ * "no map" path starts, while this is still awaiting states.json. Without a
+ * flag to check on arrival, the outlines would be added *over* a real map — an
+ * opaque fill covering the thing the user came for.
+ */
+let placeholderWanted = false;
+/** The features, cached so a style rebuild does not re-fetch them. */
+let placeholderFeatures: GeoJSON.Feature[] | null = null;
+
+/**
+ * Draw the states as outlines on a fresh install.
+ *
+ * A brand-new install has no map data at all — correctly, since a single state
+ * is hundreds of megabytes — and until now that meant opening the app to an
+ * empty void with a notice over it. That reads as broken even when it isn't,
+ * and it is the first thing an App Store reviewer would see.
+ *
+ * Drawn from `public/states.json`, which already ships for the download list,
+ * so this costs no new bundled data. It doubles as an index of what there is to
+ * download rather than being decoration.
+ */
+async function showPlaceholderStates(map: maplibregl.Map): Promise<void> {
+  placeholderWanted = true;
+  try {
+    if (!placeholderFeatures) {
+      const r = await fetch(`${origin}/states.json`, { cache: "no-store" });
+      if (!r.ok) return;
+      const raw = (await r.json()) as unknown;
+      const rows = (Array.isArray(raw) ? raw : (raw as any)?.states) as
+        | { abbr: string; name: string; bbox: [number, number, number, number] }[]
+        | undefined;
+      if (!rows?.length) return;
+
+      placeholderFeatures = rows
+        .filter((s) => Array.isArray(s.bbox) && s.bbox.length === 4)
+        .map((s) => {
+          const [w, so, e, n] = s.bbox;
+          return {
+            type: "Feature" as const,
+            properties: { abbr: s.abbr, name: s.name },
+            geometry: {
+              type: "Polygon" as const,
+              coordinates: [[[w, so], [e, so], [e, n], [w, n], [w, so]]],
+            },
+          };
+        });
+    }
+    const features = placeholderFeatures;
+    if (!features?.length) return;
+
+    // A pack may have loaded while states.json was in flight. Painting an
+    // opaque fill over a real map is worse than showing nothing.
+    if (!placeholderWanted) return;
+    if (map.getSource(PLACEHOLDER_SRC)) return;
+
+    map.addSource(PLACEHOLDER_SRC, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features },
+    });
+    map.addLayer({
+      id: "griddown-placeholder-fill",
+      type: "fill",
+      source: PLACEHOLDER_SRC,
+      paint: { "fill-color": "#1d2a1d", "fill-opacity": 0.55 },
+    });
+    map.addLayer({
+      id: "griddown-placeholder-line",
+      type: "line",
+      source: PLACEHOLDER_SRC,
+      paint: { "line-color": "#4d7a4d", "line-width": 1 },
+    });
+    map.addLayer({
+      id: "griddown-placeholder-label",
+      type: "symbol",
+      source: PLACEHOLDER_SRC,
+      layout: {
+        "text-field": ["get", "abbr"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11,
+        "text-allow-overlap": false,
+      },
+      paint: {
+        "text-color": "#7dd67d",
+        "text-halo-color": "#0a0f0a",
+        "text-halo-width": 1.2,
+      },
+    });
+  } catch {
+    // Purely cosmetic — a fresh install without it is what shipped before.
+  }
+}
+
+/** Take the placeholder away once real map data is on screen, for good. */
+function hidePlaceholderStates(map: maplibregl.Map): void {
+  // Cleared first: a fetch still in flight checks this before drawing anything.
+  placeholderWanted = false;
+  for (const id of PLACEHOLDER_LAYERS) {
+    if (map.getLayer(id)) map.removeLayer(id);
+  }
+  if (map.getSource(PLACEHOLDER_SRC)) map.removeSource(PLACEHOLDER_SRC);
+}
+
+/**
+ * Put the placeholder back after a style rebuild.
+ *
+ * Every style change — theme, terrain, public land, battery saver, an overlay
+ * chip — throws away the layers added to the old style. This is the same
+ * `style.load` re-add that mvum, mesh, measure, waypoints, viewshed and route
+ * all do; the placeholder was the one that lacked it.
+ */
+function watchPlaceholderStyleReloads(map: maplibregl.Map): void {
+  map.on("style.load", () => {
+    if (!placeholderWanted) return;
+    void showPlaceholderStates(map);
+  });
+}
+
 // --- Bottom sheet (phones only) ---
 
 /** Must match the breakpoint the sheet styles are written against. */
@@ -977,8 +1118,8 @@ function syncMenuHidden(hud: HTMLElement | null) {
 function setSheet(hud: HTMLElement, state: SheetState) {
   hud.classList.remove(...SHEET_STATES);
   hud.classList.add(state);
-  // Drop any height left behind by a drag, so the class governs again.
-  hud.style.height = "";
+  // Drop the transform a drag left behind, so the class governs again.
+  hud.style.transform = "";
   localStorage.setItem("griddown_sheet", state);
 }
 
@@ -997,8 +1138,46 @@ function setupSheet(hud: HTMLElement) {
   const stored = localStorage.getItem("griddown_sheet") as SheetState | null;
   hud.classList.add(stored && SHEET_STATES.includes(stored) ? stored : "sheet-half");
 
+  // The desktop panel's collapsed state means nothing to a sheet, and a choice
+  // made on a desktop must not arrive on the phone as a menu that will not
+  // open. The sheet's own resting position is the only state here.
+  //
+  // Re-checked whenever the breakpoint is crossed, not just at startup: an
+  // iPhone in landscape is 844px wide, which is the desktop layout with a
+  // working ☰. Collapse it there, rotate back to portrait, and `menu-hidden`
+  // would still be on <body> — dropping the scale bar and coordinates back
+  // underneath the sheet, the exact overlap the sheet exists to avoid.
+  const phoneQuery = window.matchMedia(PHONE);
+  const dropDesktopState = () => {
+    if (!phoneQuery.matches) return;
+    hud.classList.remove("collapsed");
+    document.body.classList.remove("menu-hidden");
+  };
+  dropDesktopState();
+  // addEventListener on MediaQueryList is Safari 14+; addListener is the
+  // deprecated fallback for anything older, which this app still targets.
+  if (typeof phoneQuery.addEventListener === "function") {
+    phoneQuery.addEventListener("change", dropDesktopState);
+  } else if (typeof (phoneQuery as any).addListener === "function") {
+    (phoneQuery as any).addListener(dropDesktopState);
+  }
+
+  /** Distance a finger must travel before this counts as a drag, not a tap. */
+  const DRAG_SLOP = 4;
+
   let startY = 0;
-  let startH = 0;
+  /** How far the sheet was pushed down when the drag began, in px. */
+  let startShift = 0;
+  let moved = false;
+
+  /**
+   * How far the sheet is currently pushed down.
+   *
+   * Untranslated it sits flush with the bottom, so its top would be at
+   * `innerHeight - height`. Anything below that is the shift.
+   */
+  const currentShift = () =>
+    hud.getBoundingClientRect().top - (window.innerHeight - hud.offsetHeight);
   /**
    * Which pointer owns the drag, or null when idle.
    *
@@ -1010,24 +1189,32 @@ function setupSheet(hud: HTMLElement) {
   let activeId: number | null = null;
 
   const down = (e: PointerEvent) => {
-    // A tap on ☰ is a button press, not a drag — let it through. And once the
-    // menu is hidden the bar is a corner pill, which does not resize.
-    if (!isPhone() || hud.classList.contains("collapsed")) return;
-    if ((e.target as HTMLElement).closest("#hud-toggle")) return;
+    if (!isPhone()) return;
     if (activeId !== null) return;
     activeId = e.pointerId;
+    moved = false;
     startY = e.clientY;
-    startH = hud.getBoundingClientRect().height;
+    startShift = currentShift();
+    // Pin the sheet where it actually is before killing the transition. Caught
+    // mid-animation, `dragging` would otherwise snap it straight to the class's
+    // target — a jump on touch-down, then a second jump back on the first move.
+    hud.style.transform = `translateY(${startShift}px)`;
     hud.classList.add("dragging");
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const move = (e: PointerEvent) => {
     if (e.pointerId !== activeId) return;
-    // Up is negative in client coords, and up should make the sheet taller.
-    const h = startH + (startY - e.clientY);
-    const max = window.innerHeight * 0.92;
-    hud.style.height = `${Math.max(40, Math.min(max, h))}px`;
+    const dy = e.clientY - startY;
+    // Ignore the first few pixels so a tap on the bar doesn't nudge the sheet.
+    if (!moved && Math.abs(dy) < DRAG_SLOP) return;
+    moved = true;
+
+    // Only the transform changes, so this costs a composite and no layout —
+    // which is the whole reason the sheet moves instead of resizing.
+    const limit = hud.offsetHeight - 48;
+    const shift = Math.max(0, Math.min(limit, startShift + dy));
+    hud.style.transform = `translateY(${shift}px)`;
   };
 
   const up = (e: PointerEvent) => {
@@ -1035,13 +1222,20 @@ function setupSheet(hud: HTMLElement) {
     activeId = null;
     hud.classList.remove("dragging");
 
-    // Snap to whichever rest position the sheet ended up nearest. Thresholds
-    // rather than measured peek height: the peek is defined in CSS with a safe
-    // area inset in it, and re-deriving that here is how the two drift apart.
-    const h = hud.getBoundingClientRect().height;
+    if (!moved) {
+      // A tap, not a drag. Leave the resting position alone.
+      hud.style.transform = "";
+      return;
+    }
+
+    // Snap by how much of the sheet is showing. Measured before clearing the
+    // transform, and against thresholds rather than the peek height — the peek
+    // is defined in CSS with a safe-area inset in it, and re-deriving that here
+    // is how the two drift apart.
+    const visible = hud.offsetHeight - currentShift();
     const vh = window.innerHeight;
-    if (h < vh * 0.28) setSheet(hud, "sheet-peek");
-    else if (h < vh * 0.67) setSheet(hud, "sheet-half");
+    if (visible < vh * 0.28) setSheet(hud, "sheet-peek");
+    else if (visible < vh * 0.67) setSheet(hud, "sheet-half");
     else setSheet(hud, "sheet-full");
   };
 

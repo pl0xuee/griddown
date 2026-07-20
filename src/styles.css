@@ -2332,7 +2332,9 @@ body.battery.nightvis .maplibregl-ctrl {
      everything that has to sit above the sheet — otherwise they drift apart the
      first time the padding changes. */
   :root {
-    --sheet-peek: calc(60px + env(safe-area-inset-bottom));
+    /* Grip strip (30) + bar (34) + bottom padding (8), plus the home
+       indicator. Everything that has to clear the resting sheet reads this. */
+    --sheet-peek: calc(74px + env(safe-area-inset-bottom));
   }
 
   #hud {
@@ -2342,37 +2344,41 @@ body.battery.nightvis .maplibregl-ctrl {
     left: 0;
     width: auto;
     max-height: none;
-    /* vh first, dvh second: dvh is Safari 15.4 and this app targets iOS 14,
-       where an unrecognised unit makes the whole declaration invalid. Without
-       the fallback the sheet would have no height at all there — it would size
-       to the full menu and overflow off the top of the screen. Inside a
-       webview with no browser chrome the two units agree anyway; dvh only
-       earns its place if this ever runs in mobile Safari proper. */
-    height: 46vh;
-    height: 46dvh;
+    /* The sheet is always full height and is *moved*, never resized.
+       Animating height reflowed the whole menu on every frame of a drag, which
+       is what made it feel rough on the phone; a transform is composited and
+       never touches layout. How much shows is how far it is pushed down.
+       vh first, dvh second: dvh is Safari 15.4 and this targets iOS 14, where
+       an unrecognised unit invalidates the whole declaration. */
+    height: 88vh;
+    height: 88dvh;
     padding: 0 12px calc(8px + env(safe-area-inset-bottom));
     border-width: 1px 0 0;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.5);
     overflow: hidden;
-    transition: height 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+    transform: translateY(42vh);
+    transform: translateY(42dvh);
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    will-change: transform;
   }
-  /* While a finger is down the height follows it exactly — animating would
-     lag behind the drag and feel broken. */
+  /* While a finger is down the sheet tracks it exactly — animating would lag
+     behind the drag and feel broken. */
   #hud.dragging {
     transition: none;
   }
 
-  #hud.sheet-peek {
-    height: var(--sheet-peek);
+  /* Rest positions, as how far down the sheet sits. */
+  #hud.sheet-full {
+    transform: translateY(0);
   }
   #hud.sheet-half {
-    height: 46vh;
-    height: 46dvh;
+    transform: translateY(42vh);
+    transform: translateY(42dvh);
   }
-  #hud.sheet-full {
-    height: 88vh;
-    height: 88dvh;
+  #hud.sheet-peek {
+    transform: translateY(calc(88vh - var(--sheet-peek)));
+    transform: translateY(calc(88dvh - var(--sheet-peek)));
   }
 
   /* touch-action lives on the two things you drag, never on #hud itself:
@@ -2380,16 +2386,64 @@ body.battery.nightvis .maplibregl-ctrl {
      `none` on the container would have killed scrolling inside the menu. */
   #hud-grip {
     display: block;
+    position: relative;
     flex: none;
-    width: 42px;
-    height: 4px;
-    margin: 8px auto 6px;
-    border-radius: 999px;
-    background: rgba(160, 220, 160, 0.45);
+    height: 30px;
     touch-action: none;
+  }
+  /* The line you see is 4px; the thing you can grab is the full 30px strip,
+     the bar below it as well. Aiming at a 4px target and missing was most of
+     what felt broken. */
+  #hud-grip::after {
+    content: "";
+    position: absolute;
+    top: 13px;
+    left: 50%;
+    width: 44px;
+    height: 4px;
+    margin-left: -22px;
+    border-radius: 999px;
+    background: rgba(160, 220, 160, 0.5);
   }
   #hud-bar {
     touch-action: none;
+  }
+
+  /* Menu items as tiles rather than a single stack of full-width rows.
+     A narrow screen had turned the grid into one column, which made the menu
+     roughly twice as long as it needed to be and meant scrolling past things
+     that would have fitted side by side. Two columns halve the height, and
+     centred text with a 44px floor — Apple's minimum touch target — reads as a
+     grid of buttons rather than a list of links.
+     Later in the file than the 480px rule it overrides, which is what lets it
+     win at equal specificity. */
+  .hud-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  .hud-grid button,
+  .hud-grid select {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    padding: 8px 6px;
+    text-align: center;
+    font-size: 11.5px;
+    border-radius: 9px;
+  }
+
+  /* Tighten the space between groups. With the items themselves compact, the
+     headings were doing most of the scrolling. */
+  .hud-sub {
+    margin-top: 10px;
+    margin-bottom: 2px;
+  }
+  #hud-resources {
+    gap: 5px;
+  }
+  .hud-icons {
+    gap: 5px;
   }
 
   /* The body takes whatever is left. At the peek that is nothing, which is what
@@ -2406,25 +2460,28 @@ body.battery.nightvis .maplibregl-ctrl {
     -webkit-overflow-scrolling: touch;
   }
 
-  /* ☰ hides the menu outright, exactly as it does on a desktop: the sheet
-     leaves the bottom edge entirely and becomes the corner pill. The peek is a
-     resting position for the sheet, not a way to get rid of it — on a phone,
-     "out of my way" has to mean gone, not a strip across the screen. */
-  #hud.collapsed {
-    top: calc(12px + env(safe-area-inset-top));
-    right: auto;
-    bottom: auto;
-    left: calc(12px + env(safe-area-inset-left));
-    width: auto;
-    height: auto;
-    padding: 8px;
-    border-width: 1px;
-    border-radius: 12px;
-    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
-  }
-  #hud.collapsed #hud-grip,
-  #hud.collapsed #hud-body {
+  /* No hamburger on a phone. The sheet is the control: drag it down to get it
+     out of the way, up to use it. A button that did the same job as the
+     gesture only added a second thing to learn and a corner pill to collide
+     with the map controls.
+     `collapsed` is the desktop panel's state and has no meaning here — a
+     choice stored on a desktop must not follow the user onto the phone and
+     hide the sheet. JS also strips the class outright (see setupSheet). */
+  #hud-toggle {
     display: none;
+  }
+  #hud.collapsed {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+  }
+  #hud.collapsed #hud-grip {
+    display: block;
+  }
+  #hud.collapsed #hud-body {
+    display: block;
   }
 
   /* Bottom-anchored map furniture lifts to sit above the resting sheet. Raising

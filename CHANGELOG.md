@@ -6,6 +6,36 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.6
+
+**The app shows a map on first launch.** A new install has no map data — a
+single state is hundreds of megabytes, so you choose what to download — and
+until now that meant opening to an empty screen with a notice over it. It now
+draws the states as outlines, so there is something to look at and something to
+aim at. It costs no extra download: the outlines come from the state list the
+app already ships.
+
+**The bottom sheet moves properly.** It was animating its own height, which
+relaid out the entire menu on every frame of a drag and felt rough. It now slides
+instead, which never touches layout. The part you can grab went from a 4-pixel
+line to a 30-pixel strip, plus the title bar.
+
+**Menu items are tiles instead of a long list.** Two columns rather than one,
+which roughly halves the length of the menu, with tap targets at Apple's 44-pixel
+minimum.
+
+**No hamburger button on phones.** The sheet is the control — drag it down to get
+it out of the way, up to use it. The button did the same job as the gesture and
+left a pill in the corner that collided with the map controls.
+
+**Downloads are faster again, and this time it was measured.** Raising how many
+requests run at once had barely helped, and the reason was not the server: the
+HTTP client negotiates HTTP/2, which multiplexes every request onto a single
+connection, so all the workers queued behind one window. Given real connections
+instead, a Rhode Island download went from 21.4 to 14.0 seconds. Sixteen at once
+is where it stops helping — thirty-two is slower — and the benchmark that
+established that ships as a test.
+
 ## v0.1.5
 
 **The menu now fits a phone.** It used to be a fixed panel pinned to the

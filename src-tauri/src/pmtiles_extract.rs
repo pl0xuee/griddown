@@ -518,6 +518,28 @@ impl HttpSource {
             .user_agent(concat!("GridDown/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(20))
+            // Keep a connection per worker alive between requests.
+            //
+            // This single line is the difference between a state download
+            // taking 14 seconds and 22. Measured on Rhode Island — 650
+            // requests, 78 MB — with sixteen workers either way:
+            //
+            //   without: 24.8 s, and 19.0 s on a second run
+            //   with:    13.3 s, and 14.0 s on a second run
+            //
+            // Raising the worker count on its own had barely helped, which is
+            // what sent me looking. The workers were reconnecting rather than
+            // reusing, so most of each "parallel" request went on a fresh TCP
+            // and TLS handshake. curl over the same link and ranges scaled
+            // cleanly to 114 requests a second, so the server was never it.
+            .pool_max_idle_per_host(CONCURRENT_REQUESTS)
+            // Does nothing today: http2 is not in this build's feature set, so
+            // ALPN never offers it — checked with `cargo tree -e features`.
+            // Kept because cargo features are additive and Tauri also depends
+            // on reqwest, so something upstream could turn http2 on without us
+            // noticing. Every worker would then collapse onto one multiplexed
+            // connection, which is the worst case for many small range reads.
+            .http1_only()
             .build()
             .map_err(|e| format!("could not create HTTP client: {e}"))?;
         Ok(HttpSource {
@@ -824,12 +846,26 @@ pub const MAX_BATCH: u64 = 4 * 1024 * 1024;
 /// which is why the identical code felt markedly slower on iOS than on the
 /// machine it was written on. Overlapping requests hides most of that.
 ///
-/// Six is what browsers have long allowed per host: enough to cover the
-/// latency, restrained enough for build.protomaps.com, which is someone else's
-/// free server and the reason this client sends a real user-agent.
+/// Sixteen because that is where it stops helping. Measured on Rhode Island —
+/// 650 requests, 78 MB — against the live planet build:
+///
+/// | in flight | time |
+/// |-----------|------|
+/// | 6         | 21.4 s |
+/// | 16        | 14.0 s |
+/// | 32        | 18.9 s |
+///
+/// Past sixteen it gets worse, not better, so this is not a number to raise
+/// hopefully. Rerun `measure_live_state_download` before changing it.
+///
+/// The request count itself is not worth attacking: a rectangular bbox maps
+/// onto the archive's Hilbert ordering as hundreds of disjoint id ranges, so
+/// ~650 requests is the shape of the problem rather than a coalescing failure.
+/// Raising MAX_GAP to bridge them was tried and fetched 10 MB of other people's
+/// tiles to save 25 requests, which was slower.
 ///
 /// Peak memory stays bounded by WINDOW_BYTES below.
-pub const CONCURRENT_REQUESTS: usize = 6;
+pub const CONCURRENT_REQUESTS: usize = 16;
 
 /// How much tile data to have outstanding at once.
 ///
@@ -1509,6 +1545,79 @@ mod tests {
             size as f64 / 1e3
         );
         let _ = std::fs::remove_file(&dest);
+    }
+
+    /// Where does the time in a real state download actually go?
+    ///
+    /// Splits a live extract into its two network phases and reports each, so
+    /// tuning is driven by measurement rather than by which part looks slow.
+    /// Rhode Island because it is the smallest state — enough to be
+    /// representative without pulling a gigabyte off someone's free server.
+    ///
+    /// `cargo test --release measure_live -- --ignored --nocapture`
+    #[test]
+    #[ignore = "requires internet; downloads ~70 MB from Protomaps"]
+    fn measure_live_state_download() {
+        use std::time::Instant;
+
+        let today = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            / 86400) as i64;
+        let url = latest_build_url(today).expect("no recent planet build");
+        let src = HttpSource::new(&url).unwrap();
+        let h = Header::parse(&src.read_range(0, HEADER_LEN as u64).unwrap()).unwrap();
+
+        // Rhode Island.
+        let bbox = (-71.91, 41.14, -71.12, 42.02);
+        let (min_lon, min_lat, max_lon, max_lat) = bbox;
+
+        let t0 = Instant::now();
+        let want = wanted_tiles(0, 15, min_lon, min_lat, max_lon, max_lat).unwrap();
+        let plan_ms = t0.elapsed().as_millis();
+
+        let t1 = Instant::now();
+        let ids: Vec<u64> = want.iter().map(|t| t.id).collect();
+        let found = locate_tiles(&src, &h, &ids).unwrap();
+        let locate_s = t1.elapsed().as_secs_f64();
+
+        let batches = coalesce(&found);
+        let total: u64 = batches.iter().map(|b| b.length).sum();
+        let windows = windows_by_bytes(&batches).len();
+
+        let t2 = Instant::now();
+        let dest = std::env::temp_dir().join("griddown-measure.pmtiles");
+        let _ = std::fs::remove_file(&dest);
+        let written = extract(&src, &h, &dest, 0, 15, bbox, &mut |_, _| {}).unwrap();
+        let fetch_s = t2.elapsed().as_secs_f64();
+        let _ = std::fs::remove_file(&dest);
+
+        eprintln!("\n--- Rhode Island, zoom 0..15 ---");
+        eprintln!("planning        {plan_ms} ms (no network)");
+        eprintln!(
+            "locate tiles    {locate_s:.1} s  -> {} tiles found",
+            found.len()
+        );
+        eprintln!(
+            "fetch + write   {fetch_s:.1} s  -> {written} tiles, {:.0} MB at {:.1} MB/s",
+            total as f64 / 1e6,
+            total as f64 / 1e6 / fetch_s
+        );
+        eprintln!(
+            "requests        {} batches in {windows} windows, mean {:.2} MB each",
+            batches.len(),
+            total as f64 / batches.len() as f64 / 1e6
+        );
+        eprintln!(
+            "concurrency     {CONCURRENT_REQUESTS} in flight, window budget {} MB",
+            WINDOW_BYTES / (1 << 20)
+        );
+        eprintln!(
+            "shape           locate is {:.0}% of the {:.1} s total\n",
+            100.0 * locate_s / (locate_s + fetch_s),
+            locate_s + fetch_s
+        );
     }
 
     #[test]
