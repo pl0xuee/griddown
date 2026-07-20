@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod mesh;
+mod packs;
 // Public so the pack builder (src/bin/build-pack.rs) can reuse it. Cutting a
 // pack in CI and cutting one on the phone must be the same code — a separate
 // implementation is how the two quietly stop producing identical archives.
@@ -776,6 +777,44 @@ async fn download_state(
                 serde_json::json!({ "abbr": abbr2, "line": line }),
             );
         };
+
+        // A pre-built pack first: one file instead of tens of thousands of range
+        // requests. Anything that goes wrong here — no network, no manifest, no
+        // pack for this state, a corrupt download — falls through to extracting
+        // it live, which is slow but needs nothing but the planet archive.
+        status("Looking for a pre-built pack…");
+        match packs::fetch_manifest() {
+            Ok(manifest) => match manifest.pack_for(&abbr2, maxzoom) {
+                Some(pack) => {
+                    status(&format!(
+                        "Downloading {} pack ({})…",
+                        abbr2,
+                        packs::human_bytes(pack.bytes)
+                    ));
+                    let mut last_pct = u64::MAX;
+                    let result = packs::download(pack, &final_path, &status, &mut |done, total| {
+                        let pct = done * 100 / total.max(1);
+                        if pct != last_pct {
+                            last_pct = pct;
+                            let _ = app2.emit(
+                                "download-progress",
+                                serde_json::json!({
+                                    "abbr": abbr2, "done": done, "total": total, "pct": pct
+                                }),
+                            );
+                        }
+                    });
+                    match result {
+                        Ok(()) => return Ok(final_path.to_string_lossy().to_string()),
+                        Err(e) => {
+                            status(&format!("Pack download failed ({e}) — building it here…"))
+                        }
+                    }
+                }
+                None => status("No pre-built pack for this state — building it here…"),
+            },
+            Err(e) => status(&format!("Pack index unavailable ({e}) — building it here…")),
+        }
 
         status("Finding latest map build…");
         let today = (std::time::SystemTime::now()

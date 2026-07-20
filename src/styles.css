@@ -819,6 +819,13 @@ body.nightvis {
   font-size: 10px;
   opacity: 0.85;
 }
+/* What a download is currently doing — "Downloading OR pack (472 MB)…" versus
+   "building it here…", which differ by about twenty minutes. */
+.state-dl-status {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+}
 .state-dem-btn {
   padding: 4px 8px;
   border-radius: 6px;

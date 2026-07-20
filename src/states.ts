@@ -4,6 +4,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "./toast";
 import { fmtAge, DAY } from "./readiness";
 import { keepAwake } from "./wakelock";
+import { esc as escapeHtml } from "./esc";
 
 export interface StateEntry {
   abbr: string;
@@ -43,6 +44,7 @@ let installed = new Set<string>();
 let packInfo = new Map<string, PackInfo>();
 let activeAbbr = localStorage.getItem("griddown_active_state") || "";
 const downloading = new Map<string, number>(); // abbr -> percent (0-100), -1 = indeterminate
+const downloadStatus = new Map<string, string>(); // abbr -> what it is currently doing
 const demDownloading = new Map<string, number>(); // abbr -> percent, -1 = starting
 const mvumDownloading = new Map<string, number>(); // abbr -> percent, -1 = starting
 
@@ -72,7 +74,16 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
     await listen<{ abbr: string; line?: string; done?: number; total?: number; pct?: number }>(
       "download-progress",
       (e) => {
-        if (typeof e.payload.pct !== "number") return; // status text, no progress yet
+        if (typeof e.payload.line === "string") {
+          // Worth showing, not just discarding as it used to be: these lines are
+          // where "downloading a 27 MB file" and "rebuilding this state from the
+          // planet archive, back in twenty minutes" tell themselves apart.
+          if (!downloading.has(e.payload.abbr)) return; // stale event
+          downloadStatus.set(e.payload.abbr, e.payload.line);
+          updateRow(e.payload.abbr);
+          return;
+        }
+        if (typeof e.payload.pct !== "number") return;
         downloading.set(e.payload.abbr, e.payload.pct);
         updateRow(e.payload.abbr);
       }
@@ -261,8 +272,10 @@ function rowHtml(s: StateEntry): string {
     }
   }
 
+  const status = downloadStatus.get(s.abbr);
   const progress = isDownloading
-    ? `<div class="state-progress"><span style="width:${dl! >= 0 ? dl : 15}%"></span></div>`
+    ? (status ? `<div class="state-dl-status">${escapeHtml(status)}</div>` : "") +
+      `<div class="state-progress"><span style="width:${dl! >= 0 ? dl : 15}%"></span></div>`
     : "";
 
   return `<div class="state-row ${isActive ? "active" : ""}" data-row="${s.abbr}">
@@ -361,6 +374,7 @@ async function download(s: StateEntry, refresh = false) {
       maxzoom: 15,
     });
     downloading.delete(s.abbr);
+    downloadStatus.delete(s.abbr);
     await refreshInstalled();
     updateRow(s.abbr);
     if (refresh) {
@@ -374,6 +388,7 @@ async function download(s: StateEntry, refresh = false) {
     }
   } catch (err) {
     downloading.delete(s.abbr);
+    downloadStatus.delete(s.abbr);
     updateRow(s.abbr);
     const verb = refresh ? "Update" : "Download";
     toast(`${verb} failed: ${err}`, "error");

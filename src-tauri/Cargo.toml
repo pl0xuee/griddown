@@ -38,6 +38,10 @@ tauri-plugin-dialog = "2.7.2"
 pmtiles = { version = "0.23", default-features = false, features = ["write"] }
 # Directory blocks inside a PMTiles archive are gzip-compressed.
 flate2 = "1"
+# Verifying pre-built packs against the sha256 in the CI manifest. A pack is a
+# half-gigabyte file fetched over a phone connection; "it downloaded" is not the
+# same as "it arrived intact".
+sha2 = "0.10"
 
 # Updater is desktop-only and must not be built into debug binaries: the plugin
 # deserializes its config to null under `tauri dev` and fails to initialise.
