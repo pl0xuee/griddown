@@ -19,9 +19,19 @@ fn safe_abbr(abbr: &str) -> String {
     // would land relative to that drive's CWD instead of app-data.
     let cleaned: String = abbr
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if cleaned.is_empty() { "_".into() } else { cleaned }
+    if cleaned.is_empty() {
+        "_".into()
+    } else {
+        cleaned
+    }
 }
 
 /// Directory where downloaded state basemaps live (inside the app data dir).
@@ -103,9 +113,19 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
     // prefix, which PathBuf::push would treat as a new base (see safe_abbr).
     let name: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || "._- ".contains(c) { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._- ".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    let name = if name.trim().is_empty() { "export".to_string() } else { name };
+    let name = if name.trim().is_empty() {
+        "export".to_string()
+    } else {
+        name
+    };
     let dir = app
         .path()
         .download_dir()
@@ -229,7 +249,10 @@ fn dir_size(dir: &PathBuf) -> u64 {
 fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
     let dir = states_dir(&app)?;
     let mut out = Vec::new();
-    for e in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+    for e in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let path = e.path();
         if path.extension().and_then(|s| s.to_str()) != Some("pmtiles") {
             continue;
@@ -323,7 +346,8 @@ fn tiles_at(z: u32, w: f64, s: f64, e: f64, n: f64) -> Vec<(u32, u32, u32)> {
     let lon2x = |lon: f64| ((lon + 180.0) / 360.0 * tiles_across) as i64;
     let lat2y = |lat: f64| {
         let r = lat.to_radians();
-        (((1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0) * tiles_across) as i64
+        (((1.0 - (r.tan() + 1.0 / r.cos()).ln() / std::f64::consts::PI) / 2.0) * tiles_across)
+            as i64
     };
     let (x0, x1) = (lon2x(w), lon2x(e));
     let (y0, y1) = (lat2y(n), lat2y(s)); // north = smaller y
@@ -463,8 +487,7 @@ async fn download_dem(
 // prebuilt pack: it needs no hosting, and the data is theirs to update. Paged
 // into one GeoJSON file per state, sitting beside that state's basemap.
 
-const MVUM_SERVICE: &str =
-    "https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_MVUM_01/MapServer";
+const MVUM_SERVICE: &str = "https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_MVUM_01/MapServer";
 
 /// Roads is layer 1, trails layer 2 — with the tag each is stored under.
 const MVUM_LAYERS: [(u32, &str); 2] = [(1, "road"), (2, "trail")];
@@ -537,7 +560,10 @@ fn mvum_count(
 /// designated", so blanks carry no information either. Stripping them here
 /// keeps a state file to a size worth putting on a phone.
 fn mvum_strip(feature: &mut serde_json::Value) {
-    let Some(props) = feature.get_mut("properties").and_then(|p| p.as_object_mut()) else {
+    let Some(props) = feature
+        .get_mut("properties")
+        .and_then(|p| p.as_object_mut())
+    else {
         return;
     };
     props.retain(|_, v| match v {
@@ -724,7 +750,11 @@ async fn download_state(
     // instantly instead of after a build probe.
     let nums: Vec<f64> = bbox
         .split(',')
-        .map(|s| s.trim().parse::<f64>().map_err(|e| format!("bad bbox value {s:?}: {e}")))
+        .map(|s| {
+            s.trim()
+                .parse::<f64>()
+                .map_err(|e| format!("bad bbox value {s:?}: {e}"))
+        })
         .collect::<Result<_, _>>()?;
     let [min_lon, min_lat, max_lon, max_lat] = nums[..] else {
         return Err(format!(
@@ -804,8 +834,7 @@ async fn download_state(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init());
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
 
     // Desktop release builds only.
     //

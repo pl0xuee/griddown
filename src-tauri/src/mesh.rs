@@ -614,8 +614,9 @@ pub async fn mesh_connect(app: AppHandle, host: String, port: u16) -> Result<(),
                     return;
                 }
                 Ok(n) => reader.push(&buf[..n]),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::TimedOut =>
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
                 {
                     // Quiet mesh, not a dead one — nudge it and keep waiting.
                 }
@@ -793,7 +794,10 @@ mod tests {
 
     #[test]
     fn skips_a_text_message_rather_than_misreading_it() {
-        assert_eq!(decode_from_radio(&bytes(fx::FROM_RADIO_TEXT)), Update::Ignored);
+        assert_eq!(
+            decode_from_radio(&bytes(fx::FROM_RADIO_TEXT)),
+            Update::Ignored
+        );
     }
 
     #[test]
@@ -845,7 +849,9 @@ mod tests {
         let mut r = FrameReader::default();
         r.push(&[0x94, 0xc3, 0xff, 0xff]);
         r.push(&frame(&bytes(fx::FROM_RADIO_CONFIG_COMPLETE)));
-        let f = r.next_frame().expect("should recover and find the real frame");
+        let f = r
+            .next_frame()
+            .expect("should recover and find the real frame");
         assert_eq!(decode_from_radio(&f), Update::ConfigComplete(0xdeadbeef));
     }
 
@@ -902,12 +908,19 @@ mod tests {
         }
     }
 
-
     #[test]
     fn never_prints_sixty_minutes_worth_of_hours() {
         // Guarded on the TS side; here we assert the merge rule that feeds it.
-        let mut into = MeshNode { pos_time: Some(1000), lat: Some(1.0), ..Default::default() };
-        let older = MeshNode { pos_time: Some(500), lat: Some(2.0), ..Default::default() };
+        let mut into = MeshNode {
+            pos_time: Some(1000),
+            lat: Some(1.0),
+            ..Default::default()
+        };
+        let older = MeshNode {
+            pos_time: Some(500),
+            lat: Some(2.0),
+            ..Default::default()
+        };
         merge(&mut into, older);
         assert_eq!(into.lat, Some(1.0), "an older relayed copy must not win");
         assert_eq!(into.pos_time, Some(1000));
@@ -915,8 +928,16 @@ mod tests {
 
     #[test]
     fn a_newer_position_still_replaces_the_old_one() {
-        let mut into = MeshNode { pos_time: Some(1000), lat: Some(1.0), ..Default::default() };
-        let newer = MeshNode { pos_time: Some(2000), lat: Some(2.0), ..Default::default() };
+        let mut into = MeshNode {
+            pos_time: Some(1000),
+            lat: Some(1.0),
+            ..Default::default()
+        };
+        let newer = MeshNode {
+            pos_time: Some(2000),
+            lat: Some(2.0),
+            ..Default::default()
+        };
         merge(&mut into, newer);
         assert_eq!(into.lat, Some(2.0));
         assert_eq!(into.pos_time, Some(2000));
