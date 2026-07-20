@@ -12,6 +12,16 @@
 -->
 <plist version="1.0">
 <dict>
+	<!-- The name under the icon on the home screen, and in Settings.
+	     Without these it inherits $(PRODUCT_NAME) from the Xcode project, which
+	     Tauri derives from the Cargo package name — so the app would ship
+	     called "tauri-app". CFBundleDisplayName is what iOS actually shows;
+	     CFBundleName is the ≤15-character fallback. -->
+	<key>CFBundleDisplayName</key>
+	<string>GridDown</string>
+	<key>CFBundleName</key>
+	<string>GridDown</string>
+
 	<!-- MapLibre's GeolocateControl (src/main.ts). "When in use" only: the app
 	     has no background-location feature and asking for Always would be both
 	     unjustifiable at review and a battery cost with no payoff. -->

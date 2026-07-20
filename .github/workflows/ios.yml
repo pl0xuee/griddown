@@ -77,20 +77,21 @@ jobs:
         env:
           CI: true
 
-      # After the build, not before: the usage strings from Info.ios.plist are
-      # merged in as part of the build, so dumping this at init time shows the
-      # bare template and proves nothing.
-      - name: Check the usage strings made it into Info.plist
+      # After the build, not before: Info.ios.plist is merged in as part of the
+      # build, so dumping this at init time shows the bare template and proves
+      # nothing.
+      - name: Check Info.ios.plist was merged
         if: always()
         run: |
           for f in $(find src-tauri/gen/apple -name 'Info.plist'); do
             echo "--- $f ---"
             cat "$f"
           done
+          merged=$(find src-tauri/gen/apple -name 'Info.plist' | head -1)
+
           # iOS terminates the app rather than denying the permission when one
           # of these is missing, so their absence is a build failure, not a
           # warning to notice later.
-          merged=$(find src-tauri/gen/apple -name 'Info.plist' | head -1)
           for key in NSLocationWhenInUseUsageDescription \
                      NSLocalNetworkUsageDescription \
                      NSMotionUsageDescription; do
@@ -100,3 +101,19 @@ jobs:
             fi
           done
           echo "all usage strings present"
+
+          # The display name fails differently from the usage strings: the key
+          # survives but the value silently reverts to $(PRODUCT_NAME), which
+          # Tauri derives from the Cargo package name. That ships an app called
+          # "griddown" on the home screen and nothing errors. So check the
+          # value, not the key — and read it with PlistBuddy rather than grep,
+          # because an unexpanded build variable looks fine to a substring
+          # match.
+          for key in CFBundleDisplayName CFBundleName; do
+            got=$(/usr/libexec/PlistBuddy -c "Print :$key" "$merged" 2>/dev/null || true)
+            if [ "$got" != "GridDown" ]; then
+              echo "::error::$key is '$got', expected 'GridDown' — the app would ship under the wrong name"
+              exit 1
+            fi
+          done
+          echo "display name is GridDown"

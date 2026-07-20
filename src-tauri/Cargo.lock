@@ -1230,6 +1230,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "griddown"
+version = "0.1.3"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "pmtiles",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-process",
+ "tauri-plugin-updater",
+]
+
+[[package]]
 name = "gtk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3543,23 +3560,6 @@ dependencies = [
  "webview2-com",
  "window-vibrancy",
  "windows",
-]
-
-[[package]]
-name = "tauri-app"
-version = "0.1.3"
-dependencies = [
- "base64 0.22.1",
- "flate2",
- "pmtiles",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-process",
- "tauri-plugin-updater",
 ]
 
 [[package]]
