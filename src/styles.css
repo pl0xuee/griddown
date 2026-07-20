@@ -2126,3 +2126,162 @@ body.battery.nightvis .maplibregl-ctrl {
 .state-mvum-btn:hover {
   border-color: rgba(79, 195, 255, 0.8);
 }
+
+/* --- Team mesh (Meshtastic teammate positions) --- */
+#mesh-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 20;
+  width: 320px;
+  max-width: 92vw;
+  height: 100%;
+  background: rgba(16, 19, 17, 0.97);
+  color: #e6f0e0;
+  border-left: 1px solid rgba(120, 200, 120, 0.3);
+  box-shadow: -8px 0 26px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
+}
+#mesh-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex: none;
+}
+#mesh-close {
+  background: none;
+  border: none;
+  color: #cdeccd;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#mesh-status {
+  flex: none;
+  font-size: 11px;
+  color: #8fbf8f;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(120, 200, 120, 0.25);
+}
+#mesh-body {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mesh-intro,
+.mesh-empty {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #b9ccb9;
+}
+.mesh-go,
+.mesh-alt {
+  padding: 9px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.45);
+  background: rgba(30, 44, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mesh-go {
+  border-color: rgba(160, 240, 160, 0.75);
+  font-weight: 600;
+}
+.mesh-go:hover,
+.mesh-alt:hover {
+  background: rgba(50, 70, 50, 0.95);
+}
+
+/* One teammate. The dot repeats the map colour so the list and the map agree
+   at a glance about who is current and who has gone quiet. */
+.mesh-node {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.25);
+  background: rgba(24, 30, 24, 0.85);
+  cursor: pointer;
+}
+.mesh-node:hover {
+  border-color: rgba(150, 230, 150, 0.6);
+}
+.mesh-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #8d8d8d;
+}
+.mesh-live .mesh-dot {
+  background: #4ade4a;
+  box-shadow: 0 0 8px #4ade4a;
+}
+.mesh-recent .mesh-dot {
+  background: #ffd54f;
+}
+.mesh-stale .mesh-dot {
+  background: #ff9f45;
+}
+/* A position nobody has refreshed in an hour is history, and reads that way. */
+.mesh-old {
+  opacity: 0.6;
+}
+.mesh-n {
+  min-width: 0;
+}
+.mesh-name {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mesh-meta {
+  font-size: 10px;
+  color: #9fb89f;
+  margin-top: 2px;
+}
+.mesh-fine {
+  font-size: 10px;
+  line-height: 1.4;
+  color: #93a894;
+  border-top: 1px dotted rgba(120, 200, 120, 0.25);
+  padding-top: 7px;
+}
+@media (max-width: 560px) {
+  #mesh-panel {
+    width: 100vw;
+    max-width: 100vw;
+  }
+}
+.mesh-label {
+  display: block;
+  font-size: 10px;
+  color: #8fbf8f;
+  letter-spacing: 0.5px;
+}
+.mesh-label input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 8px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(10, 14, 10, 0.9);
+  color: #eaf5e6;
+  font-family: inherit;
+  font-size: 12px;
+}

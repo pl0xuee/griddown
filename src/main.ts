@@ -5,6 +5,7 @@ import { layers, namedFlavor } from "@protomaps/basemaps";
 import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
 import { initStateLibrary, setMvumListener, type SwitchTarget } from "./states";
 import { initMvum } from "./mvum";
+import { initMesh } from "./mesh";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
@@ -851,6 +852,13 @@ async function start() {
   });
   // A freshly downloaded overlay should appear without reopening anything.
   setMvumListener(() => mvumCtl?.packChanged());
+  initMesh({
+    map: () => map,
+    here: () => {
+      const c = map.getCenter();
+      return [c.lng, c.lat];
+    },
+  });
   initUpdater();
   void initVersion();
   initRoute({

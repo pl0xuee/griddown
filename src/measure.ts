@@ -2,41 +2,11 @@ import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { assessGaps, fillGaps } from "./profile";
 import { sampleElevationM } from "./dem";
+import { haversine, bearing, cardinal, toRad, EARTH_R as R, type LL } from "./geo";
 
 // Measure tool: tap the map to lay down points, get running distance along the
 // path, the bearing of the last leg, and — with 3+ points — the enclosed area.
 // Pure offline math (haversine + geodesic bearing + spherical polygon area).
-
-type LL = [number, number]; // lng, lat
-
-const R = 6378137; // Earth radius (m), WGS84
-
-const toRad = (d: number) => (d * Math.PI) / 180;
-const toDeg = (r: number) => (r * 180) / Math.PI;
-
-function haversine(a: LL, b: LL): number {
-  const dLat = toRad(b[1] - a[1]);
-  const dLng = toRad(b[0] - a[0]);
-  const s =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
-}
-
-// Initial (forward) bearing from a to b, degrees 0–360 clockwise from north.
-function bearing(a: LL, b: LL): number {
-  const y = Math.sin(toRad(b[0] - a[0])) * Math.cos(toRad(b[1]));
-  const x =
-    Math.cos(toRad(a[1])) * Math.sin(toRad(b[1])) -
-    Math.sin(toRad(a[1])) * Math.cos(toRad(b[1])) * Math.cos(toRad(b[0] - a[0]));
-  return (toDeg(Math.atan2(y, x)) + 360) % 360;
-}
-
-const DIRS = [
-  "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-  "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-];
-const cardinal = (deg: number) => DIRS[Math.round(deg / 22.5) % 16];
 
 // Geodesic area of a closed ring (m²), signed magnitude taken absolute.
 function ringArea(pts: LL[]): number {

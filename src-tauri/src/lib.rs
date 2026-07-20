@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
+mod mesh;
+
 /// A state abbreviation that is safe to paste into a path.
 ///
 /// Every command below builds a filename from a caller-supplied abbreviation.
@@ -861,6 +863,8 @@ pub fn run() {
             dem_path,
             download_mvum,
             mvum_path,
+            mesh::mesh_connect,
+            mesh::mesh_disconnect,
             export_pack,
             import_pack
         ])
