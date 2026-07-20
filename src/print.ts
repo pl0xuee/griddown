@@ -2,7 +2,8 @@ import maplibregl from "maplibre-gl";
 import { forward as mgrsForward } from "mgrs";
 import { toast } from "./toast";
 import { saveFile } from "./save";
-import { PAPERS, niceBar, scaleRatio, jpegToPdf } from "./paper";
+import { PAPERS, niceBar, scaleRatio, jpegToPdf, fmtMgrs, projectToImage, type MapBounds } from "./paper";
+import { gridSpacing, gridLines, gridLabel } from "./utm";
 
 // Printable map export — the paper backup.
 //
@@ -28,20 +29,13 @@ const HEADER = 46; // pt
 const FOOTER = 58; // pt
 const RENDER_TIMEOUT_MS = 45000;
 
-function fmtMgrs(s: string): string {
-  const m = s.match(/^(\d{1,2}[C-X])([A-Z]{2})(\d+)$/);
-  if (!m) return s;
-  const half = m[3].length / 2;
-  return `${m[1]} ${m[2]} ${m[3].slice(0, half)} ${m[3].slice(half)}`;
-}
-
 /** Render the live map's view offscreen at print size; resolve with the JPEG + ground scale. */
 function renderOffscreen(
   live: maplibregl.Map,
   style: maplibregl.StyleSpecification,
   cssW: number,
   cssH: number
-): Promise<{ jpegUrl: string; pxW: number; pxH: number; mPerCssPx: number }> {
+): Promise<{ jpegUrl: string; pxW: number; pxH: number; mPerCssPx: number; bounds: MapBounds }> {
   return new Promise((resolve, reject) => {
     const holder = document.createElement("div");
     // Attached but invisible — MapLibre needs a laid-out element to render.
@@ -93,6 +87,14 @@ function renderOffscreen(
         const a = mm.unproject([cssW / 2 - 50, y]);
         const b = mm.unproject([cssW / 2 + 50, y]);
         const mPerCssPx = a.distanceTo(b) / 100;
+        // The exact ground the image covers, so the grid can be drawn over it.
+        const bb = mm.getBounds();
+        const bounds: MapBounds = {
+          west: bb.getWest(),
+          south: bb.getSouth(),
+          east: bb.getEast(),
+          north: bb.getNorth(),
+        };
         const canvas = mm.getCanvas();
         const jpegUrl = canvas.toDataURL("image/jpeg", 0.92);
         const pxW = canvas.width;
@@ -103,7 +105,7 @@ function renderOffscreen(
           reject(new Error("empty map capture"));
           return;
         }
-        resolve({ jpegUrl, pxW, pxH, mPerCssPx });
+        resolve({ jpegUrl, pxW, pxH, mPerCssPx, bounds });
       } catch (e) {
         cleanup();
         reject(e);
@@ -123,6 +125,80 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.onerror = () => reject(new Error("image decode failed"));
     img.src = url;
   });
+}
+
+/**
+ * Draw the UTM/MGRS grid over the printed map.
+ *
+ * Lines are generated in UTM and projected point by point, so they come out
+ * very slightly off vertical — that lean is grid convergence, the angle between
+ * grid north and true north, and it is real. Straightening it would put this
+ * map's grid at a small angle to everyone else's.
+ *
+ * Labels go in the margin at both ends of every line, because a grid you have
+ * to count squares along is a grid you will misread in the dark.
+ */
+function drawGrid(
+  ctx: CanvasRenderingContext2D,
+  bounds: MapBounds,
+  left: number,
+  top: number,
+  w: number,
+  h: number
+) {
+  // Spacing from the ground width of the page, so the grid stays readable at
+  // any zoom rather than turning into a solid block of ink.
+  const widthM =
+    Math.abs(bounds.east - bounds.west) * 111320 * Math.cos(((bounds.north + bounds.south) / 2) * (Math.PI / 180));
+  const spacing = gridSpacing(widthM);
+  const lines = gridLines(bounds, spacing, 12);
+
+  ctx.save();
+  // Clip to the map frame: a grid line running out across the header would
+  // look like a fold mark.
+  ctx.beginPath();
+  ctx.rect(left * S, top * S, w * S, h * S);
+  ctx.clip();
+
+  ctx.strokeStyle = "rgba(0,0,0,0.38)";
+  ctx.lineWidth = 0.6 * S;
+  ctx.setLineDash([]);
+  for (const line of lines) {
+    ctx.beginPath();
+    line.points.forEach(([lng, lat], i) => {
+      const [px, py] = projectToImage(lng, lat, bounds, w, h);
+      const x = (left + px) * S;
+      const y = (top + py) * S;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Labels sit just outside the frame, at the end of each line.
+  ctx.save();
+  ctx.fillStyle = "#333";
+  ctx.font = `${6.5 * S}px ui-monospace, monospace`;
+  for (const line of lines) {
+    const label = gridLabel(line.value, spacing);
+    if (line.axis === "easting") {
+      const [px] = projectToImage(line.points[0][0], bounds.south, bounds, w, h);
+      if (px < 4 || px > w - 4) continue;
+      ctx.textAlign = "center";
+      ctx.fillText(label, (left + px) * S, (top - 2.5) * S);
+      ctx.fillText(label, (left + px) * S, (top + h + 8) * S);
+    } else {
+      const [, py] = projectToImage(bounds.west, line.points[0][1], bounds, w, h);
+      if (py < 4 || py > h - 4) continue;
+      ctx.textAlign = "right";
+      ctx.fillText(label, (left - 3) * S, (top + py + 2) * S);
+      ctx.textAlign = "left";
+      ctx.fillText(label, (left + w + 3) * S, (top + py + 2) * S);
+    }
+  }
+  ctx.restore();
+  return spacing;
 }
 
 function drawScaleBar(
@@ -248,6 +324,11 @@ export function initPrint(deps: PrintDeps) {
       ctx.lineWidth = S;
       ctx.strokeRect(MARGIN * S, HEADER * S, mapW * S, mapH * S);
 
+      // The grid. A scale bar tells you how far; a grid tells you WHERE, and
+      // is what makes a printed sheet usable with a compass and a radioed
+      // reference. Drawn after the image so it sits on top of the map.
+      const gridM = drawGrid(ctx, shot.bounds, MARGIN, HEADER, mapW, mapH);
+
       // Header: title left, date right.
       const c = live.getCenter();
       const title = customTitle || deps.regionName() || "GridDown map";
@@ -279,6 +360,13 @@ export function initPrint(deps: PrintDeps) {
       ctx.font = `${8 * S}px ui-monospace, monospace`;
       ctx.fillStyle = "#555";
       if (grid) ctx.fillText(latlng, MARGIN * S, (fTop + 27) * S);
+      // Say what the squares are. A grid whose interval you have to infer is
+      // one you will misread under stress.
+      ctx.fillText(
+        `Grid: ${gridM >= 1000 ? `${gridM / 1000} km` : `${gridM} m`} UTM`,
+        MARGIN * S,
+        (fTop + 37) * S
+      );
 
       // Scale: ground meters per point of paper inside the map frame.
       const mPerPagePt = shot.mPerCssPx; // rendered at 1 CSS px per pt

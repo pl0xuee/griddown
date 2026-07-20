@@ -279,28 +279,35 @@ body {
   opacity: 0.5;
 }
 
-/* Range picker sitting in the tool grid — match the buttons around it.
-   appearance:none is load-bearing: without it WebKit paints its own control
-   chrome (a blue field on this platform) straight through the theme. */
-.hud-grid select {
+/* Every themed <select> in the app, in one place.
+   appearance:none is load-bearing: without it WebKitGTK paints its own control
+   chrome (a blue field on this platform) straight through the theme and greys
+   the text to unreadable. Taking the platform's drawing away means drawing the
+   caret ourselves — with gradients rather than an image, so it stays
+   offline-safe with no asset to fetch or inline. */
+.hud-grid select,
+.print-field select {
   appearance: none;
   -webkit-appearance: none;
-  padding: 7px 18px 7px 6px;
-  border-radius: 7px;
-  border: 1px solid rgba(120, 200, 120, 0.4);
-  background-color: rgba(30, 40, 30, 0.9);
-  /* Caret drawn inline so it stays offline-safe (no external asset). */
   background-image: linear-gradient(45deg, transparent 50%, #cdeccd 50%),
     linear-gradient(135deg, #cdeccd 50%, transparent 50%);
   background-position: right 9px center, right 5px center;
   background-size: 4px 4px, 4px 4px;
   background-repeat: no-repeat;
-  color: #cdeccd;
   font-family: inherit;
+  cursor: pointer;
+}
+
+/* Range picker sitting in the tool grid — match the buttons around it. */
+.hud-grid select {
+  padding: 7px 18px 7px 6px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background-color: rgba(30, 40, 30, 0.9);
+  color: #cdeccd;
   font-size: 11px;
   letter-spacing: 0.2px;
   text-align: left;
-  cursor: pointer;
   pointer-events: auto;
   width: 100%;
   transition: background-color 0.15s, border-color 0.15s;
@@ -1578,14 +1585,9 @@ button {
   font-size: 12px;
   padding: 8px 9px;
 }
-/* WebKitGTK's native select theming greys the text out — draw it ourselves. */
+/* Shares the caret and appearance reset above; only the fit differs here. */
 .print-field select {
-  appearance: none;
-  -webkit-appearance: none;
   color: #e6f0e0;
-  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23cdeccd' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 9px center;
   padding-right: 26px;
 }
 .print-field select option {

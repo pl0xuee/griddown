@@ -149,3 +149,58 @@ export function jpegToPdf(
   }
   return out;
 }
+
+/**
+ * Group an MGRS string the way it is written and read aloud.
+ *
+ * "10TER1234567890" is a wall of digits; "10T ER 12345 67890" is four things
+ * you can read off a page and say over a radio without losing your place —
+ * which is the only reason the grid reference is printed at all. Anything that
+ * doesn't match the expected shape is passed through untouched rather than
+ * chopped up on a guess.
+ */
+export function fmtMgrs(s: string): string {
+  const m = s.match(/^(\d{1,2}[C-X])([A-Z]{2})(\d+)$/);
+  // The digits are an easting and a northing of equal length, so an odd count
+  // is not an MGRS reference. Splitting it anyway silently mis-pairs the two
+  // halves — "10TER123" became "10T ER 1 23", which reads as a real location.
+  if (!m || m[3].length % 2 !== 0) return s;
+  const half = m[3].length / 2;
+  return `${m[1]} ${m[2]} ${m[3].slice(0, half)} ${m[3].slice(half)}`;
+}
+
+/** The ground a printed map image covers. */
+export interface MapBounds {
+  west: number;
+  south: number;
+  east: number;
+  north: number;
+}
+
+/** Web Mercator's y, the only non-linear part of projecting a north-up map. */
+function mercatorY(latDeg: number): number {
+  const lat = Math.max(-85.05112878, Math.min(85.05112878, latDeg));
+  return Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+}
+
+/**
+ * Ground position → position within a north-up Mercator image.
+ *
+ * Exact rather than approximate: Mercator is linear in longitude and in
+ * mercatorY, so knowing the image's bounds is enough. Approximating with a
+ * single metres-per-pixel figure would bend a grid line by metres at the top
+ * of the page and none at the bottom, which is visible on paper.
+ */
+export function projectToImage(
+  lng: number,
+  lat: number,
+  bounds: MapBounds,
+  width: number,
+  height: number
+): [number, number] {
+  const yTop = mercatorY(bounds.north);
+  const yBottom = mercatorY(bounds.south);
+  const x = ((lng - bounds.west) / (bounds.east - bounds.west)) * width;
+  const y = ((yTop - mercatorY(lat)) / (yTop - yBottom)) * height;
+  return [x, y];
+}

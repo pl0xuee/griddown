@@ -2,7 +2,7 @@ import * as SunCalc from "suncalc";
 
 // Sun & moon times for the map center, computed offline (no data needed).
 
-function fmt(d: Date | undefined | null): string {
+export function fmtTime(d: Date | undefined | null): string {
   if (!d || isNaN(d.getTime())) return "—";
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -14,15 +14,15 @@ function fmt(d: Date | undefined | null): string {
  * good for moving after dark) is indistinguishable from "no result" — at high
  * latitudes, where it actually happens, and where that light matters most.
  */
-function moonUpDown(mt: { rise?: Date; set?: Date; alwaysUp?: boolean; alwaysDown?: boolean }): string {
+export function moonUpDown(mt: { rise?: Date; set?: Date; alwaysUp?: boolean; alwaysDown?: boolean }): string {
   const row = (k: string, v: string) =>
     `<div class="sky-row"><span class="k">${k}</span><span class="v">${v}</span></div>`;
   if (mt.alwaysUp) return row("Moon", "Up all night");
   if (mt.alwaysDown) return row("Moon", "Never rises today");
-  return row("Moonrise", fmt(mt.rise)) + row("Moonset", fmt(mt.set));
+  return row("Moonrise", fmtTime(mt.rise)) + row("Moonset", fmtTime(mt.set));
 }
 
-function moonPhaseName(phase: number): string {
+export function moonPhaseName(phase: number): string {
   if (phase < 0.03 || phase > 0.97) return "New moon";
   if (phase < 0.22) return "Waxing crescent";
   if (phase < 0.28) return "First quarter";
@@ -33,7 +33,7 @@ function moonPhaseName(phase: number): string {
   return "Waning crescent";
 }
 
-function dayLength(sunrise: Date | null | undefined, sunset: Date | null | undefined): string {
+export function dayLength(sunrise: Date | null | undefined, sunset: Date | null | undefined): string {
   if (!sunrise || !sunset || isNaN(sunrise.getTime()) || isNaN(sunset.getTime())) return "—";
   let mins = Math.round((sunset.getTime() - sunrise.getTime()) / 60000);
   if (mins < 0) mins += 1440;
@@ -71,7 +71,7 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
     content.innerHTML = `
       <div class="sky-block">
         <h4>☀ SUN</h4>
-        ${sunRows.map(([k, v]) => `<div class="sky-row"><span class="k">${k}</span><span class="v">${fmt(v)}</span></div>`).join("")}
+        ${sunRows.map(([k, v]) => `<div class="sky-row"><span class="k">${k}</span><span class="v">${fmtTime(v)}</span></div>`).join("")}
         <div class="sky-daylen">Daylight: <b>${dayLength(t.sunrise, t.sunset)}</b></div>
       </div>
       <div class="sky-block">
