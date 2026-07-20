@@ -87,8 +87,17 @@ jobs:
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run tauri ios init
 
-      # Tauri reads the certificate and profile straight out of these three
-      # variables and sets up its own keychain — no security(1) dance needed.
+      # Tauri reads the certificate out of IOS_CERTIFICATE* and builds its own
+      # keychain — no security(1) dance needed.
+      #
+      # Signing is *automatic*, not manual, and that is forced on us: Tauri's
+      # Xcode template hardcodes CODE_SIGN_STYLE = Automatic and offers no
+      # setting for a provisioning profile. Given the three APPLE_API_* values
+      # it passes -allowProvisioningUpdates and the authentication key through
+      # to xcodebuild, and Xcode provisions itself against App Store Connect.
+      # Without them the build dies with "requires a provisioning profile",
+      # even though IOS_MOBILE_PROVISION installed a perfectly good one — it is
+      # simply never consulted.
       #
       # The build number has to move on every upload or App Store Connect
       # rejects the build as one it has already seen. github.run_number only
@@ -101,8 +110,15 @@ jobs:
           IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12 }}
           IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          APPLE_API_KEY: ${{ secrets.APPSTORE_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPSTORE_ISSUER_ID }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
+          # Set here rather than in env: it needs $HOME expanded, and the
+          # filename is keyed by the API key ID.
+          export APPLE_API_KEY_PATH="$HOME/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          test -f "$APPLE_API_KEY_PATH" || { echo "::error::API key missing at $APPLE_API_KEY_PATH"; exit 1; }
+
           config=$(printf '{"bundle":{"iOS":{"bundleVersion":"%s"}}}' "$RUN_NUMBER")
           echo "build number $RUN_NUMBER"
           npm run tauri ios build -- \
