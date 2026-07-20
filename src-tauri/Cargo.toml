@@ -4,6 +4,10 @@ version = "0.1.6"
 description = "Offline topographic maps for when the grid is down"
 authors = ["pl0xuee"]
 edition = "2021"
+# The pack builder (src/bin/build-pack.rs) is a second binary in this crate, and
+# a second binary makes a bare `cargo run` ambiguous — which is what `tauri dev`
+# runs. Without this, dev refuses to start at all.
+default-run = "griddown"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
