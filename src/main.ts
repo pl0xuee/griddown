@@ -653,7 +653,6 @@ async function start() {
   // Drawn here rather than by MapLibre's GeolocateControl: that control is
   // hardwired to the web geolocation API, which is exactly the double-prompt
   // this whole change avoids.
-  let userMarker: maplibregl.Marker | null = null;
   let shownFix: GeoFix | null = null;
   const ULOC = "gd-userloc";
 
@@ -673,38 +672,50 @@ async function start() {
     if (map.getSource(ULOC)) return;
     map.addSource(ULOC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
     const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    // The accuracy circle is a Polygon; the dot is a Point — both live on one
+    // source, split by geometry type. The dot is a GL circle, not a DOM marker,
+    // so it renders at exactly the projected coordinate and lands on the
+    // centre crosshair when the map is centred on you (no marker-transform drift).
     map.addLayer(
       { id: "gd-userloc-fill", type: "fill", source: ULOC,
+        filter: ["==", ["geometry-type"], "Polygon"],
         paint: { "fill-color": "#3b82f6", "fill-opacity": 0.15 } },
       firstSymbol
     );
     map.addLayer(
       { id: "gd-userloc-ring", type: "line", source: ULOC,
+        filter: ["==", ["geometry-type"], "Polygon"],
         paint: { "line-color": "#3b82f6", "line-opacity": 0.5, "line-width": 1 } },
+      firstSymbol
+    );
+    map.addLayer(
+      { id: "gd-userloc-dot", type: "circle", source: ULOC,
+        filter: ["==", ["geometry-type"], "Point"],
+        paint: {
+          "circle-radius": 7,
+          "circle-color": "#3b82f6",
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 3,
+        } },
       firstSymbol
     );
   }
   function drawUserLoc(f: GeoFix) {
     ensureUserLayers();
-    const feats =
-      f.accuracy && f.accuracy > 1
-        ? [{
-            type: "Feature",
-            properties: {},
-            geometry: { type: "Polygon", coordinates: [accuracyRing(f.lng, f.lat, f.accuracy)] },
-          }]
-        : [];
+    const feats: GeoJSON.Feature[] = [
+      { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [f.lng, f.lat] } },
+    ];
+    if (f.accuracy && f.accuracy > 1) {
+      feats.push({
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [accuracyRing(f.lng, f.lat, f.accuracy)] },
+      });
+    }
     (map.getSource(ULOC) as maplibregl.GeoJSONSource | undefined)?.setData({
       type: "FeatureCollection",
-      features: feats as any,
+      features: feats,
     });
-    if (!userMarker) {
-      const el = document.createElement("div");
-      el.className = "gd-userloc-dot";
-      userMarker = new maplibregl.Marker({ element: el }).setLngLat([f.lng, f.lat]).addTo(map);
-    } else {
-      userMarker.setLngLat([f.lng, f.lat]);
-    }
   }
   // A theme switch rebuilds the style and drops the source/layers; restore them.
   map.on("style.load", () => {
@@ -811,17 +822,24 @@ async function start() {
     return true;
   }
 
+  /** Fetch a fix, centre on it, and mark it. Throws on failure. Shared by the
+   *  locate button and the compass panel ("go to my location first"). */
+  async function locateUser(): Promise<GeoFix> {
+    const f = await getFix();
+    lastFix = { lng: f.lng, lat: f.lat };
+    shownFix = f;
+    drawUserLoc(f);
+    map.flyTo({ center: [f.lng, f.lat], zoom: Math.max(map.getZoom(), 14) });
+    return f;
+  }
+
   async function cycleLocate() {
     if (locBusy) return;
     if (locState === "off") {
       locBusy = true;
       renderLoc();
       try {
-        const f = await getFix();
-        lastFix = { lng: f.lng, lat: f.lat };
-        shownFix = f;
-        drawUserLoc(f);
-        map.flyTo({ center: [f.lng, f.lat], zoom: Math.max(map.getZoom(), 14) });
+        await locateUser();
         locState = "located";
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1059,10 +1077,23 @@ async function start() {
   initMeasure(map);
   // Read through a getter: terrain availability changes when you switch states.
   initReadiness(() => terrainAvailable);
-  initCompass(() => {
-    const c = map.getCenter();
-    return { lat: c.lat, lng: c.lng };
-  });
+  initCompass(
+    () => {
+      const c = map.getCenter();
+      return { lat: c.lat, lng: c.lng };
+    },
+    // Go to the user first when the compass opens, so its needle and
+    // declination are for where they actually are, not wherever the map was
+    // left. Falls back to the map centre (above) if there's no fix.
+    async () => {
+      try {
+        const f = await locateUser();
+        return { lat: f.lat, lng: f.lng };
+      } catch {
+        return null;
+      }
+    }
+  );
   initViewshed(() => map);
   initSearch({
     map: () => map,

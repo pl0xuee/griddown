@@ -53,8 +53,15 @@ export function headingFrom(e: DeviceOrientationEvent): number | null {
   return null;
 }
 
-/** @param here where the user is — declination is a function of position. */
-export function initCompass(here: () => { lat: number; lng: number }) {
+/**
+ * @param here fallback position (map centre) — declination is a function of it.
+ * @param locate optional: go to the user's actual location first and return it,
+ *   so the compass is for where they are, not wherever the map was left.
+ */
+export function initCompass(
+  here: () => { lat: number; lng: number },
+  locate?: () => Promise<{ lat: number; lng: number } | null>
+) {
   const box = document.getElementById("compass-box");
   const readout = document.getElementById("compass-readout");
   const needle = document.getElementById("compass-needle");
@@ -71,7 +78,7 @@ export function initCompass(here: () => { lat: number; lng: number }) {
   // and the field model is a 90-term sum.
   let dec: number | null = null;
 
-  function refreshDeclination() {
+  function refreshDeclination(pos?: { lat: number; lng: number }) {
     const expired = !modelValidFor();
     if (expired) {
       // Refuse to correct with a model past its validity rather than apply a
@@ -81,7 +88,7 @@ export function initCompass(here: () => { lat: number; lng: number }) {
         decEl.textContent = `Magnetic model expired (${WMM_VALID_TO.toFixed(0)}) — headings are magnetic, uncorrected.`;
       return;
     }
-    const { lat, lng } = here();
+    const { lat, lng } = pos ?? here();
     dec = declination(lat, lng);
     if (decEl)
       decEl.textContent = `Declination here: ${formatDeclination(dec)} — true north is ${
@@ -153,37 +160,58 @@ export function initCompass(here: () => { lat: number; lng: number }) {
     // undeclared binding throws ReferenceError before any `?.` can guard it —
     // which killed the whole handler on Linux instead of showing the fallback.
     const doe = (window as any).DeviceOrientationEvent;
-    // Declination is worth showing even with no magnetometer: it's the number
-    // you write on a printed map before navigating from it with a real compass.
-    refreshDeclination();
-    if (!doe) {
-      box?.classList.remove("hidden");
-      if (readout) readout.textContent = "—";
-      if (note) note.textContent = NO_SENSOR;
-      return;
-    }
-    // iOS gates the sensor behind a permission prompt that MUST come from a
-    // user gesture — this click is that gesture.
-    if (typeof doe.requestPermission === "function") {
+    box?.classList.remove("hidden");
+    if (readout) readout.textContent = "—";
+
+    // The motion-permission prompt MUST be requested straight from this gesture:
+    // iOS drops the user-gesture context after the first await, so this has to
+    // come before we go off to fetch a location.
+    let motionDenied = false;
+    if (doe && typeof doe.requestPermission === "function") {
       try {
-        const res = await doe.requestPermission();
-        if (res !== "granted") {
-          // Stop here. Falling through to start() overwrote this with
-          // "Listening…" and then, three seconds later, with "No compass on
-          // this device" — telling someone holding a phone that their hardware
-          // is missing, and hiding the one action that would fix it.
-          box?.classList.remove("hidden");
-          if (readout) readout.textContent = "—";
-          if (note)
-            note.textContent =
-              "Compass permission denied — allow Motion & Orientation access in Settings, then reopen this panel.";
-          return;
-        }
+        motionDenied = (await doe.requestPermission()) !== "granted";
       } catch {
         /* fall through; the no-sensor timeout will explain */
       }
     }
-    box?.classList.remove("hidden");
+
+    // Go to the user's actual location first, so the needle and declination are
+    // for where they are — not wherever the map happened to be left. The map is
+    // centred there as a side effect. Falls back to the map centre if there's
+    // no fix (desktop, denied, offline).
+    let pos: { lat: number; lng: number } | null = null;
+    if (locate) {
+      if (note) note.textContent = "Finding your location…";
+      try {
+        pos = await locate();
+      } catch {
+        /* map centre */
+      }
+    }
+    // The panel can be closed during the location wait (compass-close, the ☰
+    // toggle, another panel). Bail before touching it or starting the sensor:
+    // the observer that stops the sensor already fired while nothing was
+    // listening, and it won't fire again — so start() here would leave the
+    // compass running on a hidden panel, the drain the observer exists to stop.
+    if (box?.classList.contains("hidden")) return;
+
+    // Declination is worth showing even with no magnetometer: it's the number
+    // you write on a printed map before navigating from it with a real compass.
+    refreshDeclination(pos ?? undefined);
+
+    if (motionDenied) {
+      // Falling through to start() overwrote this with "Listening…" and then
+      // "No compass on this device" — telling someone holding a phone their
+      // hardware is missing, and hiding the one action that would fix it.
+      if (note)
+        note.textContent =
+          "Compass permission denied — allow Motion & Orientation access in Settings, then reopen this panel.";
+      return;
+    }
+    if (!doe) {
+      if (note) note.textContent = NO_SENSOR;
+      return;
+    }
     start();
   });
 

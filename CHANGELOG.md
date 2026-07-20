@@ -6,6 +6,16 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.12
+
+**The compass goes to your location first.** Opening the Compass panel now finds
+where you are and centres the map there, so the needle and the declination
+figure are for your actual spot — not wherever the map happened to be left.
+
+**Your location dot sits exactly on the centre crosshair.** After locating, the
+blue dot drifted a pixel or two off the crosshair; it's drawn as part of the map
+now instead of as an overlay, so it lands precisely where the map is centred.
+
 ## v0.1.11
 
 **One location button, like other map apps.** The map's locate button now

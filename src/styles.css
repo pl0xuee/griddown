@@ -1522,20 +1522,6 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg { animation: none; opacity: 0.6; }
 }
 
-/* The "you are here" dot we draw ourselves (see main.ts) — blue with a white
-   ring, the conventional location marker. The accuracy circle around it is a
-   map layer, not this element. */
-.gd-userloc-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: #3b82f6;
-  border: 3px solid #fff;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.3),
-    0 1px 5px rgba(0, 0, 0, 0.5);
-}
-
 .maplibregl-ctrl-attrib {
   font-size: 10px;
 }
