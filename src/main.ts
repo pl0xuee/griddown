@@ -19,7 +19,8 @@ import { initVersion } from "./version";
 import { initPanels } from "./panels";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
-import { initCompass } from "./compass";
+import { initCompass, headingFrom, shortestTurn } from "./compass";
+import { declination, magneticToTrue } from "./geomag";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
 import { toast } from "./toast";
@@ -662,6 +663,99 @@ async function start() {
   });
   map.addControl(geolocate, "top-right");
 
+  // --- Heading-up ("your perspective") mode -------------------------------
+  //
+  // Rotates the map so the way you're pointing is up, following as you turn.
+  // Driven by the compass (device orientation), NOT by tracking your position:
+  // that keeps it consistent with the deliberately one-shot Locate button and
+  // costs no GPS battery. A toggle, so it's off by default and always killable.
+  let headingUpOn = false;
+  let headingBusy = false; // true while the iOS permission prompt is pending
+  let headingDec = 0; // magnetic→true correction for the area, degrees
+  let smoothBearing = 0; // continuous, low-pass filtered to damp sensor jitter
+  let headingBtn: HTMLButtonElement | null = null;
+
+  function applyHeading(e: DeviceOrientationEvent) {
+    const mag = headingFrom(e);
+    if (mag == null) return;
+    const target = magneticToTrue(mag, headingDec);
+    // Ease a quarter of the way toward the reading each event, along the short
+    // arc — smooths the noisy sensor and crosses north without spinning. The
+    // map is true-north, so the magnetic reading is corrected first.
+    smoothBearing += shortestTurn(smoothBearing, target) * 0.25;
+    map.setBearing(((smoothBearing % 360) + 360) % 360);
+  }
+
+  async function setHeadingUp(on: boolean) {
+    if (on === headingUpOn || headingBusy) return;
+    if (on) {
+      const doe = (window as any).DeviceOrientationEvent;
+      if (!doe) {
+        toast("No compass on this device — heading-up needs a phone or tablet.", "error");
+        return;
+      }
+      // iOS gates the sensor behind a permission prompt that must come from a
+      // user gesture — the click that called this is that gesture. `headingBusy`
+      // blocks a second tap from starting a second prompt while it's pending.
+      if (typeof doe.requestPermission === "function") {
+        headingBusy = true;
+        try {
+          if ((await doe.requestPermission()) !== "granted") {
+            toast("Compass permission denied — can't turn the map to your heading.", "error");
+            return;
+          }
+        } catch {
+          toast("Couldn't start the compass.", "error");
+          return;
+        } finally {
+          headingBusy = false;
+        }
+      }
+      const c = map.getCenter();
+      try {
+        headingDec = declination(c.lat, c.lng);
+      } catch {
+        headingDec = 0;
+      }
+      smoothBearing = map.getBearing();
+      window.addEventListener("deviceorientationabsolute" as any, applyHeading);
+      window.addEventListener("deviceorientation", applyHeading);
+      headingUpOn = true;
+      toast("Heading up — the map turns to face the way you point. Tap again for north up.", "info");
+    } else {
+      window.removeEventListener("deviceorientationabsolute" as any, applyHeading);
+      window.removeEventListener("deviceorientation", applyHeading);
+      headingUpOn = false;
+      map.easeTo({ bearing: 0, duration: 400 }); // back to north up
+    }
+    headingBtn?.classList.toggle("gd-on", headingUpOn);
+    headingBtn?.setAttribute("aria-pressed", String(headingUpOn));
+  }
+
+  class HeadingUpControl implements maplibregl.IControl {
+    private _c!: HTMLElement;
+    onAdd() {
+      const c = document.createElement("div");
+      c.className = "maplibregl-ctrl maplibregl-ctrl-group";
+      const b = document.createElement("button");
+      b.type = "button";
+      b.title = "Heading up — turn the map to face the way you're pointing";
+      b.setAttribute("aria-pressed", "false");
+      b.innerHTML =
+        '<svg class="gd-heading-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+        '<path d="M12 2 L19 21 L12 16.5 L5 21 Z" fill="currentColor"/></svg>';
+      b.addEventListener("click", () => void setHeadingUp(!headingUpOn));
+      headingBtn = b;
+      c.appendChild(b);
+      this._c = c;
+      return c;
+    }
+    onRemove() {
+      this._c.remove();
+    }
+  }
+  map.addControl(new HeadingUpControl(), "top-right");
+
   // Same action from the HUD, where people actually look for it — the map
   // control is easy to miss next to the zoom buttons, especially on a phone.
   const locateBtn = document.getElementById("locate-me");
@@ -1008,8 +1102,12 @@ function isPhone(): boolean {
   return window.matchMedia(PHONE).matches;
 }
 
-type SheetState = "sheet-peek" | "sheet-half" | "sheet-full";
-const SHEET_STATES: SheetState[] = ["sheet-peek", "sheet-half", "sheet-full"];
+// Two rest positions: the menu is either up or minimized to its grip. A middle
+// "half" stop was dropped when the sheet was made to fit its content — a
+// content-height sheet and a half-stop body cap fight each other, and with the
+// legend moved off the menu the whole thing fits on screen at once anyway.
+type SheetState = "sheet-peek" | "sheet-full";
+const SHEET_STATES: SheetState[] = ["sheet-peek", "sheet-full"];
 
 /**
  * Mirror the menu's collapsed state onto <body>.
@@ -1055,11 +1153,9 @@ function peekSheet() {
  * menu on every frame of a drag, which is what made it feel rough; a transform
  * is composited and never touches layout.
  *
- * The cost of moving rather than resizing is that the part of the sheet past
- * the bottom of the screen is still there, just off it — so at the half stop
- * the body does not overflow, does not scroll, and half the menu is out of
- * reach. The CSS caps the body at what actually fits at each rest position,
- * which is what turns it back into a scrollable list; see `#hud.sheet-half`.
+ * Two rest positions: open (fits the content, which scrolls if it's taller than
+ * the screen) or minimized to the grip strip. A drag or flick moves between
+ * them; a flick carries one stop the way it was thrown.
  */
 function setupSheet(hud: HTMLElement) {
   const grip = document.getElementById("hud-grip");
@@ -1067,7 +1163,10 @@ function setupSheet(hud: HTMLElement) {
   if (!grip || !bar) return;
 
   const stored = localStorage.getItem("griddown_sheet") as SheetState | null;
-  hud.classList.add(stored && SHEET_STATES.includes(stored) ? stored : "sheet-half");
+  // Anything that isn't one of the two current states (including a "sheet-half"
+  // saved by an older build) falls back to the menu being up.
+  const initial: SheetState = stored && SHEET_STATES.includes(stored) ? stored : "sheet-full";
+  hud.classList.add(initial);
 
   // The desktop panel's collapsed state means nothing to a sheet, and a choice
   // made on a desktop must not arrive on the phone as a menu that will not
@@ -1101,9 +1200,9 @@ function setupSheet(hud: HTMLElement) {
   let startShift = 0;
   let moved = false;
   /** Rest positions in order, shallowest first. Index arithmetic below. */
-  const STOPS: SheetState[] = ["sheet-full", "sheet-half", "sheet-peek"];
+  const STOPS: SheetState[] = ["sheet-full", "sheet-peek"];
   /** Which stop the drag began at, so a flick moves exactly one from there. */
-  let startStop = 1;
+  let startStop = 0;
   /** Last sample, for velocity. */
   let lastY = 0;
   let lastT = 0;
@@ -1120,12 +1219,11 @@ function setupSheet(hud: HTMLElement) {
   const FLICK = 0.45;
 
   /** Which stop a given shift is nearest, by how much of the sheet shows. */
+  // Index into STOPS. As a fraction of the sheet's own height, so it's right
+  // whatever the content height is: below half shown → minimize, else open.
   const stopAt = (shift: number) => {
-    const visible = hud.offsetHeight - shift;
-    const vh = window.innerHeight;
-    if (visible < vh * 0.28) return 2;
-    if (visible < vh * 0.67) return 1;
-    return 0;
+    const shown = (hud.offsetHeight - shift) / Math.max(1, hud.offsetHeight);
+    return shown < 0.5 ? 1 : 0; // 1 = peek, 0 = full
   };
 
   /**

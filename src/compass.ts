@@ -43,8 +43,10 @@ export function shortestTurn(from: number, to: number): number {
   return ((((to - from) % 360) + 540) % 360) - 180;
 }
 
-/** Extract a compass heading (° CW from north) from an orientation event. */
-function headingFrom(e: DeviceOrientationEvent): number | null {
+/** Extract a compass heading (° CW from magnetic north) from an orientation
+ *  event. Exported so the map's heading-up mode reads the sensor the same way
+ *  the compass panel does. */
+export function headingFrom(e: DeviceOrientationEvent): number | null {
   const webkit = (e as any).webkitCompassHeading;
   if (typeof webkit === "number" && webkit >= 0) return webkit; // iOS
   if (e.absolute && e.alpha != null) return (360 - e.alpha + 360) % 360;

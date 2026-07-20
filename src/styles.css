@@ -153,9 +153,17 @@ body {
   position: absolute;
   right: 8px;
   bottom: 26px;
-  z-index: 15;
+  /* Below the bottom sheet (#hud is z-index 10), so raising the menu on a phone
+     covers the legend instead of the legend punching through on top of it.
+     Still above the map and its crosshair. */
+  z-index: 8;
   width: max-content;
   max-width: 62vw;
+  /* Was inherited from #hud when the legend lived in the menu; the standalone
+     card has to set both, or the labels render near-black in the browser's
+     default serif on the dark card instead of light mono. */
+  color: #e6f0e0;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   background: rgba(13, 18, 14, 0.86);
   backdrop-filter: blur(3px);
   border: 1px solid rgba(120, 200, 120, 0.3);
@@ -958,18 +966,26 @@ body.nightvis {
   font-size: 10px;
   opacity: 0.7;
 }
-.state-dem-btn {
-  padding: 4px 8px;
+/* The two "add an optional layer" buttons (terrain, forest roads) share one
+   shape so they read as the same kind of choice — full-width, dashed, tap to
+   add — and differ only in accent colour. */
+.state-dem-btn,
+.state-mvum-btn {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 9px;
   border-radius: 6px;
   border: 1px dashed rgba(120, 200, 120, 0.45);
   background: none;
   color: #a8d8a8;
   font-family: inherit;
   font-size: 10px;
+  text-align: left;
   cursor: pointer;
 }
 .state-dem-btn:hover {
-  background: rgba(50, 70, 50, 0.5);
+  border-style: solid;
+  background: rgba(120, 200, 120, 0.14);
 }
 
 .state-sub .state-stale {
@@ -1442,6 +1458,49 @@ body .maplibregl-ctrl-top-right {
 body .maplibregl-ctrl-top-left {
   top: env(safe-area-inset-top);
   left: env(safe-area-inset-left);
+}
+
+/* Native map controls themed to match the app — dark green with light-green
+   icons, in place of MapLibre's default white boxes. `body` prefix so these
+   beat MapLibre's own later-loaded stylesheet (see the bottom-left note). */
+body .maplibregl-ctrl-group {
+  background: rgba(20, 28, 21, 0.92);
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+body .maplibregl-ctrl-group button {
+  width: 32px;
+  height: 32px;
+  background-color: transparent;
+}
+body .maplibregl-ctrl-group button + button {
+  border-top: 1px solid rgba(120, 200, 120, 0.22);
+}
+body .maplibregl-ctrl-group button:hover {
+  background-color: rgba(120, 200, 120, 0.16);
+}
+body .maplibregl-ctrl-group button:focus:not(:focus-visible) {
+  box-shadow: none;
+}
+/* MapLibre's icons are dark SVGs baked for a white control; tint them to the
+   app's light green so they read on the dark background. */
+body .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.86) sepia(0.35) saturate(3) hue-rotate(72deg) brightness(1.05);
+}
+/* Heading-up toggle: its own inline SVG (uses currentColor, so the icon filter
+   above doesn't touch it), lit brighter when the mode is on. */
+body .maplibregl-ctrl-group .gd-heading-svg {
+  display: block;
+  margin: auto;
+  color: #a8d8a8;
+}
+body .maplibregl-ctrl-group button.gd-on {
+  background-color: rgba(120, 200, 120, 0.28);
+}
+body .maplibregl-ctrl-group button.gd-on .gd-heading-svg {
+  color: #eaffea;
 }
 
 .maplibregl-ctrl-attrib {
@@ -2429,21 +2488,15 @@ body.battery.nightvis .maplibregl-ctrl {
   color: #d8c58a;
 }
 
-/* Forest-roads sub-row in Map packs, matching the terrain one. */
+/* Forest roads: shares .state-dem-btn's shape (above), only the accent differs. */
 .state-mvum-btn {
-  width: 100%;
-  padding: 5px 7px;
-  border-radius: 6px;
-  border: 1px solid rgba(79, 195, 255, 0.45);
-  background: rgba(24, 38, 48, 0.9);
+  border-color: rgba(79, 195, 255, 0.45);
   color: #cfe9ff;
-  font-family: inherit;
-  font-size: 10px;
-  text-align: left;
-  cursor: pointer;
 }
 .state-mvum-btn:hover {
+  border-style: solid;
   border-color: rgba(79, 195, 255, 0.8);
+  background: rgba(79, 195, 255, 0.12);
 }
 
 /* --- Team mesh (Meshtastic teammate positions) --- */
@@ -2734,10 +2787,6 @@ body.battery.nightvis .maplibregl-ctrl {
     /* Grip strip (30) + bar (34) + bottom padding (8), plus the home
        indicator. Everything that has to clear the resting sheet reads this. */
     --sheet-peek: calc(74px + env(safe-area-inset-bottom));
-    /* Grip strip + bar + the sheet's own bottom padding: everything above the
-       scrolling body. Used to work out how much body actually fits on screen
-       at each rest position. */
-    --sheet-head: calc(72px + env(safe-area-inset-bottom));
   }
 
   #hud {
@@ -2753,15 +2802,20 @@ body.battery.nightvis .maplibregl-ctrl {
        never touches layout. How much shows is how far it is pushed down.
        vh first, dvh second: dvh is Safari 15.4 and this targets iOS 14, where
        an unrecognised unit invalidates the whole declaration. */
-    height: 88vh;
-    height: 88dvh;
+    /* Fit the content, up to nearly the full screen. Was a fixed 88dvh, which
+       left a tall translucent gap under the menu once the legend moved off it —
+       the map and its controls showed through the empty space. Auto height ends
+       exactly at the last item; the rest positions below are self-relative, so
+       they still land right whatever the content height turns out to be. */
+    height: auto;
+    max-height: 88vh;
+    max-height: 88dvh;
     padding: 0 12px calc(8px + env(safe-area-inset-bottom));
     border-width: 1px 0 0;
     border-radius: 16px 16px 0 0;
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.5);
     overflow: hidden;
-    transform: translateY(42vh);
-    transform: translateY(42dvh);
+    transform: translateY(50%);
     transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
     will-change: transform;
   }
@@ -2771,32 +2825,20 @@ body.battery.nightvis .maplibregl-ctrl {
     transition: none;
   }
 
-  /* Rest positions, as how far down the sheet sits. */
+  /* Rest positions, self-relative so they adapt to the content height:
+     full shows all of it, half slides it half its own height down, peek leaves
+     only the grip strip. `100%` and `50%` are of the sheet's OWN height. */
   #hud.sheet-full {
     transform: translateY(0);
   }
-  #hud.sheet-half {
-    transform: translateY(42vh);
-    transform: translateY(42dvh);
-  }
   #hud.sheet-peek {
-    transform: translateY(calc(88vh - var(--sheet-peek)));
-    transform: translateY(calc(88dvh - var(--sheet-peek)));
+    transform: translateY(calc(100% - var(--sheet-peek)));
   }
 
-  /* Let the menu scroll at the half stop.
-     The sheet is always 88dvh and is only ever *moved*, so at the half stop its
-     lower half is rendered below the bottom of the screen. The body is sized to
-     the whole sheet, so it does not overflow, so it does not scroll — and
-     everything past the halfway point is simply unreachable without dragging
-     the sheet all the way up. Capping the body at what is actually on screen
-     makes it overflow, which is what turns it back into a scrollable list.
-     Applied at the rest positions only: during a drag the sheet must not
-     relayout, which is the whole reason it moves by transform. */
-  #hud.sheet-half:not(.dragging) #hud-body {
-    max-height: calc(46vh - var(--sheet-head));
-    max-height: calc(46dvh - var(--sheet-head));
-  }
+  /* At the half stop the sheet is slid down half its height, so only its top
+     half is on screen; the body is capped to that in JS (setSheet) so the lower
+     menu scrolls into reach. Sheet-relative now that the sheet fits its content,
+     which a fixed dvh cap could not be. */
 
   /* touch-action lives on the two things you drag, never on #hud itself:
      the browser intersects touch-action up the ancestor chain, so putting

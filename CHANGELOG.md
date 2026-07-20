@@ -6,6 +6,30 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.10
+
+**The legend on the map is readable, and stays out of the way.** It shipped in
+v0.1.9 with near-invisible text and, on a phone, floating on top of the menu.
+Now it has proper light text in the app's own font, and sits behind the menu so
+raising the menu covers it.
+
+**The map turns to face the way you're pointing.** A new button by the zoom
+controls: tap it and the map rotates so your heading is up, following as you
+turn, like orienting a paper map. It uses the compass only — no continuous GPS —
+so it costs almost no battery, and one more tap puts north back up.
+
+**The menu fits its content.** With the legend moved onto the map, the bottom
+sheet was left with a big empty gap under it that showed the map through. It now
+ends right at the last item. The menu is either up or minimized to its handle;
+drag or flick between the two.
+
+**The map controls match the app.** The zoom and locate buttons in the corner
+were plain white boxes; they're now dark with green icons like everything else.
+
+**The two "add" buttons line up.** Add terrain and Add forest roads under an
+installed map pack were different shapes and colours; they're now the same
+button, told apart by colour alone.
+
 ## v0.1.9
 
 **How do I get there is easier to use.** Start and destination are now two clear
