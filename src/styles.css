@@ -1241,10 +1241,18 @@ button {
 @media (pointer: coarse) {
   #hud-controls button,
   #states-open,
-  #handbook-open,
-  #nightvis-toggle {
+  #handbook-open {
     min-height: 42px;
     font-size: 13px;
+  }
+  /* The icon row is one control and gets one height. #nightvis-toggle used to
+     be listed above, which made it the only icon in the row 42px tall while its
+     three neighbours stayed at 34 — the reason the row looked ragged. Height,
+     not min-height: these hold glyphs of wildly different metrics (one is a
+     colour emoji for the real moon phase) and none of them may set the size. */
+  .hud-icon {
+    height: 42px;
+    font-size: 17px;
   }
   .state-action {
     min-height: 40px;
@@ -2331,6 +2339,13 @@ body.battery.nightvis .maplibregl-ctrl {
   flex: 1;
   min-width: 0;
   height: 34px;
+  /* Centre the glyph rather than letting the line box place it, and keep the
+     border inside the height, so a tall glyph cannot change the button. */
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
   border-radius: 7px;
   border: 1px solid rgba(120, 200, 120, 0.4);
   background: rgba(30, 40, 30, 0.9);
@@ -2411,6 +2426,10 @@ body.battery.nightvis .maplibregl-ctrl {
     /* Grip strip (30) + bar (34) + bottom padding (8), plus the home
        indicator. Everything that has to clear the resting sheet reads this. */
     --sheet-peek: calc(74px + env(safe-area-inset-bottom));
+    /* Grip strip + bar + the sheet's own bottom padding: everything above the
+       scrolling body. Used to work out how much body actually fits on screen
+       at each rest position. */
+    --sheet-head: calc(72px + env(safe-area-inset-bottom));
   }
 
   #hud {
@@ -2455,6 +2474,20 @@ body.battery.nightvis .maplibregl-ctrl {
   #hud.sheet-peek {
     transform: translateY(calc(88vh - var(--sheet-peek)));
     transform: translateY(calc(88dvh - var(--sheet-peek)));
+  }
+
+  /* Let the menu scroll at the half stop.
+     The sheet is always 88dvh and is only ever *moved*, so at the half stop its
+     lower half is rendered below the bottom of the screen. The body is sized to
+     the whole sheet, so it does not overflow, so it does not scroll — and
+     everything past the halfway point is simply unreachable without dragging
+     the sheet all the way up. Capping the body at what is actually on screen
+     makes it overflow, which is what turns it back into a scrollable list.
+     Applied at the rest positions only: during a drag the sheet must not
+     relayout, which is the whole reason it moves by transform. */
+  #hud.sheet-half:not(.dragging) #hud-body {
+    max-height: calc(46vh - var(--sheet-head));
+    max-height: calc(46dvh - var(--sheet-head));
   }
 
   /* touch-action lives on the two things you drag, never on #hud itself:

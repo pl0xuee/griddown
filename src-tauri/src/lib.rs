@@ -539,6 +539,28 @@ fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{}.geojson", safe_abbr(abbr))))
 }
 
+/// Absolute path to the bundled starter pack (the whole US at low zoom).
+///
+/// It has to be read through the asset protocol, not fetched from the frontend
+/// like any other file in `public/`. PMTiles is read with HTTP range requests,
+/// and the protocol serving the bundled frontend implements none — it answers a
+/// range request with the whole 11 MB file and a 200, which the PMTiles reader
+/// rejects outright ("Check that your storage backend supports HTTP Byte
+/// Serving"). The map then never draws: a grey screen on a fresh install, on
+/// every packaged build. The asset protocol does implement ranges, which is why
+/// downloaded packs always worked; this puts the bundled one on the same path.
+///
+/// Ships as a bundled resource so it exists as a real file to point at. Under
+/// `tauri dev` the frontend's own copy is served by Vite, which does support
+/// ranges — which is exactly why this never showed up in development.
+#[tauri::command]
+fn starter_path(app: AppHandle) -> Result<String, String> {
+    app.path()
+        .resolve("mapdata/starter.pmtiles", tauri::path::BaseDirectory::Resource)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| format!("could not locate the bundled starter map: {e}"))
+}
+
 /// Absolute path to a state's MVUM file (for convertFileSrc).
 #[tauri::command]
 fn mvum_path(app: AppHandle, abbr: String) -> Result<String, String> {
@@ -920,6 +942,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_installed,
             state_path,
+            starter_path,
             delete_state,
             download_state,
             read_marks,

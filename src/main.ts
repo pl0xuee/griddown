@@ -1,4 +1,5 @@
 import maplibregl from "maplibre-gl";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
@@ -581,9 +582,38 @@ async function firstBytes(body: ReadableStream<Uint8Array>, n: number): Promise<
   return out.subarray(0, got);
 }
 
+/**
+ * Where to read the region's basemap from.
+ *
+ * The bundled starter pack cannot be fetched from the frontend the way every
+ * other file in `public/` is. PMTiles reads an archive with HTTP range
+ * requests, and the protocol serving the bundled frontend implements none — it
+ * answers with the whole file and a 200, which the PMTiles reader refuses
+ * outright rather than guessing. That is a grey screen on a fresh install of
+ * any packaged build, while `tauri dev` works perfectly, because Vite serves
+ * ranges. Which is exactly why it took a real device to notice.
+ *
+ * In the app it therefore goes through the asset protocol, which does implement
+ * ranges and is how downloaded packs have always been read. In a browser there
+ * is no asset protocol, and whatever is serving the page serves ranges anyway.
+ */
+async function regionPmtilesUrl(region: { pmtiles: string }): Promise<string> {
+  const plain = `pmtiles://${origin}/mapdata/${region.pmtiles}`;
+  if (typeof (window as any).__TAURI_INTERNALS__ === "undefined") return plain;
+  try {
+    const path = await invoke<string>("starter_path");
+    return `pmtiles://${convertFileSrc(path)}`;
+  } catch (err) {
+    // A map that might not draw beats no map at all: the plain URL is still
+    // correct anywhere ranges are served.
+    console.error("[starter] falling back to the frontend copy", err);
+    return plain;
+  }
+}
+
 async function start() {
   const region = await loadRegion();
-  PMTILES_URL = `pmtiles://${origin}/mapdata/${region.pmtiles}`;
+  PMTILES_URL = await regionPmtilesUrl(region);
 
   const stateEl = document.getElementById("hud-state");
   if (stateEl) stateEl.textContent = region.name;
@@ -1000,11 +1030,17 @@ function setSheet(hud: HTMLElement, state: SheetState) {
 }
 
 /**
- * Drag-to-resize for the phone bottom sheet.
+ * Drag-to-move for the phone bottom sheet.
  *
- * Deliberately driven by height rather than a transform: the body is a
- * scrolling flex child, so changing the sheet's height reflows the list to fit,
- * whereas translating it would just slide the overflow off-screen.
+ * Driven by a transform, not by height. Animating height relaid out the whole
+ * menu on every frame of a drag, which is what made it feel rough; a transform
+ * is composited and never touches layout.
+ *
+ * The cost of moving rather than resizing is that the part of the sheet past
+ * the bottom of the screen is still there, just off it — so at the half stop
+ * the body does not overflow, does not scroll, and half the menu is out of
+ * reach. The CSS caps the body at what actually fits at each rest position,
+ * which is what turns it back into a scrollable list; see `#hud.sheet-half`.
  */
 function setupSheet(hud: HTMLElement) {
   const grip = document.getElementById("hud-grip");
@@ -1045,6 +1081,33 @@ function setupSheet(hud: HTMLElement) {
   /** How far the sheet was pushed down when the drag began, in px. */
   let startShift = 0;
   let moved = false;
+  /** Rest positions in order, shallowest first. Index arithmetic below. */
+  const STOPS: SheetState[] = ["sheet-full", "sheet-half", "sheet-peek"];
+  /** Which stop the drag began at, so a flick moves exactly one from there. */
+  let startStop = 1;
+  /** Last sample, for velocity. */
+  let lastY = 0;
+  let lastT = 0;
+  let velocity = 0;
+
+  /**
+   * A flick is a deliberate throw rather than a slow drag, in px/ms.
+   *
+   * Below this the sheet settles wherever it was let go, which is what you want
+   * when placing it carefully. Above it, the gesture means "next stop, that
+   * way" — and it has to, because a fast flick barely moves the sheet before
+   * the finger lifts, so position alone would leave it where it started.
+   */
+  const FLICK = 0.45;
+
+  /** Which stop a given shift is nearest, by how much of the sheet shows. */
+  const stopAt = (shift: number) => {
+    const visible = hud.offsetHeight - shift;
+    const vh = window.innerHeight;
+    if (visible < vh * 0.28) return 2;
+    if (visible < vh * 0.67) return 1;
+    return 0;
+  };
 
   /**
    * How far the sheet is currently pushed down.
@@ -1071,6 +1134,10 @@ function setupSheet(hud: HTMLElement) {
     moved = false;
     startY = e.clientY;
     startShift = currentShift();
+    startStop = stopAt(startShift);
+    lastY = e.clientY;
+    lastT = e.timeStamp;
+    velocity = 0;
     // Pin the sheet where it actually is before killing the transition. Caught
     // mid-animation, `dragging` would otherwise snap it straight to the class's
     // target — a jump on touch-down, then a second jump back on the first move.
@@ -1091,29 +1158,64 @@ function setupSheet(hud: HTMLElement) {
     const limit = hud.offsetHeight - 48;
     const shift = Math.max(0, Math.min(limit, startShift + dy));
     hud.style.transform = `translateY(${shift}px)`;
+
+    // Sampled per move rather than averaged over the whole gesture: a drag that
+    // pauses and then flicks should be read as a flick, not as its slow mean.
+    const dt = e.timeStamp - lastT;
+    if (dt > 0) velocity = (e.clientY - lastY) / dt;
+    lastY = e.clientY;
+    lastT = e.timeStamp;
   };
 
   const up = (e: PointerEvent) => {
     if (e.pointerId !== activeId) return;
     activeId = null;
-    hud.classList.remove("dragging");
 
     if (!moved) {
+      hud.classList.remove("dragging");
       // A tap, not a drag. Leave the resting position alone.
       hud.style.transform = "";
       return;
     }
 
-    // Snap by how much of the sheet is showing. Measured before clearing the
-    // transform, and against thresholds rather than the peek height — the peek
-    // is defined in CSS with a safe-area inset in it, and re-deriving that here
-    // is how the two drift apart.
-    const visible = hud.offsetHeight - currentShift();
-    const vh = window.innerHeight;
-    if (visible < vh * 0.28) setSheet(hud, "sheet-peek");
-    else if (visible < vh * 0.67) setSheet(hud, "sheet-half");
-    else setSheet(hud, "sheet-full");
+    // A throw goes one stop the way it was thrown; anything slower settles
+    // where it was let go. Thresholds rather than the peek height, because the
+    // peek is defined in CSS with a safe-area inset in it and re-deriving that
+    // here is how the two drift apart.
+    const target =
+      Math.abs(velocity) > FLICK
+        ? Math.max(0, Math.min(STOPS.length - 1, startStop + (velocity > 0 ? 1 : -1)))
+        : stopAt(currentShift());
+    settle(STOPS[target]);
   };
+
+  /**
+   * Animate to a rest position over a time that suits the distance.
+   *
+   * A fixed duration has to be a compromise, and reads as both: sluggish
+   * nudging the sheet a few pixels, abrupt throwing it the height of the
+   * screen. The end position is measured rather than computed — the stops are
+   * defined in CSS, in dvh and safe-area insets, and duplicating that
+   * arithmetic here is how the two quietly stop agreeing.
+   */
+  function settle(state: SheetState) {
+    const from = currentShift();
+    // Read the target with the transition still suppressed, then put the sheet
+    // back where it was before letting it animate. One forced layout, once, on
+    // release.
+    setSheet(hud, state); // also clears the transform the drag left behind
+    const to = currentShift();
+    hud.style.transform = `translateY(${from}px)`;
+    void hud.offsetHeight; // flush, so the line below animates from `from`
+
+    const ms = Math.max(180, Math.min(420, 180 + Math.abs(to - from) * 0.55));
+    hud.style.transitionDuration = `${Math.round(ms)}ms`;
+    hud.classList.remove("dragging");
+    hud.style.transform = "";
+    window.setTimeout(() => {
+      hud.style.transitionDuration = "";
+    }, ms + 60);
+  }
 
   for (const el of [grip, bar]) {
     el.addEventListener("pointerdown", down);

@@ -32,6 +32,17 @@ export function cardinal(deg: number): string {
   return CARDINALS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 }
 
+/**
+ * The shortest signed turn from one angle to another, in (-180, 180].
+ *
+ * Rotations are interpolated by CSS as plain numbers, so going from 359° to 1°
+ * by way of the arithmetic difference turns 358 degrees the wrong way. This
+ * gives the step a needle should actually take.
+ */
+export function shortestTurn(from: number, to: number): number {
+  return ((((to - from) % 360) + 540) % 360) - 180;
+}
+
 /** Extract a compass heading (° CW from north) from an orientation event. */
 function headingFrom(e: DeviceOrientationEvent): number | null {
   const webkit = (e as any).webkitCompassHeading;
@@ -50,6 +61,8 @@ export function initCompass(here: () => { lat: number; lng: number }) {
 
   let listening = false;
   let gotReading = false;
+  /** Continuous needle angle — see setNeedle. Not wrapped to 0..360. */
+  let needleAngle = 0;
   let noSensorTimer = 0;
   // Declination is recomputed when the panel opens, not per reading: it changes
   // by about a degree per 100 km, so it is constant for anyone standing still,
@@ -74,6 +87,22 @@ export function initCompass(here: () => { lat: number; lng: number }) {
       } the needle.`;
   }
 
+  /**
+   * Point the needle, taking the short way round.
+   *
+   * The angle handed to CSS is accumulated rather than wrapped. `rotate()`
+   * interpolates the number it is given, and the needle has a transition, so
+   * handing it -1deg straight after -359deg turns it 358 degrees backwards
+   * instead of 2 forwards — walk past north and the needle spins the long way
+   * round, then unwinds again coming back. Tracking a running angle that only
+   * ever moves by the shortest signed step keeps what CSS sees continuous even
+   * though the heading it came from does not.
+   */
+  function setNeedle(heading: number) {
+    needleAngle += shortestTurn(needleAngle, -heading);
+    if (needle) needle.style.transform = `rotate(${needleAngle}deg)`;
+  }
+
   function onOrientation(e: DeviceOrientationEvent) {
     const mag = headingFrom(e);
     if (mag == null) return;
@@ -90,7 +119,7 @@ export function initCompass(here: () => { lat: number; lng: number }) {
     if (readout)
       readout.textContent = `${Math.round(heading)}° ${cardinal(heading)}${corrected ? " true" : " mag"}`;
     // The needle shows where NORTH is relative to the way you're facing.
-    if (needle) needle.style.transform = `rotate(${-heading}deg)`;
+    setNeedle(heading);
   }
 
   function start() {

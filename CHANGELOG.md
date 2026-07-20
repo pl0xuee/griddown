@@ -8,6 +8,44 @@ Headings must be exactly `## vX.Y.Z` to be found.
 
 ## v0.1.8
 
+**The map shows up before you download anything.** A fresh install opened on a
+grey screen: the bundled overview map of the whole country was there, and simply
+never drew. Downloaded states were fine, which is what made it look like the
+overview map was missing rather than unreadable.
+
+The two are loaded by different machinery, and only one of them could serve a
+map. A map pack is read in pieces — a few kilobytes at a time, wherever you have
+scrolled to — and asking for a piece of the bundled copy returned the whole
+11 MB file instead, which the reader refuses rather than guess at. Downloaded
+packs were always read by the part that handles pieces properly; the bundled one
+now goes the same way.
+
+It never showed up in development because the development server does support
+reading files in pieces. It only breaks in a real build, which is why it took
+running it on a phone to find.
+
+**The compass stops spinning the wrong way past north.** Walking through north
+sent the needle almost the whole way around backwards, then unwound it again
+coming back. The needle is turned by handing an angle to the browser, and 359°
+to 1° is a difference of minus 358 unless you say otherwise. It now always takes
+the shorter turn — two degrees, in the direction you actually turned.
+
+**The menu scrolls at the half-open position.** Pulled halfway up, everything
+below the fold was unreachable without dragging the sheet all the way open. The
+sheet is full height and slides rather than resizes, so the lower half was
+genuinely off the bottom of the screen, and the menu had no idea it needed to
+scroll. It is now told how much of it is actually on screen.
+
+**The sheet moves better.** A quick flick now carries it to the next position
+instead of springing back — a fast throw barely moves the sheet before your
+finger leaves it, so it used to look like the gesture had been ignored. And the
+animation now lasts as long as the distance deserves, rather than one fixed
+duration that was slow for a nudge and abrupt for a full-height throw.
+
+**The four buttons along the top are the same size.** Night vision was a
+half-inch taller than its neighbours, left over from when it was a full-width
+button with a label on it. The whole row is now one size, and a touch-sized one.
+
 **Renaming a pin and importing a pack work on iPhone.** Both asked a question
 through the browser's own text prompt, which iOS does not implement — it answered
 "cancelled" instantly, every time, so renaming a waypoint quietly did nothing and
