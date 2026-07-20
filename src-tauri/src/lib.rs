@@ -190,6 +190,8 @@ struct PackInfo {
     modified: u64,
     /// Total size of this state's downloaded DEM tiles; 0 = no terrain.
     dem_bytes: u64,
+    /// Size of this state's Motor Vehicle Use Map overlay; 0 = not downloaded.
+    mvum_bytes: u64,
 }
 
 /// Directory holding a state's DEM tile pyramid ({z}/{x}/{y}.png).
@@ -243,11 +245,17 @@ fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let dem_bytes = dem_dir(&app, abbr).map(|d| dir_size(&d)).unwrap_or(0);
+        let mvum_bytes = mvum_file(&app, abbr)
+            .ok()
+            .and_then(|p| p.metadata().ok())
+            .map(|m| m.len())
+            .unwrap_or(0);
         out.push(PackInfo {
             abbr: abbr.to_string(),
             bytes: md.len(),
             modified,
             dem_bytes,
+            mvum_bytes,
         });
     }
     out.sort_by(|a, b| a.abbr.cmp(&b.abbr));
@@ -323,6 +331,10 @@ fn delete_state(app: AppHandle, abbr: String) -> Result<(), String> {
     let dem = dem_dir(&app, &abbr)?;
     if dem.exists() {
         let _ = std::fs::remove_dir_all(&dem);
+    }
+    // As does the Forest Service overlay.
+    if let Ok(mvum) = mvum_file(&app, &abbr) {
+        let _ = std::fs::remove_file(&mvum);
     }
     Ok(())
 }
@@ -466,6 +478,241 @@ async fn download_dem(
     .map_err(|e2| e2.to_string())?;
 
     out
+}
+
+// --- Motor Vehicle Use Map (USFS) -------------------------------------------
+//
+// The MVUM is the legally operative answer to "may I drive this road, in this
+// vehicle, today" — it is what the printed Forest Service MVUM booklets are
+// generated from. OpenStreetMap has the geometry of most forest roads, but not
+// the legal designation, and the two disagree often enough to matter.
+//
+// Fetched from the Forest Service's own ArcGIS service rather than shipped as a
+// prebuilt pack: it needs no hosting, and the data is theirs to update. Paged
+// into one GeoJSON file per state, sitting beside that state's basemap.
+
+const MVUM_SERVICE: &str =
+    "https://apps.fs.usda.gov/arcx/rest/services/EDW/EDW_MVUM_01/MapServer";
+
+/// Roads is layer 1, trails layer 2 — with the tag each is stored under.
+const MVUM_LAYERS: [(u32, &str); 2] = [(1, "road"), (2, "trail")];
+
+/// Attributes worth keeping. Everything else is inventory bookkeeping that
+/// would only inflate a file destined for a phone.
+const MVUM_FIELDS_COMMON: &str = "id,name,symbol,mvum_symbol_name,jurisdiction,seasonal,\
+forestname,districtname,passengervehicle,passengervehicle_datesopen,highclearancevehicle,\
+highclearancevehicle_datesopen,motorhome,motorhome_datesopen,fourwd_gt50inches,\
+fourwd_gt50_datesopen,twowd_gt50inches,twowd_gt50_datesopen,atv,atv_datesopen,motorcycle,\
+motorcycle_datesopen,otherwheeled_ohv,otherwheeled_ohv_datesopen,other_ohv_lt50inches,\
+other_ohv_lt50_datesopen";
+
+/// Geometry tolerance in degrees (~11 m) applied server-side. Forest roads are
+/// navigated at ten metres of GPS error anyway, and it cuts the download by
+/// roughly two thirds.
+const MVUM_TOLERANCE: &str = "0.0001";
+
+const MVUM_PAGE: usize = 1000;
+
+/// Path of a state's MVUM overlay file.
+fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("mvum");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.join(format!("{}.geojson", safe_abbr(abbr))))
+}
+
+/// Absolute path to a state's MVUM file (for convertFileSrc).
+#[tauri::command]
+fn mvum_path(app: AppHandle, abbr: String) -> Result<String, String> {
+    Ok(mvum_file(&app, &abbr)?.to_string_lossy().to_string())
+}
+
+/// How many MVUM features a layer holds inside a bbox — for a progress total.
+fn mvum_count(
+    client: &reqwest::blocking::Client,
+    layer: u32,
+    envelope: &str,
+) -> Result<usize, String> {
+    let url = format!("{}/{}/query", MVUM_SERVICE, layer);
+    let res = client
+        .get(&url)
+        .query(&[
+            ("geometry", envelope),
+            ("geometryType", "esriGeometryEnvelope"),
+            ("inSR", "4326"),
+            ("spatialRel", "esriSpatialRelIntersects"),
+            ("where", "1=1"),
+            ("returnCountOnly", "true"),
+            ("f", "json"),
+        ])
+        .send()
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| e.to_string())?;
+    // Parsed from text rather than via reqwest's `json` feature, which isn't
+    // enabled here and would pull in serde machinery this crate already has.
+    let body = res.text().map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    Ok(v.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as usize)
+}
+
+/// Drop null and blank attributes.
+///
+/// The MVUM carries 40-odd vehicle-class columns and most are null on any given
+/// road; the allow-flags use `null`, `""` and `" "` interchangeably for "not
+/// designated", so blanks carry no information either. Stripping them here
+/// keeps a state file to a size worth putting on a phone.
+fn mvum_strip(feature: &mut serde_json::Value) {
+    let Some(props) = feature.get_mut("properties").and_then(|p| p.as_object_mut()) else {
+        return;
+    };
+    props.retain(|_, v| match v {
+        serde_json::Value::Null => false,
+        serde_json::Value::String(s) => !s.trim().is_empty(),
+        _ => true,
+    });
+}
+
+/// Download the Motor Vehicle Use Map for a state's bbox into app-data as one
+/// GeoJSON file. Emits `mvum-progress` while running.
+#[tauri::command]
+async fn download_mvum(app: AppHandle, abbr: String, bbox: String) -> Result<u64, String> {
+    let parts: Vec<f64> = bbox
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .collect();
+    let [w, s, e, n] = parts[..] else {
+        return Err("bad bbox".into());
+    };
+    let envelope = format!("{},{},{},{}", w, s, e, n);
+    let path = mvum_file(&app, &abbr)?;
+
+    tauri::async_runtime::spawn_blocking(move || -> Result<u64, String> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .user_agent("griddown-mvum/1.0")
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let mut total = 0usize;
+        for (layer, _) in MVUM_LAYERS {
+            total += mvum_count(&client, layer, &envelope)?;
+        }
+        if total == 0 {
+            return Err("No Forest Service roads or trails in this area.".into());
+        }
+
+        let mut features: Vec<serde_json::Value> = Vec::with_capacity(total);
+        for (layer, kind) in MVUM_LAYERS {
+            let fields = match kind {
+                "road" => format!("{},operationalmaintlevel,surfacetype", MVUM_FIELDS_COMMON),
+                _ => format!("{},trailclass", MVUM_FIELDS_COMMON),
+            };
+            let url = format!("{}/{}/query", MVUM_SERVICE, layer);
+            let mut offset = 0usize;
+            loop {
+                let offset_s = offset.to_string();
+                let page_s = MVUM_PAGE.to_string();
+                // Each page gets its own retries: one flaky response should not
+                // discard a download that may already be twenty pages deep.
+                let mut page: Option<serde_json::Value> = None;
+                for attempt in 0..3 {
+                    let res = client
+                        .get(&url)
+                        .query(&[
+                            ("geometry", envelope.as_str()),
+                            ("geometryType", "esriGeometryEnvelope"),
+                            ("inSR", "4326"),
+                            ("outSR", "4326"),
+                            ("spatialRel", "esriSpatialRelIntersects"),
+                            ("where", "1=1"),
+                            ("outFields", fields.as_str()),
+                            ("resultOffset", offset_s.as_str()),
+                            ("resultRecordCount", page_s.as_str()),
+                            ("geometryPrecision", "5"),
+                            ("maxAllowableOffset", MVUM_TOLERANCE),
+                            ("f", "geojson"),
+                        ])
+                        .send()
+                        .and_then(|r| r.error_for_status());
+                    let parsed = res
+                        .and_then(|r| r.text())
+                        .ok()
+                        .and_then(|b| serde_json::from_str::<serde_json::Value>(&b).ok());
+                    match parsed {
+                        Some(v) => {
+                            page = Some(v);
+                            break;
+                        }
+                        None => std::thread::sleep(std::time::Duration::from_millis(
+                            500 * (attempt + 1),
+                        )),
+                    }
+                }
+                let Some(page) = page else {
+                    return Err(
+                        "The Forest Service map server didn't respond — try again later.".into(),
+                    );
+                };
+                let Some(batch) = page.get("features").and_then(|f| f.as_array()) else {
+                    break;
+                };
+                let got = batch.len();
+                for f in batch {
+                    let mut f = f.clone();
+                    mvum_strip(&mut f);
+                    if let Some(props) = f.get_mut("properties").and_then(|p| p.as_object_mut()) {
+                        props.insert("gd_kind".into(), serde_json::json!(kind));
+                    }
+                    features.push(f);
+                }
+                let _ = app.emit(
+                    "mvum-progress",
+                    serde_json::json!({ "abbr": abbr, "done": features.len(), "total": total }),
+                );
+                // Trust the server's own "there is more" flag over a short page.
+                // The service caps pages at its maxRecordCount, which is 2000
+                // today but is theirs to change: if it ever dropped below the
+                // page size we ask for, a `got < MVUM_PAGE` test would end the
+                // download early and call a truncated map complete.
+                let exceeded = page
+                    .get("exceededTransferLimit")
+                    .and_then(|v| v.as_bool())
+                    .or_else(|| {
+                        page.pointer("/properties/exceededTransferLimit")
+                            .and_then(|v| v.as_bool())
+                    })
+                    .unwrap_or(false);
+                if got == 0 || (!exceeded && got < MVUM_PAGE) {
+                    break;
+                }
+                offset += got;
+            }
+        }
+
+        let doc = serde_json::json!({
+            "type": "FeatureCollection",
+            // Stamped so the panel can say how old this is, and so a refetch
+            // has something to compare against.
+            "gd_downloaded": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+            "gd_source": "USDA Forest Service Motor Vehicle Use Map",
+            "features": features,
+        });
+        // Write-then-rename: a half-written overlay that still parses would be
+        // worse than none, since it would look like the roads simply end.
+        let tmp = path.with_extension("part");
+        let bytes = serde_json::to_vec(&doc).map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+        Ok(bytes.len() as u64)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Convert days-since-Unix-epoch to a (year, month, day) civil date.
@@ -612,6 +859,8 @@ pub fn run() {
             save_file,
             download_dem,
             dem_path,
+            download_mvum,
+            mvum_path,
             export_pack,
             import_pack
         ])

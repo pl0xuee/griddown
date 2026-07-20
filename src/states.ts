@@ -13,6 +13,8 @@ export interface StateEntry {
 }
 
 export interface SwitchTarget {
+  /** Which pack this is — overlays keyed by pack (MVUM) need to follow it. */
+  abbr: string;
   pmtilesUrl: string;
   name: string;
   center: [number, number];
@@ -31,6 +33,7 @@ interface PackInfo {
   bytes: number;
   modified: number; // unix seconds, 0 = unknown
   dem_bytes: number; // 0 = no terrain downloaded
+  mvum_bytes: number; // 0 = no Forest Service overlay downloaded
 }
 
 let onSwitch: (t: SwitchTarget) => void = () => {};
@@ -40,6 +43,13 @@ let packInfo = new Map<string, PackInfo>();
 let activeAbbr = localStorage.getItem("griddown_active_state") || "";
 const downloading = new Map<string, number>(); // abbr -> percent (0-100), -1 = indeterminate
 const demDownloading = new Map<string, number>(); // abbr -> percent, -1 = starting
+const mvumDownloading = new Map<string, number>(); // abbr -> percent, -1 = starting
+
+/** Told when a pack's Forest Service overlay arrives, so the map can show it. */
+let onMvumReady: (abbr: string) => void = () => {};
+export function setMvumListener(cb: (abbr: string) => void) {
+  onMvumReady = cb;
+}
 
 const inTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
 
@@ -63,6 +73,14 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
     await listen<{ abbr: string; done: number; total: number }>("dem-progress", (e) => {
       if (!demDownloading.has(e.payload.abbr)) return; // stale event
       demDownloading.set(
+        e.payload.abbr,
+        Math.round((e.payload.done / Math.max(1, e.payload.total)) * 100)
+      );
+      updateRow(e.payload.abbr);
+    });
+    await listen<{ abbr: string; done: number; total: number }>("mvum-progress", (e) => {
+      if (!mvumDownloading.has(e.payload.abbr)) return; // stale event
+      mvumDownloading.set(
         e.payload.abbr,
         Math.round((e.payload.done / Math.max(1, e.payload.total)) * 100)
       );
@@ -111,6 +129,7 @@ function installedSub(abbr: string): string {
   if (!p) return "Installed";
   const parts = [`Installed · ${fmtBytes(p.bytes)}`];
   if (p.dem_bytes > 0) parts.push(`terrain ${fmtBytes(p.dem_bytes)}`);
+  if (p.mvum_bytes > 0) parts.push(`forest roads ${fmtBytes(p.mvum_bytes)}`);
   if (p.modified) {
     const age = Math.floor(Date.now() / 1000) - p.modified;
     const stale = age > 365 * DAY;
@@ -165,6 +184,9 @@ function render() {
       .querySelector(`[data-dem="${s.abbr}"]`)
       ?.addEventListener("click", () => downloadDem(s));
     list
+      .querySelector(`[data-mvum="${s.abbr}"]`)
+      ?.addEventListener("click", () => downloadMvum(s));
+    list
       .querySelector(`[data-share="${s.abbr}"]`)
       ?.addEventListener("click", () => sharePack(s));
     list
@@ -215,6 +237,23 @@ function rowHtml(s: StateEntry): string {
     }
   }
 
+  // Forest Service roads: a second optional extra, same shape as terrain.
+  let mvumRow = "";
+  if (isInstalled && !isDownloading) {
+    const mv = mvumDownloading.get(s.abbr);
+    const hasMvum = (packInfo.get(s.abbr)?.mvum_bytes ?? 0) > 0;
+    if (mv !== undefined) {
+      mvumRow = `<div class="state-mvum">
+          <span>Downloading forest roads… ${mv >= 0 ? mv + "%" : ""}</span>
+          <div class="state-progress"><span style="width:${mv >= 0 ? mv : 5}%"></span></div>
+        </div>`;
+    } else if (!hasMvum) {
+      mvumRow = `<div class="state-mvum">
+          <button class="state-mvum-btn" data-mvum="${s.abbr}">● Add forest roads (MVUM)</button>
+        </div>`;
+    }
+  }
+
   const progress = isDownloading
     ? `<div class="state-progress"><span style="width:${dl! >= 0 ? dl : 15}%"></span></div>`
     : "";
@@ -223,7 +262,7 @@ function rowHtml(s: StateEntry): string {
       <div class="state-info">
         <div class="state-name">${s.name}</div>
         <div class="state-sub">${isInstalled ? installedSub(s.abbr) : fmtSize(s.estMB) + " download"}</div>
-        ${progress}${demRow}
+        ${progress}${demRow}${mvumRow}
       </div>
       ${action}${extras}
     </div>`;
@@ -238,6 +277,7 @@ function updateRow(abbr: string) {
   list?.querySelector(`[data-view="${abbr}"]`)?.addEventListener("click", () => activate(abbr, true));
   list?.querySelector(`[data-refresh="${abbr}"]`)?.addEventListener("click", () => download(s, true));
   list?.querySelector(`[data-dem="${abbr}"]`)?.addEventListener("click", () => downloadDem(s));
+  list?.querySelector(`[data-mvum="${abbr}"]`)?.addEventListener("click", () => downloadMvum(s));
   list?.querySelector(`[data-del="${abbr}"]`)?.addEventListener("click", () => remove(abbr));
   list?.querySelector(`[data-dl="${abbr}"]`)?.addEventListener("click", () => download(s));
 }
@@ -266,6 +306,34 @@ async function downloadDem(s: StateEntry) {
     updateRow(s.abbr);
     toast(`Terrain download failed: ${err}`, "error");
     toast("Already-downloaded tiles are kept — trying again resumes.", "info");
+  }
+}
+
+async function downloadMvum(s: StateEntry) {
+  if (!inTauri) {
+    toast("Downloads require the desktop app.", "error");
+    return;
+  }
+  mvumDownloading.set(s.abbr, -1);
+  updateRow(s.abbr);
+  try {
+    await invoke<number>("download_mvum", {
+      abbr: s.abbr,
+      bbox: s.bbox.join(","),
+    });
+    mvumDownloading.delete(s.abbr);
+    await refreshInstalled();
+    updateRow(s.abbr);
+    toast(
+      `${s.name} forest roads ready — turn on "Forest roads" to see what you may drive.`,
+      "success",
+      7000
+    );
+    if (activeAbbr === s.abbr) onMvumReady(s.abbr);
+  } catch (err) {
+    mvumDownloading.delete(s.abbr);
+    updateRow(s.abbr);
+    toast(`Forest roads download failed: ${err}`, "error");
   }
 }
 
@@ -318,6 +386,7 @@ async function activate(abbr: string, fly: boolean) {
     activeAbbr = abbr;
     localStorage.setItem("griddown_active_state", abbr);
     onSwitch({
+      abbr,
       pmtilesUrl: url,
       name: s.name,
       center: s.center,

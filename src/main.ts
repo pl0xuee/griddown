@@ -3,7 +3,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
-import { initStateLibrary, type SwitchTarget } from "./states";
+import { initStateLibrary, setMvumListener, type SwitchTarget } from "./states";
+import { initMvum } from "./mvum";
 import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
@@ -77,6 +78,10 @@ async function loadRegion(): Promise<Region & { configured: boolean }> {
 
 // Assigned once the region config is loaded (see start() at the bottom).
 let PMTILES_URL = "";
+
+// Which downloaded pack is on screen (""=the bundled region). The Forest
+// Service overlay is stored per pack, so it has to follow this.
+let activePackAbbr = "";
 
 // True while the HUD is showing "No map yet"; cleared once a pack loads.
 let noMapNotice = false;
@@ -708,6 +713,10 @@ async function start() {
   });
   applyThemeUi();
 
+  // Assigned further down, once the overlay is initialised — switchToSource is
+  // declared before it but only ever runs after.
+  let mvumCtl: { packChanged(): void } | null = null;
+
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
     // A map is now loaded, so retract any "no map yet" notice.
@@ -720,6 +729,7 @@ async function start() {
     // directory would point at the wrong tile offsets.
     protocol.tiles.delete(t.pmtilesUrl.replace(/^pmtiles:\/\//, ""));
     PMTILES_URL = t.pmtilesUrl;
+    activePackAbbr = t.abbr;
     terrainAvailable = t.hasDem;
     // Point terrain machinery at this state's DEM (or back at the bundled one).
     setDemRoot(t.demUrl ?? null, t.demId ?? "dem");
@@ -730,6 +740,8 @@ async function start() {
     map.setStyle(buildStyle(currentTheme), { diff: !t.keepView });
     if (!t.keepView) map.jumpTo({ center: t.center, zoom: t.zoom });
     applyThemeUi();
+    // The overlay belongs to the old pack — reload it for the new one.
+    mvumCtl?.packChanged();
   }
   // Resource overlay chips (water / shelter / medical / supply / help)
   function applyResourceUi() {
@@ -833,6 +845,12 @@ async function start() {
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
   });
+  mvumCtl = initMvum({
+    map: () => map,
+    activeAbbr: () => activePackAbbr,
+  });
+  // A freshly downloaded overlay should appear without reopening anything.
+  setMvumListener(() => mvumCtl?.packChanged());
   initUpdater();
   void initVersion();
   initRoute({
