@@ -2296,3 +2296,23 @@ body.battery.nightvis .maplibregl-ctrl {
   color: #7fe6ff;
   letter-spacing: 0.3px;
 }
+
+/* Route-to-this-teammate button on a mesh row. */
+.mesh-route {
+  flex: none;
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.45);
+  background: rgba(30, 44, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mesh-route:hover {
+  background: rgba(50, 70, 50, 0.95);
+  border-color: rgba(150, 230, 150, 0.8);
+}

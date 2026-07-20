@@ -717,6 +717,7 @@ async function start() {
   // Assigned further down, once the overlay is initialised — switchToSource is
   // declared before it but only ever runs after.
   let mvumCtl: { packChanged(): void } | null = null;
+  let routeCtl: { routeTo(lng: number, lat: number, label: string): void } | null = null;
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
@@ -858,10 +859,13 @@ async function start() {
       const c = map.getCenter();
       return [c.lng, c.lat];
     },
+    // Route to a teammate. initRoute runs further down, so this reads the
+    // control through a getter rather than capturing it before it exists.
+    routeTo: (lng, lat, label) => routeCtl?.routeTo(lng, lat, label),
   });
   initUpdater();
   void initVersion();
-  initRoute({
+  routeCtl = initRoute({
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     activeAbbr: () => activePackAbbr,

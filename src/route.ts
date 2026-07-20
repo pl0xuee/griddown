@@ -696,8 +696,31 @@ export function initRoute(deps: {
     panel?.classList.add("hidden");
   });
 
+  /**
+   * Route to somewhere chosen elsewhere in the app — currently a teammate on
+   * the mesh.
+   *
+   * The start point is left alone deliberately. A teammate's position is a
+   * destination, and quietly overwriting the start with your location would
+   * discard a start you had set on purpose. If nothing is set, your location
+   * is the sensible assumption and is fetched; otherwise the route is computed
+   * straight away.
+   */
+  function routeTo(lng: number, lat: number, label: string) {
+    to = { lng, lat, label };
+    panel?.classList.remove("hidden");
+    if (from) {
+      void go();
+    } else {
+      renderIdle(`Routing to ${label} — getting your location…`);
+      useMyLocation(() => void go());
+    }
+  }
+
   // Style rebuilds (theme/terrain/pack switches) drop custom sources.
   deps.map().on("style.load", () => {
     if (deps.map().getSource(SRC)) return;
   });
+
+  return { routeTo };
 }

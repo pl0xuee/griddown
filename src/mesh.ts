@@ -148,6 +148,8 @@ export function initMesh(deps: {
   here: () => LL;
   /** The real radio transport, when one is available. */
   radioFeed?: () => MeshFeed;
+  /** Hand a teammate's position to "Get there" as a destination. */
+  routeTo?: (lng: number, lat: number, label: string) => void;
 }) {
   const panel = document.getElementById("mesh-panel");
   const body = document.getElementById("mesh-body");
@@ -306,12 +308,21 @@ export function initMesh(deps: {
               formatBattery(n.battery),
               n.hops != null ? (n.hops === 0 ? "direct" : `${n.hops} hop${n.hops > 1 ? "s" : ""}`) : "",
             ].filter(Boolean);
-            return `<div class="mesh-node mesh-${fresh}" data-go="${esc(n.id)}">
+            // Only offer routing to a node that has actually reported a
+            // position — there is nothing to route to otherwise.
+            const canRoute = rel && deps.routeTo;
+            return `<div class="mesh-node mesh-${fresh}">
                 <div class="mesh-dot"></div>
-                <div class="mesh-n">
+                <div class="mesh-n" data-go="${esc(n.id)}">
                   <div class="mesh-name">${esc(displayName(n))}</div>
                   <div class="mesh-meta">${bits.map(esc).join(" · ")}</div>
                 </div>
+                ${
+                  canRoute
+                    ? `<button class="mesh-route" type="button" data-route="${esc(n.id)}"
+                         title="Route to ${esc(displayName(n))}">→</button>`
+                    : ""
+                }
               </div>`;
           })
           .join("")
@@ -352,6 +363,27 @@ export function initMesh(deps: {
         if (n?.lat != null && n?.lng != null) {
           deps.map().flyTo({ center: [n.lng, n.lat], zoom: Math.max(deps.map().getZoom(), 12) });
         }
+      });
+    });
+    document.querySelectorAll<HTMLElement>("[data-route]").forEach((el) => {
+      el.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const n = nodes.find((x) => x.id === el.dataset.route);
+        if (n?.lat == null || n?.lng == null) return;
+        const now = Math.floor(Date.now() / 1000);
+        // Route to where they WERE. Saying so matters: the route is computed
+        // from a fix that is minutes old at best, and on a mesh a teammate may
+        // have moved a long way since — or stopped reporting entirely.
+        const age = formatAge(n.posTime, now);
+        deps.routeTo?.(n.lng, n.lat, `${displayName(n)} (${age})`);
+        if (freshness(n.posTime, now) === "old") {
+          toast(
+            `${displayName(n)}'s position is from ${age} — routing to where they were then.`,
+            "info",
+            8000
+          );
+        }
+        panel?.classList.add("hidden");
       });
     });
   }
