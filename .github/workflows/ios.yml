@@ -83,11 +83,30 @@ jobs:
       - name: Check Info.ios.plist was merged
         if: always()
         run: |
-          for f in $(find src-tauri/gen/apple -name 'Info.plist'); do
-            echo "--- $f ---"
-            cat "$f"
-          done
-          merged=$(find src-tauri/gen/apple -name 'Info.plist' | head -1)
+          echo "every Info.plist under gen/apple:"
+          find src-tauri/gen/apple -name 'Info.plist'
+
+          # Check the plist inside the built .app, not whatever `find | head -1`
+          # returns first. There are several Info.plists under gen/apple —
+          # including binary ones belonging to storyboard nibs, which contain
+          # none of these keys — and the filesystem order among them changes
+          # when a directory is renamed. This assertion passed by luck until the
+          # crate rename shuffled that order.
+          #
+          # The built bundle is also the honest thing to check: it is the plist
+          # iOS actually reads, with $(PRODUCT_NAME) and friends expanded.
+          merged=$(find src-tauri/gen/apple/build -path '*.app/Info.plist' 2>/dev/null || true)
+          if [ "$(printf '%s' "$merged" | grep -c .)" -ne 1 ]; then
+            echo "::error::expected exactly one built .app/Info.plist, got: $merged"
+            exit 1
+          fi
+          echo "--- $merged ---"
+          plutil -p "$merged"
+
+          # PlistBuddy rather than grep throughout: these files are binary, and
+          # a substring match would also happily accept an unexpanded
+          # $(PRODUCT_NAME) as if it were a real value.
+          plget() { /usr/libexec/PlistBuddy -c "Print :$1" "$merged" 2>/dev/null || true; }
 
           # iOS terminates the app rather than denying the permission when one
           # of these is missing, so their absence is a build failure, not a
@@ -95,22 +114,20 @@ jobs:
           for key in NSLocationWhenInUseUsageDescription \
                      NSLocalNetworkUsageDescription \
                      NSMotionUsageDescription; do
-            if ! grep -q "$key" "$merged"; then
-              echo "::error::$key missing from the generated Info.plist — Info.ios.plist was not merged"
+            if [ -z "$(plget "$key")" ]; then
+              echo "::error::$key missing from the built Info.plist — Info.ios.plist was not merged"
               exit 1
             fi
           done
           echo "all usage strings present"
 
           # The display name fails differently from the usage strings: the key
-          # survives but the value silently reverts to $(PRODUCT_NAME), which
-          # Tauri derives from the Cargo package name. That ships an app called
+          # survives but the value reverts to $(PRODUCT_NAME), which Tauri
+          # derives from the Cargo package name. That ships an app called
           # "griddown" on the home screen and nothing errors. So check the
-          # value, not the key — and read it with PlistBuddy rather than grep,
-          # because an unexpanded build variable looks fine to a substring
-          # match.
+          # value, not the key.
           for key in CFBundleDisplayName CFBundleName; do
-            got=$(/usr/libexec/PlistBuddy -c "Print :$key" "$merged" 2>/dev/null || true)
+            got=$(plget "$key")
             if [ "$got" != "GridDown" ]; then
               echo "::error::$key is '$got', expected 'GridDown' — the app would ship under the wrong name"
               exit 1
