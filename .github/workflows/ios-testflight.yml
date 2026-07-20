@@ -87,6 +87,32 @@ jobs:
           APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run tauri ios init
 
+      # `tauri ios init` fills the asset catalogue from its own template, which
+      # carries Tauri's default logo, and never looks at src-tauri/icons/ios.
+      # Build 5 installed on a real phone wearing it.
+      #
+      # Nothing catches this on its own: the filenames are identical either way,
+      # so the catalogue compiles without a warning and the bundle looks
+      # complete right down to CFBundleIconName. Only the pixels differ, which
+      # is why the check below compares bytes rather than names.
+      - name: Use our app icon, not Tauri's
+        run: |
+          set="src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset"
+          test -d "$set" || { echo "::error::$set missing — did ios init change its layout?"; exit 1; }
+
+          cp src-tauri/icons/ios/*.png "$set/"
+
+          # Every icon, not just a spot check: a half-applied copy would ship a
+          # compass on the home screen and a Tauri logo in App Store Connect.
+          for f in src-tauri/icons/ios/*.png; do
+            name=$(basename "$f")
+            if ! cmp -s "$f" "$set/$name"; then
+              echo "::error::$name did not take — the app would ship the wrong icon"
+              exit 1
+            fi
+          done
+          echo "$(ls src-tauri/icons/ios/*.png | wc -l) icons are ours"
+
       # Tauri reads the certificate out of IOS_CERTIFICATE* and builds its own
       # keychain — no security(1) dance needed.
       #
