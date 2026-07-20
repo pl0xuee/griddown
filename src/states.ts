@@ -5,6 +5,7 @@ import { toast } from "./toast";
 import { fmtAge, DAY } from "./readiness";
 import { keepAwake } from "./wakelock";
 import { esc as escapeHtml } from "./esc";
+import { confirmAction } from "./confirm";
 
 export interface StateEntry {
   abbr: string;
@@ -502,7 +503,7 @@ async function importPack() {
 async function remove(abbr: string) {
   if (!inTauri) return;
   const s = catalog.find((c) => c.abbr === abbr);
-  if (!confirm(`Delete the downloaded map for ${s?.name ?? abbr}?`)) return;
+  if (!(await confirmAction(`Delete the downloaded map for ${s?.name ?? abbr}?`))) return;
   try {
     await invoke("delete_state", { abbr });
     if (activeAbbr === abbr) {

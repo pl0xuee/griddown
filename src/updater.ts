@@ -1,4 +1,5 @@
 import { toast } from "./toast";
+import { confirmAction } from "./confirm";
 
 // Update check — deliberately MANUAL, and deliberately quiet.
 //
@@ -42,7 +43,7 @@ export function initUpdater() {
         toast("You're on the latest version.", "success");
         return;
       }
-      const ok = confirm(
+      const ok = await confirmAction(
         `GridDown ${update.version} is available (you have ${update.currentVersion}).\n\n` +
           `${update.body ?? ""}\n\n` +
           `Download and install it now? Your maps, terrain and saved marks are not affected — ` +

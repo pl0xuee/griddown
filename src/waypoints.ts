@@ -4,6 +4,7 @@ import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
 import { BACKUP_KEY } from "./readiness";
 import { saveFile } from "./save";
+import { confirmAction } from "./confirm";
 
 // Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
 // real file in the app data dir) and exchangeable as standard GPX. Fully offline.
@@ -296,7 +297,7 @@ export async function initWaypoints(map: maplibregl.Map) {
     }
     // A restore replaces, so make the user say yes — with the counts, so they
     // can see they're not about to trade a full set for an empty one.
-    const ok = confirm(
+    const ok = await confirmAction(
       `Replace your current ${waypoints.length} pin(s) and ${tracks.length} track(s) ` +
         `with ${restored.waypoints.length} pin(s) and ${restored.tracks.length} track(s) ` +
         `from this backup?`
