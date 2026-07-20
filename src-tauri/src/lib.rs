@@ -49,6 +49,22 @@ fn states_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Delete the scratch files left beside a state pack.
+///
+/// `keep_resumable` protects a partly-downloaded pre-built pack, which is the
+/// one piece of scratch that is worth something: the next attempt resumes from
+/// it. The extractor's own `.part` is never worth keeping — `extract` always
+/// writes it from scratch and only removes it when it fails, so a `.part` left
+/// by an app that was killed mid-extract is dead weight nothing will ever read.
+/// One was found in the wild at 323 MB.
+fn sweep_scratch(final_path: &std::path::Path, keep_resumable: bool) {
+    let _ = std::fs::remove_file(final_path.with_extension("pmtiles.part"));
+    if !keep_resumable {
+        let _ = std::fs::remove_file(final_path.with_extension("pmtiles.packpart"));
+        let _ = std::fs::remove_file(final_path.with_extension("pmtiles.packpart.sha"));
+    }
+}
+
 /// Path of the marks file (waypoints + tracks) inside the app data dir.
 ///
 /// This is the user's own irreplaceable data — pins they dropped and tracks they
@@ -782,6 +798,10 @@ async fn download_state(
         // requests. Anything that goes wrong here — no network, no manifest, no
         // pack for this state, a corrupt download — falls through to extracting
         // it live, which is slow but needs nothing but the planet archive.
+        // Reclaim any dead extractor scratch before writing half a gigabyte
+        // next to it, rather than after. A resumable pack part is left alone.
+        sweep_scratch(&final_path, true);
+
         status("Looking for a pre-built pack…");
         match packs::fetch_manifest() {
             Ok(manifest) => match manifest.pack_for(&abbr2, maxzoom) {
@@ -805,7 +825,10 @@ async fn download_state(
                         }
                     });
                     match result {
-                        Ok(()) => return Ok(final_path.to_string_lossy().to_string()),
+                        Ok(()) => {
+                            sweep_scratch(&final_path, false);
+                            return Ok(final_path.to_string_lossy().to_string());
+                        }
                         Err(e) => {
                             status(&format!("Pack download failed ({e}) — building it here…"))
                         }
@@ -860,6 +883,7 @@ async fn download_state(
                 // Rename only on success: a half-written .part must never be
                 // mistaken for an installed pack.
                 std::fs::rename(&tmp_path, &final_path).map_err(|e| e.to_string())?;
+                sweep_scratch(&final_path, false);
                 Ok(final_path.to_string_lossy().to_string())
             }
             Err(e) => {
@@ -913,4 +937,53 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `with_extension` on a path that already ends in `.pmtiles` replaces that
+    /// extension rather than appending to it, so these names are easy to get
+    /// subtly wrong — and wrong here means either sweeping nothing or sweeping
+    /// the installed pack.
+    #[test]
+    fn sweeping_removes_the_scratch_and_never_the_pack() {
+        let dir = std::env::temp_dir().join(format!("gd-sweep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pack = dir.join("OR.pmtiles");
+
+        let write_all = || {
+            for f in [
+                "OR.pmtiles",
+                "OR.pmtiles.part",
+                "OR.pmtiles.packpart",
+                "OR.pmtiles.packpart.sha",
+            ] {
+                std::fs::write(dir.join(f), b"x").unwrap();
+            }
+        };
+
+        // Mid-download: the resumable pack part survives, dead extractor
+        // scratch does not.
+        write_all();
+        sweep_scratch(&pack, true);
+        assert!(pack.exists(), "the installed pack is never swept");
+        assert!(!dir.join("OR.pmtiles.part").exists());
+        assert!(dir.join("OR.pmtiles.packpart").exists());
+        assert!(dir.join("OR.pmtiles.packpart.sha").exists());
+
+        // Finished: everything but the pack goes.
+        write_all();
+        sweep_scratch(&pack, false);
+        assert!(pack.exists(), "the installed pack is never swept");
+        assert!(!dir.join("OR.pmtiles.part").exists());
+        assert!(!dir.join("OR.pmtiles.packpart").exists());
+        assert!(!dir.join("OR.pmtiles.packpart.sha").exists());
+
+        // Missing files are not an error — this runs on every download.
+        sweep_scratch(&pack, false);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
