@@ -38,6 +38,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Release notes come from CHANGELOG.md, and a tagged build fails without
+      # them. v0.1.5 shipped with a completely empty release body — the page was
+      # a list of files and nothing else — and nothing anywhere noticed. An
+      # empty release still "succeeds", so the only way this stays fixed is for
+      # a missing section to stop the build.
+      #
+      # Runs before anything expensive, and explicitly under bash so the
+      # Windows leg of the matrix does not get PowerShell.
+      - name: Read the release notes for this tag
+        id: notes
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          # Everything between this version's heading and the next one.
+          body=$(awk -v v="## $version" '
+            $0 == v {found=1; next}
+            found && /^## v/ {exit}
+            found {print}
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
+            echo "::error::CHANGELOG.md has no '## $version' section — add one before tagging"
+            exit 1
+          fi
+
+          # Multi-line values need the delimiter form; a bare assignment keeps
+          # only the first line.
+          {
+            echo "body<<GRIDDOWN_NOTES_EOF"
+            printf '%s\n' "$body"
+            echo "GRIDDOWN_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "release notes: $(printf '%s' "$body" | wc -l) lines"
+
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -75,6 +110,7 @@ jobs:
           # When run on a tag, tauri-action publishes a GitHub Release with installers.
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: "GridDown ${{ github.ref_name }}"
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
 
       # The AppImage bundles libwayland-* and libepoxy from the build machine.
