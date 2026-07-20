@@ -487,6 +487,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// Alaska is cut shallower than every other state, and a mismatch between
+    /// the zoom CI cut and the zoom the app asks for fails *silently*: the pack
+    /// is refused and the app quietly falls back to a live extraction that
+    /// takes twenty minutes. Nothing errors, so only a test catches it.
+    #[test]
+    #[ignore = "hits the network"]
+    fn live_offers_alaska_at_the_zoom_the_app_asks_for() {
+        let m = fetch_manifest().expect("manifest");
+        let ak = m.packs.get("AK").expect("AK in the live manifest");
+        assert_eq!(ak.maxzoom(), 14, "CI cut AK at an unexpected zoom");
+
+        // states.json gives AK maxzoom 14, and states.ts sends `maxzoom ?? 15`.
+        assert!(
+            m.pack_for("AK", 14).is_some(),
+            "AK must be offered at its own zoom"
+        );
+        // The strict rule still holds — this is why the request has to be 14.
+        assert!(
+            m.pack_for("AK", 15).is_none(),
+            "a z14 pack must not answer z15"
+        );
+        // Everything else is still cut deep.
+        assert!(m.pack_for("CA", 15).is_some());
+    }
+
     /// The case this whole module exists for: a download that died partway.
     /// Fakes an interrupted attempt by leaving a truncated prefix on disk, then
     /// checks the resume actually range-requests the rest and verifies.
