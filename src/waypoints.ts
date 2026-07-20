@@ -4,7 +4,7 @@ import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
 import { BACKUP_KEY } from "./readiness";
 import { saveFile } from "./save";
-import { confirmAction } from "./confirm";
+import { confirmAction, promptAction } from "./dialog";
 
 // Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
 // real file in the app data dir) and exchangeable as standard GPX. Fully offline.
@@ -130,10 +130,12 @@ export async function initWaypoints(map: maplibregl.Map) {
     toast(`Dropped ${w.name}`, "success");
   }
 
-  function renameWp(id: string) {
+  async function renameWp(id: string) {
     const w = waypoints.find((x) => x.id === id);
     if (!w) return;
-    const name = prompt("Waypoint name:", w.name);
+    // Not window.prompt: WKWebView implements no text-input panel, so on iOS it
+    // returned null immediately and renaming a pin silently did nothing.
+    const name = await promptAction("Waypoint name:", { value: w.name });
     if (name != null) {
       w.name = name.trim() || w.name;
       saveWp();
@@ -347,7 +349,7 @@ export async function initWaypoints(map: maplibregl.Map) {
       })
     );
     el.querySelectorAll<HTMLElement>("[data-ren]").forEach((b) =>
-      b.addEventListener("click", () => renameWp(b.dataset.ren!))
+      b.addEventListener("click", () => void renameWp(b.dataset.ren!))
     );
     el.querySelectorAll<HTMLElement>("[data-delwp]").forEach((b) =>
       b.addEventListener("click", () => deleteWp(b.dataset.delwp!))

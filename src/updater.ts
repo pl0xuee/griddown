@@ -1,5 +1,5 @@
 import { toast } from "./toast";
-import { confirmAction } from "./confirm";
+import { confirmAction } from "./dialog";
 
 // Update check — deliberately MANUAL, and deliberately quiet.
 //

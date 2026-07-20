@@ -6,6 +6,22 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.8
+
+**Renaming a pin and importing a pack work on iPhone.** Both asked a question
+through the browser's own text prompt, which iOS does not implement — it answered
+"cancelled" instantly, every time, so renaming a waypoint quietly did nothing and
+importing a pack from a file whose name we could not read just stopped. Neither
+reported an error, because as far as the app could tell you had pressed cancel.
+
+**Questions are now asked by the app itself.** v0.1.7 fixed confirmations that
+were being skipped rather than shown; this replaces the last of the borrowed
+machinery. Every yes/no and every "type a name" is now drawn by GridDown, looks
+the same on a phone and a desktop, takes Enter and Escape, hands focus back where
+it came from — and, unlike anything routed through the platform, is covered by
+tests. The bug in v0.1.7 was invisible precisely because that path could not be
+tested.
+
 ## v0.1.7
 
 **Downloading a state is one file now.** It never was a file: the app rebuilt

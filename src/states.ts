@@ -5,7 +5,7 @@ import { toast } from "./toast";
 import { fmtAge, DAY } from "./readiness";
 import { keepAwake } from "./wakelock";
 import { esc as escapeHtml } from "./esc";
-import { confirmAction } from "./confirm";
+import { confirmAction, promptAction } from "./dialog";
 
 export interface StateEntry {
   abbr: string;
@@ -489,9 +489,11 @@ async function importPack() {
   const m = path.match(/griddown-([A-Za-z]{2})(?:-\d+)?\.pmtiles$/);
   let abbr = m ? m[1].toUpperCase() : "";
   if (!abbr || !catalog.some((c) => c.abbr === abbr)) {
-    const typed = prompt(
+    // Not window.prompt: it is unimplemented in WKWebView, so on iOS this
+    // returned null immediately and importing a pack silently did nothing.
+    const typed = await promptAction(
       "Which state is this pack? Enter its 2-letter code (e.g. OR):",
-      abbr
+      { value: abbr, placeholder: "OR" }
     );
     if (!typed) return;
     abbr = typed.trim().toUpperCase();

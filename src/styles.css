@@ -845,6 +845,75 @@ body.nightvis {
   opacity: 1;
 }
 
+/* --- Ask (confirm / prompt) ---
+   Above the welcome overlay at z-index 40 and the panels at 50: this is always
+   a direct answer to something the user just did, so nothing may cover it. */
+.ask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(8, 10, 9, 0.82);
+  backdrop-filter: blur(3px);
+}
+.ask-card {
+  width: 100%;
+  max-width: 400px;
+  background: rgba(18, 22, 19, 0.98);
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  border-radius: 14px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  padding: 20px;
+  color: #e6f0e0;
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ask-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.ask-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.45);
+  background: rgba(8, 10, 9, 0.9);
+  color: #e6f0e0;
+  font-family: inherit;
+  font-size: 14px;
+}
+.ask-row {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.ask-btn {
+  /* Apple's 44px minimum, as the menu tiles already use. */
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.35);
+  background: none;
+  color: #cfe6cf;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.ask-btn--go {
+  border-color: rgba(120, 200, 120, 0.7);
+  background: rgba(120, 200, 120, 0.16);
+  color: #dff3df;
+}
+.ask-btn:hover { background: rgba(120, 200, 120, 0.24); }
+.ask-btn:focus-visible { outline: 2px solid #7dd67d; outline-offset: 2px; }
+
 /* --- Welcome overlay --- */
 #welcome {
   position: absolute;
