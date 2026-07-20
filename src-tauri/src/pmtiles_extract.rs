@@ -370,7 +370,8 @@ pub fn bbox_to_tile_range(
     let lat_to_y = |lat: f64| -> u32 {
         let lat = lat.clamp(-MERC_MAX_LAT, MERC_MAX_LAT);
         let rad = lat.to_radians();
-        let y = ((1.0 - (rad.tan() + 1.0 / rad.cos()).ln() / std::f64::consts::PI) / 2.0 * n).floor();
+        let y =
+            ((1.0 - (rad.tan() + 1.0 / rad.cos()).ln() / std::f64::consts::PI) / 2.0 * n).floor();
         (y.max(0.0) as u32).min(last)
     };
 
@@ -395,6 +396,68 @@ pub fn bbox_to_tile_range(
 /// itself.
 pub trait TileSource {
     fn read_range(&self, offset: u64, len: u64) -> Result<Vec<u8>, String>;
+
+    /// Read several ranges at once, returned in the order they were asked for.
+    ///
+    /// The default is a plain sequential loop, which is what a local file wants
+    /// — there is no latency to hide, and threads would only add contention on
+    /// the one file handle. `HttpSource` overrides it.
+    ///
+    /// Callers must keep the slice short: every result is held in memory at
+    /// once, so the batch size is what bounds peak memory.
+    fn read_ranges(&self, ranges: &[(u64, u64)]) -> Result<Vec<Vec<u8>>, String> {
+        ranges.iter().map(|&(o, l)| self.read_range(o, l)).collect()
+    }
+}
+
+/// Run `read` over `ranges` on up to `workers` threads, reassembling the
+/// results into the requested order.
+///
+/// Split out from `HttpSource` so the reassembly can be tested without a
+/// server: the ordering guarantee is the part worth proving, and it only means
+/// anything when requests finish out of order.
+fn read_ranges_parallel(
+    ranges: &[(u64, u64)],
+    workers: usize,
+    read: &(dyn Fn(u64, u64) -> Result<Vec<u8>, String> + Sync),
+) -> Result<Vec<Vec<u8>>, String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let next = AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel();
+    let workers = workers.max(1).min(ranges.len());
+
+    std::thread::scope(|s| {
+        for _ in 0..workers {
+            let tx = tx.clone();
+            let next = &next;
+            // Workers pull the next index rather than taking a fixed slice:
+            // batches differ in size and the network is uneven, so a static
+            // split would leave threads idle behind one slow request.
+            s.spawn(move || loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                let Some(&(offset, len)) = ranges.get(i) else {
+                    break;
+                };
+                if tx.send((i, read(offset, len))).is_err() {
+                    break;
+                }
+            });
+        }
+    });
+    // Every worker has finished by here, so the only sender left is ours;
+    // dropping it is what ends the receive loop below.
+    drop(tx);
+
+    let mut slots: Vec<Option<Vec<u8>>> = (0..ranges.len()).map(|_| None).collect();
+    for (i, res) in rx {
+        slots[i] = Some(res?);
+    }
+    slots
+        .into_iter()
+        .enumerate()
+        .map(|(i, s)| s.ok_or_else(|| format!("range {i} was never fetched")))
+        .collect()
 }
 
 /// A local archive. Used by tests, and by `export`-style flows that re-cut an
@@ -484,7 +547,8 @@ impl HttpSource {
             ));
         }
         if status != reqwest::StatusCode::PARTIAL_CONTENT {
-            let retryable = status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+            let retryable =
+                status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
             return Err((format!("server returned {status}"), retryable));
         }
 
@@ -527,6 +591,13 @@ impl TileSource for HttpSource {
         Err(format!(
             "could not read map data after {MAX_ATTEMPTS} attempts: {last}"
         ))
+    }
+
+    fn read_ranges(&self, ranges: &[(u64, u64)]) -> Result<Vec<Vec<u8>>, String> {
+        // Each worker calls read_range, so every request keeps the full retry
+        // and backoff budget above — including the long tail that carries a
+        // download across the app being suspended.
+        read_ranges_parallel(ranges, CONCURRENT_REQUESTS, &|o, l| self.read_range(o, l))
     }
 }
 
@@ -696,6 +767,21 @@ pub const MAX_GAP: u64 = 128 * 1024;
 /// binding constraint on a phone, not bandwidth.
 pub const MAX_BATCH: u64 = 4 * 1024 * 1024;
 
+/// How many range requests to keep in flight against a remote archive.
+///
+/// This download is latency-bound, not bandwidth-bound: each batch is a full
+/// round trip, and the next one does not start until the last byte of the
+/// previous arrives. A phone's round trip is several times a wired desktop's,
+/// which is why the identical code felt markedly slower on iOS than on the
+/// machine it was written on. Overlapping requests hides most of that.
+///
+/// Six is what browsers have long allowed per host: enough to cover the
+/// latency, restrained enough for build.protomaps.com, which is someone else's
+/// free server and the reason this client sends a real user-agent.
+///
+/// Peak memory stays bounded at CONCURRENT_REQUESTS * MAX_BATCH — about 24 MB.
+pub const CONCURRENT_REQUESTS: usize = 6;
+
 /// Merge tiles that sit near each other in the archive into shared requests.
 ///
 /// This is the entire reason this module parses directories by hand instead of
@@ -826,33 +912,43 @@ pub fn extract(
     let total = found.len() as u64;
     let mut done = 0u64;
 
-    for batch in &batches {
-        let blob = src.read_range(h.tile_data_offset + batch.offset, batch.length)?;
+    // Fetch a window of batches at once, then write them in order. The window
+    // is what bounds memory; the ordering is not negotiable, because the writer
+    // needs ascending tile ids and a whole state cannot be buffered to sort
+    // afterwards. Fetch order is free to be chaotic, write order is not.
+    for window in batches.chunks(CONCURRENT_REQUESTS) {
+        let ranges: Vec<(u64, u64)> = window
+            .iter()
+            .map(|b| (h.tile_data_offset + b.offset, b.length))
+            .collect();
+        let blobs = src.read_ranges(&ranges)?;
 
-        for &i in &batch.members {
-            let (id, e) = found[i];
-            // Where this tile sits inside the blob we just fetched.
-            let start = (e.offset - batch.offset) as usize;
-            let end = start + e.length as usize;
-            let data = blob
-                .get(start..end)
-                .ok_or_else(|| format!("tile {id} falls outside its own batch"))?;
+        for (batch, blob) in window.iter().zip(&blobs) {
+            for &i in &batch.members {
+                let (id, e) = found[i];
+                // Where this tile sits inside the blob we just fetched.
+                let start = (e.offset - batch.offset) as usize;
+                let end = start + e.length as usize;
+                let data = blob
+                    .get(start..end)
+                    .ok_or_else(|| format!("tile {id} falls outside its own batch"))?;
 
-            // `want` is sorted by id and `found` preserves that order, so the
-            // z/x/y is a binary search away — no inverse Hilbert transform.
-            let t = want[want
-                .binary_search_by_key(&id, |t| t.id)
-                .map_err(|_| format!("located tile {id} was never requested"))?];
+                // `want` is sorted by id and `found` preserves that order, so the
+                // z/x/y is a binary search away — no inverse Hilbert transform.
+                let t = want[want
+                    .binary_search_by_key(&id, |t| t.id)
+                    .map_err(|_| format!("located tile {id} was never requested"))?];
 
-            let coord = pmtiles::TileCoord::new(t.z, t.x, t.y)
-                .map_err(|e| format!("bad tile coord {}/{}/{}: {e}", t.z, t.x, t.y))?;
-            // Raw: source and destination share a tile compression, so there is
-            // no reason to decompress and recompress every tile.
-            w.add_raw_tile(coord, data)
-                .map_err(|e| format!("writing tile {}/{}/{}: {e}", t.z, t.x, t.y))?;
-            done += 1;
+                let coord = pmtiles::TileCoord::new(t.z, t.x, t.y)
+                    .map_err(|e| format!("bad tile coord {}/{}/{}: {e}", t.z, t.x, t.y))?;
+                // Raw: source and destination share a tile compression, so there is
+                // no reason to decompress and recompress every tile.
+                w.add_raw_tile(coord, data)
+                    .map_err(|e| format!("writing tile {}/{}/{}: {e}", t.z, t.x, t.y))?;
+                done += 1;
+            }
+            on_progress(done, total);
         }
-        on_progress(done, total);
     }
 
     w.finalize()
@@ -1119,8 +1215,14 @@ mod tests {
 
         // Leaf traversal must not invent tiles, and every located byte range
         // must land inside the archive's tile data section.
-        assert!(found.len() <= ids.len(), "located more tiles than requested");
-        assert!(found.windows(2).all(|w| w[0].0 <= w[1].0), "lost id ordering");
+        assert!(
+            found.len() <= ids.len(),
+            "located more tiles than requested"
+        );
+        assert!(
+            found.windows(2).all(|w| w[0].0 <= w[1].0),
+            "lost id ordering"
+        );
         for (id, e) in &found {
             assert!(e.covers(*id), "entry doesn't actually cover tile {id}");
             assert!(
@@ -1148,9 +1250,14 @@ mod tests {
 
         // Reading a coalesced batch must actually yield bytes.
         let first = &batches[0];
-        let blob = src.read_range(h.tile_data_offset + first.offset, first.length).unwrap();
+        let blob = src
+            .read_range(h.tile_data_offset + first.offset, first.length)
+            .unwrap();
         assert_eq!(blob.len() as u64, first.length);
-        assert!(blob.iter().any(|&b| b != 0), "batch read back as all zeroes");
+        assert!(
+            blob.iter().any(|&b| b != 0),
+            "batch read back as all zeroes"
+        );
     }
 
     /// The whole pipeline, end to end, against real data: cut a bbox out of the
@@ -1183,7 +1290,10 @@ mod tests {
         assert!(written > 0, "wrote no tiles");
         assert!(!seen.is_empty(), "progress was never reported");
         let (last_done, last_total) = *seen.last().unwrap();
-        assert_eq!(last_done, written, "final progress disagrees with return value");
+        assert_eq!(
+            last_done, written,
+            "final progress disagrees with return value"
+        );
         assert_eq!(last_done, last_total, "progress never reached 100%");
         assert!(
             seen.windows(2).all(|w| w[0].0 <= w[1].0),
@@ -1201,7 +1311,10 @@ mod tests {
             oh.tile_compression, h.tile_compression,
             "tiles are copied raw, so compression must match the source"
         );
-        assert!(oh.metadata_length > 0, "metadata (the layer schema) was lost");
+        assert!(
+            oh.metadata_length > 0,
+            "metadata (the layer schema) was lost"
+        );
 
         // Every tile in the new pack must be byte-identical to the source's.
         let want = wanted_tiles(0, 11, bbox.0, bbox.1, bbox.2, bbox.3).unwrap();
@@ -1342,6 +1455,61 @@ mod tests {
                 bytes as f64 / 1e6,
             );
         }
+    }
+
+    /// Results must land in the order they were asked for, not the order they
+    /// arrived in.
+    ///
+    /// This is the whole risk of fetching in parallel: the writer needs tiles in
+    /// ascending id order, so a batch that reassembles wrongly would produce a
+    /// silently corrupt pack rather than an error. Reads here finish in
+    /// deliberately reversed order — the first range is the slowest — so a naive
+    /// "push as they complete" would fail this.
+    #[test]
+    fn parallel_reads_reassemble_in_request_order() {
+        let ranges: Vec<(u64, u64)> = (0..12u64).map(|i| (i * 100, 4)).collect();
+        let n = ranges.len();
+
+        let out = read_ranges_parallel(&ranges, 6, &|offset, _len| {
+            let i = (offset / 100) as usize;
+            std::thread::sleep(std::time::Duration::from_millis((n - i) as u64 * 4));
+            Ok(vec![i as u8; 4])
+        })
+        .expect("all reads succeed");
+
+        assert_eq!(out.len(), n);
+        for (i, chunk) in out.iter().enumerate() {
+            assert_eq!(chunk, &vec![i as u8; 4], "range {i} landed in the wrong slot");
+        }
+    }
+
+    /// One bad range fails the batch. Returning a short or gap-filled Vec would
+    /// hand the writer tiles it would happily encode as a valid, wrong archive.
+    #[test]
+    fn a_failed_range_fails_the_whole_batch() {
+        let ranges = [(0u64, 4u64), (100, 4), (200, 4)];
+        let err = read_ranges_parallel(&ranges, 3, &|offset, _len| {
+            if offset == 100 {
+                Err("server said no".into())
+            } else {
+                Ok(vec![0u8; 4])
+            }
+        })
+        .expect_err("must not succeed");
+        assert!(err.contains("server said no"), "unexpected error: {err}");
+    }
+
+    /// Degenerate inputs: no work is not a failure, and one range must not need
+    /// a thread pool to come back.
+    #[test]
+    fn empty_and_single_ranges_are_fine() {
+        assert!(read_ranges_parallel(&[], 6, &|_, _| Ok(vec![]))
+            .expect("empty is ok")
+            .is_empty());
+
+        let one = read_ranges_parallel(&[(7, 3)], 6, &|o, l| Ok(vec![o as u8; l as usize]))
+            .expect("single is ok");
+        assert_eq!(one, vec![vec![7u8; 3]]);
     }
 
     /// Parse a real Protomaps-produced archive, not just bytes we made up.
