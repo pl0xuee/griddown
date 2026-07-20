@@ -1,0 +1,147 @@
+name: iOS TestFlight
+
+# Builds a signed .ipa and puts it on TestFlight, where it can be installed on
+# a real iPhone.
+#
+# Deliberately NOT on every push. Each upload burns a build number and pings
+# every tester, and the whole thing needs the paid Apple Developer account.
+# ios.yml is what guards ordinary pushes: it compiles the same code for the
+# simulator, needs no account and no secrets, and runs on everything.
+#
+# Requires seven repo secrets. The first step checks for them by name rather
+# than letting the build discover a blank one ten minutes in.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+
+    steps:
+      # Before anything expensive. A missing secret surfaces at signing time as
+      # an opaque toolchain error, which reads like a broken build rather than
+      # an empty text box in the repo settings.
+      - name: Check the signing secrets are present
+        env:
+          IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          APPSTORE_API_KEY: ${{ secrets.APPSTORE_API_KEY }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          missing=""
+          for name in IOS_CERTIFICATE_P12 IOS_CERTIFICATE_PASSWORD \
+                      IOS_PROVISIONING_PROFILE APPSTORE_API_KEY \
+                      APPSTORE_KEY_ID APPSTORE_ISSUER_ID APPLE_TEAM_ID; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::missing repo secrets:$missing — see the iOS signing checklist"
+            exit 1
+          fi
+          echo "all seven secrets present"
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      # altool finds this key by name in one of a few fixed directories — it
+      # takes no path argument, so the filename has to encode the key ID.
+      - name: Place the App Store Connect key
+        env:
+          APPSTORE_API_KEY: ${{ secrets.APPSTORE_API_KEY }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+        run: |
+          mkdir -p ~/private_keys
+          printf '%s' "$APPSTORE_API_KEY" | base64 --decode \
+            > ~/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+          chmod 600 ~/private_keys/AuthKey_${APPSTORE_KEY_ID}.p8
+
+      - name: Generate the Xcode project
+        env:
+          CI: true
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri ios init
+
+      # Tauri reads the certificate and profile straight out of these three
+      # variables and sets up its own keychain — no security(1) dance needed.
+      #
+      # The build number has to move on every upload or App Store Connect
+      # rejects the build as one it has already seen. github.run_number only
+      # ever increases and needs nothing carried between runs, unlike the
+      # version in tauri.conf.json, which tracks releases rather than uploads.
+      - name: Build and sign
+        env:
+          CI: true
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE_P12 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_PROVISIONING_PROFILE }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          config=$(printf '{"bundle":{"iOS":{"bundleVersion":"%s"}}}' "$RUN_NUMBER")
+          echo "build number $RUN_NUMBER"
+          npm run tauri ios build -- \
+            --export-method app-store-connect \
+            --config "$config"
+
+      # Same reasoning as the plist check in ios.yml: name the artifact
+      # explicitly and refuse to guess if the shape is not what was expected.
+      - name: Find the .ipa
+        id: ipa
+        run: |
+          found=$(find src-tauri/gen/apple/build -name '*.ipa' 2>/dev/null || true)
+          if [ "$(printf '%s' "$found" | grep -c .)" -ne 1 ]; then
+            echo "::error::expected exactly one .ipa, got: ${found:-none}"
+            find src-tauri/gen/apple/build -type f -name '*.ipa' -o -type d -name '*.app' || true
+            exit 1
+          fi
+          echo "path=$found" >> "$GITHUB_OUTPUT"
+          echo "found $found"
+
+      # Kept regardless of whether the upload succeeds: if App Store Connect
+      # rejects the build, the .ipa is the thing worth inspecting.
+      - name: Keep the .ipa
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: griddown-ios
+          path: src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload to TestFlight
+        env:
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app --type ios \
+            --file "${{ steps.ipa.outputs.path }}" \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+          echo "uploaded — App Store Connect takes a few minutes to process it,"
+          echo "then it appears in TestFlight on the phone."
