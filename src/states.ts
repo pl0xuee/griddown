@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "./toast";
 import { fmtAge, DAY } from "./readiness";
+import { keepAwake } from "./wakelock";
 
 export interface StateEntry {
   abbr: string;
@@ -350,6 +351,9 @@ async function download(s: StateEntry, refresh = false) {
   }
   downloading.set(s.abbr, -1);
   updateRow(s.abbr);
+  // A state pack takes minutes. If the screen locks partway, iOS suspends the
+  // app and every open socket dies with it.
+  const wake = await keepAwake();
   try {
     await invoke<string>("download_state", {
       abbr: s.abbr,
@@ -374,6 +378,8 @@ async function download(s: StateEntry, refresh = false) {
     const verb = refresh ? "Update" : "Download";
     toast(`${verb} failed: ${err}`, "error");
     if (refresh) toast("Your existing pack is untouched.", "info");
+  } finally {
+    wake();
   }
 }
 

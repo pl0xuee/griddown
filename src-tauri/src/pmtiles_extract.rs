@@ -433,10 +433,19 @@ pub struct HttpSource {
     url: String,
 }
 
-/// How many times to retry a failed range request before giving up. Phone
-/// networks drop connections routinely; a single blip shouldn't cost the user
-/// a half-finished state download.
-const MAX_ATTEMPTS: u32 = 4;
+/// How many times to retry a failed range request before giving up, and how
+/// long to wait between attempts.
+///
+/// The budget is deliberately generous — roughly a minute in total. Phone
+/// networks drop connections routinely, but the case that really drove this is
+/// iOS suspending a backgrounded app: the app is frozen rather than killed, so
+/// it resumes mid-download, but every socket it held is dead. A short retry
+/// budget turns "the user glanced at a message" into "the state download
+/// failed", which for a 1.5 GB pack is a genuinely expensive way to lose.
+const MAX_ATTEMPTS: u32 = 6;
+
+/// Cap on exponential backoff, so the last attempts don't stall for minutes.
+const MAX_BACKOFF_SECS: u64 = 30;
 
 impl HttpSource {
     pub fn new(url: &str) -> Result<Self, String> {
@@ -504,10 +513,13 @@ impl TileSource for HttpSource {
                         return Err(msg);
                     }
                     last = msg;
-                    // Back off before trying again: 1s, 2s, 4s. A congested or
-                    // rate-limited server recovers better if we don't hammer it.
+                    // Back off before trying again: 1s, 2s, 4s, 8s, 16s (capped).
+                    // A congested or rate-limited server recovers better if we
+                    // don't hammer it, and the longer tail gives a suspended app
+                    // time to come back to the foreground and get a route again.
                     if attempt + 1 < MAX_ATTEMPTS {
-                        std::thread::sleep(std::time::Duration::from_secs(1 << attempt));
+                        let secs = (1u64 << attempt).min(MAX_BACKOFF_SECS);
+                        std::thread::sleep(std::time::Duration::from_secs(secs));
                     }
                 }
             }

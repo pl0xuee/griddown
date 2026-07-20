@@ -63,31 +63,40 @@ jobs:
         env:
           CI: true
 
-      - name: Show generated Info.plist
-        run: |
-          f=$(find src-tauri/gen/apple -name 'Info.plist' -maxdepth 3 | head -1)
-          echo "--- $f ---"
-          cat "$f"
-
-      # Simulator + CODE_SIGNING_ALLOWED=NO is what keeps this free of an Apple
-      # Developer account. It still compiles everything.
+      # Must go through the Tauri CLI, not raw xcodebuild. The generated Xcode
+      # project has a build phase that shells back into `tauri ios xcode-script`
+      # and expects the CLI to have set up its environment; invoking xcodebuild
+      # directly fails looking for a dev-server address file that only exists
+      # under `tauri ios dev`.
+      #
+      # A simulator target is what keeps this free of an Apple Developer
+      # account — no certificate, no provisioning profile, no signing — while
+      # still compiling every line of Rust, Swift and Objective-C.
       - name: Build for the iOS simulator
+        run: npm run tauri ios build -- --target aarch64-sim
+        env:
+          CI: true
+
+      # After the build, not before: the usage strings from Info.ios.plist are
+      # merged in as part of the build, so dumping this at init time shows the
+      # bare template and proves nothing.
+      - name: Check the usage strings made it into Info.plist
+        if: always()
         run: |
-          proj=$(find src-tauri/gen/apple -maxdepth 1 -name '*.xcodeproj' | head -1)
-          echo "project: $proj"
-          # Discover the scheme rather than hardcoding it: Tauri derives the
-          # name from productName, and guessing it wrong fails the build for a
-          # reason that has nothing to do with the code.
-          xcodebuild -list -project "$proj"
-          scheme=$(xcodebuild -list -project "$proj" \
-            | awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}')
-          echo "scheme: $scheme"
-          xcodebuild \
-            -project "$proj" \
-            -scheme "$scheme" \
-            -sdk iphonesimulator \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            build
+          for f in $(find src-tauri/gen/apple -name 'Info.plist'); do
+            echo "--- $f ---"
+            cat "$f"
+          done
+          # iOS terminates the app rather than denying the permission when one
+          # of these is missing, so their absence is a build failure, not a
+          # warning to notice later.
+          merged=$(find src-tauri/gen/apple -name 'Info.plist' | head -1)
+          for key in NSLocationWhenInUseUsageDescription \
+                     NSLocalNetworkUsageDescription \
+                     NSMotionUsageDescription; do
+            if ! grep -q "$key" "$merged"; then
+              echo "::error::$key missing from the generated Info.plist — Info.ios.plist was not merged"
+              exit 1
+            fi
+          done
+          echo "all usage strings present"
