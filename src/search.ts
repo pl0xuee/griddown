@@ -4,6 +4,7 @@ import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { toast } from "./toast";
 import { parseCoord, clearGotoPin } from "./goto";
+import { loadMarks, type Waypoint } from "./store";
 import { esc } from "./esc";
 
 // Offline place search. There's no name database anywhere — the towns are
@@ -136,6 +137,32 @@ export function rankMatches(places: Place[], q: string, limit = 20): Place[] {
   return scored.slice(0, limit).map((x) => x.p);
 }
 
+/**
+ * Rank saved pins against a query.
+ *
+ * Separate from rankMatches because pins have no population to sort by, and
+ * because the tie-breaks differ: the most recently dropped pin is usually the
+ * one being looked for, since you drop a pin for something you are about to
+ * act on. Notes are searched too — "water" finds a pin named "spring" whose
+ * note mentions water, which is exactly what a note is for.
+ */
+export function rankPins(pins: Waypoint[], q: string, limit = 8): Waypoint[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  const scored: { p: Waypoint; s: number }[] = [];
+  for (const p of pins) {
+    const name = (p.name || "").toLowerCase();
+    const at = name.indexOf(needle);
+    const inNote = (p.note || "").toLowerCase().includes(needle);
+    if (at < 0 && !inNote) continue;
+    // Name beats note; start-of-name beats mid-word; then most recent first.
+    const prefix = at === 0 ? 3 : at > 0 && name[at - 1] === " " ? 2 : at > 0 ? 1 : 0;
+    scored.push({ p, s: prefix * 1e14 + (p.t || 0) });
+  }
+  scored.sort((a, b) => b.s - a.s);
+  return scored.slice(0, limit).map((x) => x.p);
+}
+
 export type { Place };
 
 export function initSearch(deps: {
@@ -147,6 +174,9 @@ export function initSearch(deps: {
 }) {
   const panel = document.getElementById("search-panel");
   const input = document.getElementById("search-input") as HTMLInputElement | null;
+  // Your own pins, refreshed whenever the panel opens: they change far more
+  // often than the place index, which is baked into the pack.
+  let pins: Waypoint[] = [];
   const results = document.getElementById("search-results");
 
   function show(html: string) {
@@ -162,11 +192,15 @@ export function initSearch(deps: {
     show(`<div class="search-empty">Reading place names from the map pack…</div>`);
     try {
       index = await buildIndex(url, (d, t) => {
+        // Only while the results area has nothing better in it. Pins and
+        // coordinates render before the index exists, and blatting progress
+        // over them every 40 tiles took away results the user was mid-read of.
+        if (input?.value.trim()) return;
         show(`<div class="search-empty">Reading place names… ${d}/${t} tiles</div>`);
       });
       indexedUrl = url;
-      show(`<div class="search-empty">${index.length} places known here. Type to search.</div>`);
-      if (input?.value) render(input.value);
+      if (input?.value.trim()) render(input.value);
+      else show(`<div class="search-empty">${index.length} places known here. Type to search.</div>`);
     } catch (e) {
       show(`<div class="search-empty">Couldn't read this map pack: ${e}</div>`);
     } finally {
@@ -205,26 +239,66 @@ export function initSearch(deps: {
         ?.addEventListener("click", () => goToCoord(coord[0], coord[1]));
       return;
     }
-    if (!index) return;
-    const hits = rankMatches(index, q);
+    // Your own pins first, and without waiting for the place index. They are
+    // the places you cared enough to mark, so they outrank any town — and a
+    // pack still building its index must not hide them.
+    const pinHits = rankPins(pins, q);
+    const pinHtml = pinHits
+      .map(
+        (p, i) => `<button class="search-hit" data-pin="${i}">
+            <span class="sh-name">${esc(p.name)}</span>
+            <span class="sh-kind sh-pin">your pin</span>
+          </button>`
+      )
+      .join("");
+
+    const bindPins = () => {
+      results?.querySelectorAll<HTMLElement>("[data-pin]").forEach((el) => {
+        el.addEventListener("click", () => {
+          const p = pinHits[Number(el.dataset.pin)];
+          deps.map().flyTo({ center: [p.lng, p.lat], zoom: Math.max(deps.map().getZoom(), 14) });
+          deps.dropPin(p.lng, p.lat);
+          panel?.classList.add("hidden");
+          toast(p.note ? `${p.name} — ${p.note}` : p.name, "success");
+        });
+      });
+    };
+
     if (!q.trim()) {
-      show(`<div class="search-empty">${index.length} places known here. Type to search.</div>`);
+      show(
+        index
+          ? `<div class="search-empty">${index.length} places known here${
+              pins.length ? `, plus ${pins.length} of your pins` : ""
+            }. Type to search.</div>`
+          : `<div class="search-empty">Type to search.</div>`
+      );
       return;
     }
-    if (!hits.length) {
-      show(`<div class="search-empty">No places match "${esc(q)}".</div>`);
+    if (!index) {
+      // Index still building: show what we can rather than nothing.
+      if (pinHtml) {
+        show(pinHtml);
+        bindPins();
+      }
+      return;
+    }
+    const hits = rankMatches(index, q);
+    if (!hits.length && !pinHits.length) {
+      show(`<div class="search-empty">Nothing matches "${esc(q)}".</div>`);
       return;
     }
     show(
-      hits
-        .map(
-          (p, i) => `<button class="search-hit" data-hit="${i}">
+      pinHtml +
+        hits
+          .map(
+            (p, i) => `<button class="search-hit" data-hit="${i}">
             <span class="sh-name">${esc(p.name)}</span>
             <span class="sh-kind">${esc(label(p))}</span>
           </button>`
-        )
-        .join("")
+          )
+          .join("")
     );
+    bindPins();
     results?.querySelectorAll<HTMLElement>("[data-hit]").forEach((el) => {
       el.addEventListener("click", () => {
         const p = hits[Number(el.dataset.hit)];
@@ -240,6 +314,15 @@ export function initSearch(deps: {
     panel?.classList.remove("hidden");
     input?.focus();
     void ensureIndex();
+    // Marks are read fresh each time: one may have been dropped since.
+    void loadMarks()
+      .then((m) => {
+        pins = m.waypoints ?? [];
+        if (input?.value) render(input.value);
+      })
+      .catch(() => {
+        /* pins are a bonus here; the place index still works without them */
+      });
   });
   document.getElementById("search-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");

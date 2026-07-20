@@ -159,7 +159,10 @@ let activeResources = new Set<string>(
   (() => {
     try {
       const v = JSON.parse(localStorage.getItem("griddown_resources") || "[]");
-      return Array.isArray(v) ? (v as string[]) : [];
+      // Filter to real category names: a build between the chip-row merge and
+      // its fix could have persisted a nameless "" entry, which matches no
+      // layer and would light every chip up as "on".
+      return Array.isArray(v) ? (v as string[]).filter((k) => k && k in RESOURCE_CATS) : [];
     } catch {
       return [];
     }
@@ -745,13 +748,20 @@ async function start() {
     // The overlay belongs to the old pack — reload it for the new one.
     mvumCtl?.packChanged();
   }
-  // Resource overlay chips (water / shelter / medical / supply / help)
+  // Resource overlay chips (water / shelter / medical / supply / help).
+  //
+  // Scoped to [data-res], NOT to .res-chip: the terrain, public-land and forest
+  // -road toggles now share the chip row and the chip class, but they are not
+  // resources. Without this they would each toggle a nameless "" resource on
+  // every click, persist it to storage, force a second style rebuild, and have
+  // their own on/off state overwritten by applyResourceUi.
+  const resChips = () => document.querySelectorAll<HTMLElement>(".res-chip[data-res]");
   function applyResourceUi() {
-    document.querySelectorAll<HTMLElement>(".res-chip").forEach((chip) => {
+    resChips().forEach((chip) => {
       chip.classList.toggle("on", activeResources.has(chip.dataset.res || ""));
     });
   }
-  document.querySelectorAll<HTMLElement>(".res-chip").forEach((chip) => {
+  resChips().forEach((chip) => {
     chip.addEventListener("click", () => {
       const cat = chip.dataset.res || "";
       if (activeResources.has(cat)) activeResources.delete(cat);

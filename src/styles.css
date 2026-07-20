@@ -2302,3 +2302,8 @@ body.battery.nightvis .maplibregl-ctrl {
 .search-alt:hover {
   background: rgba(50, 70, 50, 0.95);
 }
+/* Your own pins are marked out from the pack's place names — they came from
+   you, and they sort above towns for that reason. */
+.sh-kind.sh-pin {
+  color: #ffd54f;
+}
