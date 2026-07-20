@@ -17,6 +17,10 @@
     <button id="coords" type="button" title="Tap to copy">&mdash;</button>
 
     <div id="hud">
+      <!-- Drag handle. Only visible on phones, where the HUD is a bottom
+           sheet; on a desktop the panel does not move and there is nothing
+           to grab. -->
+      <div id="hud-grip" aria-hidden="true"></div>
       <div id="hud-bar">
         <button id="hud-toggle" type="button" aria-label="Show or hide menu">&#9776;</button>
         <div id="hud-brand">

@@ -713,6 +713,25 @@ fn descend(
         return Err("directory nesting too deep (corrupt archive?)".into());
     }
 
+    // Resolve the whole level before fetching anything. Descending the moment a
+    // leaf is spotted means one round trip at a time, and a state touches
+    // hundreds of leaves — that was the entire "working out which tiles to
+    // fetch" wait, and it was pure latency.
+    //
+    // Both kinds of entry are recorded in one ordered list rather than handled
+    // as they are found. A directory can hold tiles and leaf pointers at once —
+    // the planet's root holds low zooms directly and points at leaves for the
+    // rest — and appending the direct ones during this pass would put them all
+    // ahead of everything the leaves contribute. `out` has to stay ascending:
+    // coalescing and the writer both depend on it, and neither would complain,
+    // they would just produce a wrong archive.
+    enum Item {
+        Tile(u64, Entry),
+        /// Index into `leaves`, and the slice of `wanted` it covers.
+        Leaf(usize, usize, usize),
+    }
+    let mut items: Vec<Item> = Vec::new();
+    let mut leaves: Vec<Entry> = Vec::new();
     let mut i = 0usize;
     while i < wanted.len() {
         let id = wanted[i];
@@ -735,16 +754,46 @@ fn descend(
             // however many tiles we want from it.
             let upper = dir.get(k + 1).map_or(u64::MAX, |n| n.tile_id);
             let j = i + wanted[i..].partition_point(|&w| w < upper);
-
-            let raw = src.read_range(h.leaf_offset + e.offset, u64::from(e.length))?;
-            let leaf = parse_directory(&decompress(&raw, h.internal_compression)?)?;
-            descend(src, h, &leaf, &wanted[i..j], out, depth + 1)?;
+            items.push(Item::Leaf(leaves.len(), i, j));
+            leaves.push(e);
             i = j;
         } else {
             if e.covers(id) {
-                out.push((id, e));
+                items.push(Item::Tile(id, e));
             }
             i += 1;
+        }
+    }
+
+    // Fetch this level's leaves together. Directories are a few KB each, so
+    // holding a level's worth costs single-digit megabytes even for a large
+    // state, and it is what lets the walk below stay in order.
+    let mut blobs: Vec<Vec<u8>> = Vec::with_capacity(leaves.len());
+    for window in leaves.chunks(LEAF_WINDOW) {
+        let ranges: Vec<(u64, u64)> = window
+            .iter()
+            .map(|e| (h.leaf_offset + e.offset, u64::from(e.length)))
+            .collect();
+        let got = src.read_ranges(&ranges)?;
+        if got.len() != window.len() {
+            return Err(format!(
+                "asked for {} leaf directories, got {}",
+                window.len(),
+                got.len()
+            ));
+        }
+        blobs.extend(got);
+    }
+
+    // Now walk the level in tile-id order, so what lands in `out` is ascending
+    // regardless of which entries were tiles and which were leaves.
+    for item in &items {
+        match item {
+            Item::Tile(id, e) => out.push((*id, *e)),
+            Item::Leaf(li, from, to) => {
+                let leaf = parse_directory(&decompress(&blobs[*li], h.internal_compression)?)?;
+                descend(src, h, &leaf, &wanted[*from..*to], out, depth + 1)?;
+            }
         }
     }
     Ok(())
@@ -779,8 +828,45 @@ pub const MAX_BATCH: u64 = 4 * 1024 * 1024;
 /// latency, restrained enough for build.protomaps.com, which is someone else's
 /// free server and the reason this client sends a real user-agent.
 ///
-/// Peak memory stays bounded at CONCURRENT_REQUESTS * MAX_BATCH — about 24 MB.
+/// Peak memory stays bounded by WINDOW_BYTES below.
 pub const CONCURRENT_REQUESTS: usize = 6;
+
+/// How much tile data to have outstanding at once.
+///
+/// Deliberately a byte budget rather than a batch count. Fetching exactly
+/// CONCURRENT_REQUESTS batches per round makes every round wait for its slowest
+/// request while the other five sit idle — with uneven batch sizes and an uneven
+/// network that gave away much of what the concurrency bought. Measuring the
+/// window in bytes instead means small batches queue up deep enough to keep
+/// every worker busy, while a run of large ones still caps memory here rather
+/// than at six times the largest batch.
+const WINDOW_BYTES: u64 = 24 * 1024 * 1024;
+
+/// Leaf directories per round when resolving tile locations. These are a few KB
+/// each, so this is about queue depth, not memory.
+const LEAF_WINDOW: usize = 64;
+
+/// Split batches into windows of roughly WINDOW_BYTES, never fewer than one.
+fn windows_by_bytes(batches: &[Batch]) -> Vec<&[Batch]> {
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut bytes = 0u64;
+
+    for (i, b) in batches.iter().enumerate() {
+        // Always keep at least one batch, or a single oversized one would
+        // produce an empty window and never make progress.
+        if i > start && bytes + b.length > WINDOW_BYTES {
+            out.push(&batches[start..i]);
+            start = i;
+            bytes = 0;
+        }
+        bytes += b.length;
+    }
+    if start < batches.len() {
+        out.push(&batches[start..]);
+    }
+    out
+}
 
 /// Merge tiles that sit near each other in the archive into shared requests.
 ///
@@ -916,12 +1002,23 @@ pub fn extract(
     // is what bounds memory; the ordering is not negotiable, because the writer
     // needs ascending tile ids and a whole state cannot be buffered to sort
     // afterwards. Fetch order is free to be chaotic, write order is not.
-    for window in batches.chunks(CONCURRENT_REQUESTS) {
+    for window in windows_by_bytes(&batches) {
         let ranges: Vec<(u64, u64)> = window
             .iter()
             .map(|b| (h.tile_data_offset + b.offset, b.length))
             .collect();
         let blobs = src.read_ranges(&ranges)?;
+        // zip() stops at the shorter side, so a source returning fewer blobs
+        // than it was asked for would drop tiles from the pack without a word.
+        // Neither implementation here does that; this is so a future one
+        // cannot.
+        if blobs.len() != window.len() {
+            return Err(format!(
+                "asked for {} tile batches, got {}",
+                window.len(),
+                blobs.len()
+            ));
+        }
 
         for (batch, blob) in window.iter().zip(&blobs) {
             for &i in &batch.members {
@@ -1457,6 +1554,134 @@ mod tests {
         }
     }
 
+    /// An archive held in memory, so directory shapes that are awkward to find
+    /// in a real file can be built exactly.
+    struct MemSource(Vec<u8>);
+    impl TileSource for MemSource {
+        fn read_range(&self, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+            let start = offset as usize;
+            let end = start + len as usize;
+            self.0
+                .get(start..end)
+                .map(<[u8]>::to_vec)
+                .ok_or_else(|| format!("read {start}..{end} past end of archive"))
+        }
+    }
+
+    /// A directory holding tiles *and* leaf pointers must still come back in
+    /// ascending tile-id order.
+    ///
+    /// This is the shape the planet's root actually has — low zooms stored
+    /// directly, higher ones behind leaves — and it is the one case where
+    /// resolving a level before fetching it can silently reorder the result.
+    /// Nothing downstream would report it: coalescing would merge the wrong
+    /// tiles and the writer would encode a wrong archive without complaint.
+    #[test]
+    fn a_mixed_directory_still_resolves_in_id_order() {
+        // Leaf directory: one tile, id 2. Lives at the very start of the blob.
+        let leaf_dir = [1u8, 2, 1, 30, 51];
+        // Root: tile id 1, then a leaf pointer for id 2, then tile id 3.
+        // Fields are grouped: count, id deltas, run lengths, lengths, offsets.
+        // A run length of 0 is what marks the middle entry as a leaf.
+        let root_dir = [3u8, 1, 1, 1, 1, 0, 1, 10, 5, 20, 41, 1, 61];
+
+        let mut blob = leaf_dir.to_vec();
+        blob.extend_from_slice(&root_dir);
+        let src = MemSource(blob);
+
+        let h = Header {
+            root_offset: leaf_dir.len() as u64,
+            root_length: root_dir.len() as u64,
+            metadata_offset: 0,
+            metadata_length: 0,
+            leaf_offset: 0,
+            leaf_length: leaf_dir.len() as u64,
+            tile_data_offset: 0,
+            tile_data_length: 0,
+            clustered: true,
+            internal_compression: Compression::None,
+            tile_compression: Compression::Gzip,
+            tile_type: 1,
+            min_zoom: 0,
+            max_zoom: 15,
+            min_lon: -180.0,
+            min_lat: -85.0,
+            max_lon: 180.0,
+            max_lat: 85.0,
+        };
+
+        let found = locate_tiles(&src, &h, &[1, 2, 3]).expect("locates every tile");
+        let ids: Vec<u64> = found.iter().map(|(id, _)| *id).collect();
+        assert_eq!(
+            ids,
+            vec![1, 2, 3],
+            "the leaf's tile must sort between the two direct entries, not after them"
+        );
+    }
+
+    fn batch_of(len: u64) -> Batch {
+        Batch {
+            offset: 0,
+            length: len,
+            members: vec![],
+        }
+    }
+
+    /// Windowing must not lose, duplicate or reorder a batch. Any of those
+    /// would produce a pack that is wrong rather than one that fails.
+    #[test]
+    fn windows_cover_every_batch_once_in_order() {
+        let sizes = [1u64, 5 << 20, 9 << 20, 3 << 20, 12 << 20, 2 << 20, 7 << 20];
+        let batches: Vec<Batch> = sizes.iter().map(|&s| batch_of(s)).collect();
+
+        let seen: Vec<u64> = windows_by_bytes(&batches)
+            .iter()
+            .flat_map(|w| w.iter().map(|b| b.length))
+            .collect();
+        assert_eq!(
+            seen, sizes,
+            "batches must come back in the same order, once"
+        );
+    }
+
+    /// The budget is what keeps peak memory bounded on a phone.
+    #[test]
+    fn windows_respect_the_byte_budget() {
+        let batches: Vec<Batch> = (0..40).map(|_| batch_of(4 << 20)).collect();
+        for w in windows_by_bytes(&batches) {
+            assert!(!w.is_empty(), "an empty window would stall progress");
+            let total: u64 = w.iter().map(|b| b.length).sum();
+            assert!(
+                total <= WINDOW_BYTES,
+                "window of {total} exceeds the budget"
+            );
+        }
+    }
+
+    /// A batch bigger than the whole budget still has to go somewhere. It gets a
+    /// window to itself rather than an empty one that never advances.
+    #[test]
+    fn an_oversized_batch_gets_its_own_window() {
+        let batches = vec![
+            batch_of(1 << 20),
+            batch_of(WINDOW_BYTES * 3),
+            batch_of(1 << 20),
+        ];
+        let w = windows_by_bytes(&batches);
+        assert!(w.iter().all(|x| !x.is_empty()));
+        assert_eq!(w.iter().map(|x| x.len()).sum::<usize>(), 3);
+        assert!(
+            w.iter()
+                .any(|x| x.len() == 1 && x[0].length == WINDOW_BYTES * 3),
+            "the oversized batch should stand alone"
+        );
+    }
+
+    #[test]
+    fn no_batches_means_no_windows() {
+        assert!(windows_by_bytes(&[]).is_empty());
+    }
+
     /// Results must land in the order they were asked for, not the order they
     /// arrived in.
     ///
@@ -1479,7 +1704,11 @@ mod tests {
 
         assert_eq!(out.len(), n);
         for (i, chunk) in out.iter().enumerate() {
-            assert_eq!(chunk, &vec![i as u8; 4], "range {i} landed in the wrong slot");
+            assert_eq!(
+                chunk,
+                &vec![i as u8; 4],
+                "range {i} landed in the wrong slot"
+            );
         }
     }
 

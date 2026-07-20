@@ -951,6 +951,108 @@ window.addEventListener("online", refreshNetStatus);
 window.addEventListener("offline", refreshNetStatus);
 refreshNetStatus();
 
+// --- Bottom sheet (phones only) ---
+
+/** Must match the breakpoint the sheet styles are written against. */
+const PHONE = "(max-width: 700px)";
+function isPhone(): boolean {
+  return window.matchMedia(PHONE).matches;
+}
+
+type SheetState = "sheet-peek" | "sheet-half" | "sheet-full";
+const SHEET_STATES: SheetState[] = ["sheet-peek", "sheet-half", "sheet-full"];
+
+/**
+ * Mirror the menu's collapsed state onto <body>.
+ *
+ * The scale bars and coordinate readout are lifted to clear the sheet, and have
+ * to drop back when it is hidden. They aren't inside the HUD, so CSS can only
+ * reach them from an ancestor — `:has()` would do it but needs Safari 15.4, and
+ * this app still targets iOS 14.
+ */
+function syncMenuHidden(hud: HTMLElement | null) {
+  document.body.classList.toggle("menu-hidden", !!hud?.classList.contains("collapsed"));
+}
+
+function setSheet(hud: HTMLElement, state: SheetState) {
+  hud.classList.remove(...SHEET_STATES);
+  hud.classList.add(state);
+  // Drop any height left behind by a drag, so the class governs again.
+  hud.style.height = "";
+  localStorage.setItem("griddown_sheet", state);
+}
+
+/**
+ * Drag-to-resize for the phone bottom sheet.
+ *
+ * Deliberately driven by height rather than a transform: the body is a
+ * scrolling flex child, so changing the sheet's height reflows the list to fit,
+ * whereas translating it would just slide the overflow off-screen.
+ */
+function setupSheet(hud: HTMLElement) {
+  const grip = document.getElementById("hud-grip");
+  const bar = document.getElementById("hud-bar");
+  if (!grip || !bar) return;
+
+  const stored = localStorage.getItem("griddown_sheet") as SheetState | null;
+  hud.classList.add(stored && SHEET_STATES.includes(stored) ? stored : "sheet-half");
+
+  let startY = 0;
+  let startH = 0;
+  /**
+   * Which pointer owns the drag, or null when idle.
+   *
+   * A second finger must not take over. Without this it would overwrite the
+   * origin — so the first finger's next move would jump the sheet by the gap
+   * between the two — and then lifting either one would end the drag, leaving
+   * the still-held finger doing nothing.
+   */
+  let activeId: number | null = null;
+
+  const down = (e: PointerEvent) => {
+    // A tap on ☰ is a button press, not a drag — let it through. And once the
+    // menu is hidden the bar is a corner pill, which does not resize.
+    if (!isPhone() || hud.classList.contains("collapsed")) return;
+    if ((e.target as HTMLElement).closest("#hud-toggle")) return;
+    if (activeId !== null) return;
+    activeId = e.pointerId;
+    startY = e.clientY;
+    startH = hud.getBoundingClientRect().height;
+    hud.classList.add("dragging");
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const move = (e: PointerEvent) => {
+    if (e.pointerId !== activeId) return;
+    // Up is negative in client coords, and up should make the sheet taller.
+    const h = startH + (startY - e.clientY);
+    const max = window.innerHeight * 0.92;
+    hud.style.height = `${Math.max(40, Math.min(max, h))}px`;
+  };
+
+  const up = (e: PointerEvent) => {
+    if (e.pointerId !== activeId) return;
+    activeId = null;
+    hud.classList.remove("dragging");
+
+    // Snap to whichever rest position the sheet ended up nearest. Thresholds
+    // rather than measured peek height: the peek is defined in CSS with a safe
+    // area inset in it, and re-deriving that here is how the two drift apart.
+    const h = hud.getBoundingClientRect().height;
+    const vh = window.innerHeight;
+    if (h < vh * 0.28) setSheet(hud, "sheet-peek");
+    else if (h < vh * 0.67) setSheet(hud, "sheet-half");
+    else setSheet(hud, "sheet-full");
+  };
+
+  for (const el of [grip, bar]) {
+    el.addEventListener("pointerdown", down);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+}
+
 // --- Welcome screen (first run) + Map library panel open/close ---
 function initChrome() {
   // Menu collapse toggle (☰) — hides everything but the bar; choice persists.
@@ -958,10 +1060,15 @@ function initChrome() {
   if (hud && localStorage.getItem("griddown_menu_collapsed") === "1") {
     hud.classList.add("collapsed");
   }
+  syncMenuHidden(hud);
   document.getElementById("hud-toggle")?.addEventListener("click", () => {
+    // Same meaning on both: ☰ hides the menu completely. On a phone that turns
+    // the bottom sheet back into the corner pill (see the sheet styles).
     const collapsed = hud?.classList.toggle("collapsed");
     localStorage.setItem("griddown_menu_collapsed", collapsed ? "1" : "0");
+    syncMenuHidden(hud);
   });
+  if (hud) setupSheet(hud);
 
   const welcome = document.getElementById("welcome");
   const startBtn = document.getElementById("welcome-start");
