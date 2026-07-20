@@ -1,5 +1,3 @@
-import { check } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { toast } from "./toast";
 
 // Update check — deliberately MANUAL, and deliberately quiet.
@@ -11,16 +9,33 @@ import { toast } from "./toast";
 //    replaces the application binary and nothing else
 //  - it can't run in development at all (the plugin is compiled out of debug
 //    builds, so `check()` would throw)
+//  - it doesn't exist on mobile at all (see below)
 
 let busy = false;
 
+/// iOS and Android get their updates from the App Store and Play Store, and the
+/// updater/process plugins are compiled out of mobile builds entirely (see
+/// Cargo.toml). Leaving the button in place would fire IPC at a plugin that
+/// isn't there, so it's removed rather than left to fail.
+function isMobile(): boolean {
+  return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
+}
+
 export function initUpdater() {
   const btn = document.getElementById("update-check");
-  btn?.addEventListener("click", async () => {
+  if (!btn) return;
+  if (isMobile()) {
+    btn.remove();
+    return;
+  }
+  btn.addEventListener("click", async () => {
     if (busy) return;
     busy = true;
     btn.setAttribute("disabled", "");
     try {
+      // Imported lazily so the mobile bundle never pulls in plugin JS whose
+      // Rust half doesn't exist.
+      const { check } = await import("@tauri-apps/plugin-updater");
       toast("Checking for updates…");
       const update = await check();
       if (!update) {
@@ -50,6 +65,7 @@ export function initUpdater() {
         }
       });
       toast("Update installed — restarting.", "success");
+      const { relaunch } = await import("@tauri-apps/plugin-process");
       await relaunch();
     } catch (err) {
       // No connection is the expected case for this app, not a failure worth
@@ -65,7 +81,7 @@ export function initUpdater() {
       );
     } finally {
       busy = false;
-      btn?.removeAttribute("disabled");
+      btn.removeAttribute("disabled");
     }
   });
 }

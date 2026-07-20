@@ -63,13 +63,19 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
   await refreshInstalled();
 
   if (inTauri) {
-    await listen<{ abbr: string; line: string }>("download-progress", (e) => {
-      const pcts = e.payload.line.match(/(\d+)%/g);
-      if (pcts && pcts.length) {
-        downloading.set(e.payload.abbr, parseInt(pcts[pcts.length - 1]));
+    // Two shapes share this event: `pct` carries real progress, `line` carries a
+    // status message for the phases before tile counts exist ("Finding latest
+    // map build…"). This used to scrape percentages out of the go-pmtiles
+    // subprocess's stdout with a regex; the extract now runs in-process and
+    // reports actual numbers.
+    await listen<{ abbr: string; line?: string; done?: number; total?: number; pct?: number }>(
+      "download-progress",
+      (e) => {
+        if (typeof e.payload.pct !== "number") return; // status text, no progress yet
+        downloading.set(e.payload.abbr, e.payload.pct);
         updateRow(e.payload.abbr);
       }
-    });
+    );
     await listen<{ abbr: string; done: number; total: number }>("dem-progress", (e) => {
       if (!demDownloading.has(e.payload.abbr)) return; // stale event
       demDownloading.set(

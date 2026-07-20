@@ -25,6 +25,20 @@ base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 tauri-plugin-dialog = "2.7.2"
 
+# PMTiles archive writing, replacing the go-pmtiles sidecar (iOS forbids
+# spawning subprocesses).
+#
+# `default-features = false` is load-bearing, not hygiene: the defaults pull in
+# zstd-sys, which compiles bundled C and is a common iOS cross-compilation
+# snag, plus mmap and S3/object-store backends we have no use for. We take the
+# writer only — it's sync, so it needs no async runtime — and read the remote
+# archive ourselves via the reqwest already above. The crate's reader keeps
+# tile byte offsets private, which makes coalescing adjacent range requests
+# impossible; see pmtiles_extract.rs for why that matters.
+pmtiles = { version = "0.23", default-features = false, features = ["write"] }
+# Directory blocks inside a PMTiles archive are gzip-compressed.
+flate2 = "1"
+
 # Updater is desktop-only and must not be built into debug binaries: the plugin
 # deserializes its config to null under `tauri dev` and fails to initialise.
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]

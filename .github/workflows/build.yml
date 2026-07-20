@@ -31,10 +31,8 @@ jobs:
           # with an RX 9070, because WebGL was unavailable.
           - platform: ubuntu-24.04
             triple: x86_64-unknown-linux-gnu
-            pm_asset: Linux_x86_64.tar.gz
           - platform: windows-latest
             triple: x86_64-pc-windows-msvc
-            pm_asset: Windows_x86_64.zip
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -55,24 +53,11 @@ jobs:
           # desktop-file-validate, which the "continuous" build did not.
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf desktop-file-utils
 
-      - name: Provision go-pmtiles sidecar
-        shell: bash
-        env:
-          PM_VER: "1.31.1"
-        run: |
-          mkdir -p src-tauri/binaries
-          cd src-tauri/binaries
-          url="https://github.com/protomaps/go-pmtiles/releases/download/v${PM_VER}/go-pmtiles_${PM_VER}_${{ matrix.pm_asset }}"
-          if [[ "${{ matrix.platform }}" == windows-latest ]]; then
-            curl -sL -o pm.zip "$url"
-            unzip -o pm.zip
-            mv pmtiles.exe "pmtiles-${{ matrix.triple }}.exe"
-          else
-            curl -sL -o pm.tgz "$url"
-            tar xzf pm.tgz
-            mv pmtiles "pmtiles-${{ matrix.triple }}"
-            chmod +x "pmtiles-${{ matrix.triple }}"
-          fi
+      # The go-pmtiles sidecar used to be downloaded here and bundled as an
+      # externalBin. It's gone: extracting a state from the Protomaps planet
+      # build now happens in-process (src-tauri/src/pmtiles_extract.rs), because
+      # iOS forbids spawning subprocesses. That also takes 57 MB off every
+      # desktop build.
 
       - name: Install frontend dependencies
         run: npm ci

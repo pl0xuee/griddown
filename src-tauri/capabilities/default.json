@@ -1,12 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Core permissions, every platform. The `windows` list is required, not optional: a capability with no `windows` matches no window at all, and every IPC call then fails with 'event.listen not allowed on window \"main\"'. The label is \"main\" on iOS too, so this is safe across platforms.",
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "dialog:default",
-    "updater:default",
-    "process:allow-restart"
+    "dialog:default"
   ]
 }

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod mesh;
+mod pmtiles_extract;
 
 /// A state abbreviation that is safe to paste into a path.
 ///
@@ -262,37 +263,6 @@ fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
     }
     out.sort_by(|a, b| a.abbr.cmp(&b.abbr));
     Ok(out)
-}
-
-/// Locate the bundled go-pmtiles binary (dev: src-tauri/binaries; prod: next to exe).
-fn pmtiles_bin() -> Option<PathBuf> {
-    let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries");
-    if let Ok(rd) = std::fs::read_dir(&dev) {
-        for e in rd.flatten() {
-            if e.file_name().to_string_lossy().starts_with("pmtiles") {
-                return Some(e.path());
-            }
-        }
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            // Exact names, then any bundled "pmtiles*" (externalBin keeps the triple).
-            for cand in ["pmtiles", "pmtiles.exe"] {
-                let p = dir.join(cand);
-                if p.exists() {
-                    return Some(p);
-                }
-            }
-            if let Ok(rd) = std::fs::read_dir(dir) {
-                for e in rd.flatten() {
-                    if e.file_name().to_string_lossy().starts_with("pmtiles") {
-                        return Some(e.path());
-                    }
-                }
-            }
-        }
-    }
-    None
 }
 
 /// List installed state abbreviations (one .pmtiles file each).
@@ -719,7 +689,7 @@ async fn download_mvum(app: AppHandle, abbr: String, bbox: String) -> Result<u64
 
 /// Convert days-since-Unix-epoch to a (year, month, day) civil date.
 /// (Howard Hinnant's algorithm — avoids pulling in a date crate.)
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = z - era * 146097;
@@ -732,29 +702,13 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (y + if m <= 2 { 1 } else { 0 }, m, d)
 }
 
-/// Find the most recent Protomaps daily planet build by probing back a few days.
-/// (Done server-side; the build host sends no CORS headers for browsers.)
-fn latest_build_url(bin: &std::path::Path) -> Result<String, String> {
-    use std::process::Command;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_secs() as i64;
-    let today = now / 86400;
-    for i in 0..8 {
-        let (y, m, d) = civil_from_days(today - i);
-        let url = format!("https://build.protomaps.com/{:04}{:02}{:02}.pmtiles", y, m, d);
-        if let Ok(o) = Command::new(bin).arg("show").arg(&url).output() {
-            if String::from_utf8_lossy(&o.stdout).contains("spec version") {
-                return Ok(url);
-            }
-        }
-    }
-    Err("No recent map build found — check your internet connection.".into())
-}
-
-/// Download a state basemap by extracting its bbox from a remote Protomaps planet
-/// build using the go-pmtiles CLI. Emits `download-progress` events while running.
+/// Download a state basemap by extracting its bbox from a remote Protomaps
+/// planet build. Emits `download-progress` events while running.
+///
+/// This used to shell out to the go-pmtiles CLI. iOS forbids spawning
+/// subprocesses, so the extract is now done in-process — see pmtiles_extract.rs,
+/// which also explains why it parses the archive's directories by hand rather
+/// than using the `pmtiles` crate's reader.
 #[tauri::command]
 async fn download_state(
     app: AppHandle,
@@ -762,72 +716,84 @@ async fn download_state(
     bbox: String,
     maxzoom: u32,
 ) -> Result<String, String> {
-    let bin = pmtiles_bin().ok_or("go-pmtiles binary not found")?;
     let dir = states_dir(&app)?;
     let final_path = dir.join(format!("{}.pmtiles", safe_abbr(&abbr)));
     let tmp_path = dir.join(format!("{}.pmtiles.part", safe_abbr(&abbr)));
 
+    // Parse the bbox before touching the network, so a malformed one fails
+    // instantly instead of after a build probe.
+    let nums: Vec<f64> = bbox
+        .split(',')
+        .map(|s| s.trim().parse::<f64>().map_err(|e| format!("bad bbox value {s:?}: {e}")))
+        .collect::<Result<_, _>>()?;
+    let [min_lon, min_lat, max_lon, max_lat] = nums[..] else {
+        return Err(format!(
+            "bbox needs 4 comma-separated numbers, got {}",
+            nums.len()
+        ));
+    };
+    let maxzoom = u8::try_from(maxzoom).map_err(|_| format!("zoom {maxzoom} out of range"))?;
+
     let app2 = app.clone();
     let abbr2 = abbr.clone();
     let out = tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
-        use std::io::Read;
-        use std::process::{Command, Stdio};
-
-        let _ = app2.emit(
-            "download-progress",
-            serde_json::json!({ "abbr": abbr2, "line": "Finding latest map build…" }),
-        );
-        let planet_url = latest_build_url(&bin)?;
-
-        let mut child = Command::new(&bin)
-            .arg("extract")
-            .arg(&planet_url)
-            .arg(&tmp_path)
-            .arg(format!("--bbox={}", bbox))
-            .arg(format!("--maxzoom={}", maxzoom))
-            .arg("--download-threads=8")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| e.to_string())?;
-
-        // go-pmtiles may print progress to either stream; read both.
-        let emit_stream = |mut stream: Box<dyn Read + Send>, app: AppHandle, abbr: String| {
-            std::thread::spawn(move || {
-                let mut buf = [0u8; 8192];
-                loop {
-                    match stream.read(&mut buf) {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            let line = String::from_utf8_lossy(&buf[..n]).to_string();
-                            let _ = app.emit(
-                                "download-progress",
-                                serde_json::json!({ "abbr": abbr, "line": line }),
-                            );
-                        }
-                    }
-                }
-            })
+        let status = |line: &str| {
+            let _ = app2.emit(
+                "download-progress",
+                serde_json::json!({ "abbr": abbr2, "line": line }),
+            );
         };
 
-        let mut handles = Vec::new();
-        if let Some(out) = child.stdout.take() {
-            handles.push(emit_stream(Box::new(out), app2.clone(), abbr2.clone()));
-        }
-        if let Some(err) = child.stderr.take() {
-            handles.push(emit_stream(Box::new(err), app2.clone(), abbr2.clone()));
-        }
-        for h in handles {
-            let _ = h.join();
-        }
+        status("Finding latest map build…");
+        let today = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_secs()
+            / 86400) as i64;
+        let planet_url = pmtiles_extract::latest_build_url(today)?;
 
-        let status = child.wait().map_err(|e| e.to_string())?;
-        if status.success() {
-            std::fs::rename(&tmp_path, &final_path).map_err(|e| e.to_string())?;
-            Ok(final_path.to_string_lossy().to_string())
-        } else {
-            let _ = std::fs::remove_file(&tmp_path);
-            Err(format!("download failed (exit {:?})", status.code()))
+        use pmtiles_extract::TileSource as _;
+        let src = pmtiles_extract::HttpSource::new(&planet_url)?;
+        let head = src.read_range(0, pmtiles_extract::HEADER_LEN as u64)?;
+        let header = pmtiles_extract::Header::parse(&head)?;
+
+        status("Working out which tiles to fetch…");
+
+        // Emit only when the whole-number percentage changes: a state extract
+        // completes tens of batches, and one IPC message per batch is plenty.
+        let mut last_pct = u64::MAX;
+        let result = pmtiles_extract::extract(
+            &src,
+            &header,
+            &tmp_path,
+            0,
+            maxzoom,
+            (min_lon, min_lat, max_lon, max_lat),
+            &mut |done, total| {
+                let pct = done * 100 / total.max(1);
+                if pct != last_pct {
+                    last_pct = pct;
+                    let _ = app2.emit(
+                        "download-progress",
+                        serde_json::json!({
+                            "abbr": abbr2, "done": done, "total": total, "pct": pct
+                        }),
+                    );
+                }
+            },
+        );
+
+        match result {
+            Ok(_) => {
+                // Rename only on success: a half-written .part must never be
+                // mistaken for an installed pack.
+                std::fs::rename(&tmp_path, &final_path).map_err(|e| e.to_string())?;
+                Ok(final_path.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                Err(e)
+            }
         }
     })
     .await
@@ -841,10 +807,16 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init());
 
-    // Release builds only. Under `tauri dev` the updater's config deserializes
-    // to null and the plugin fails to initialise, taking the whole app down at
-    // startup — which is what forced this feature to be reverted last time.
-    #[cfg(not(debug_assertions))]
+    // Desktop release builds only.
+    //
+    // Release-only: under `tauri dev` the updater's config deserializes to null
+    // and the plugin fails to initialise, taking the whole app down at startup —
+    // which is what forced this feature to be reverted last time.
+    //
+    // Desktop-only: Cargo excludes both plugins on iOS/Android (see Cargo.toml),
+    // so gating on `debug_assertions` alone would leave this block referencing
+    // crates that don't exist and break every release mobile build.
+    #[cfg(all(desktop, not(debug_assertions)))]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());

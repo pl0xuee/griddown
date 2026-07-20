@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  iOS-only Info.plist additions, merged into the generated one by the Tauri CLI
+  (it looks for `Info.ios.plist` beside tauri.conf.json).
+
+  Every usage-description string here is mandatory: iOS does not deny the
+  permission when one is missing, it terminates the app the instant the API is
+  touched. The strings are user-facing — they appear verbatim in the system
+  prompt — so they explain the offline rationale rather than just naming the
+  hardware.
+-->
+<plist version="1.0">
+<dict>
+	<!-- MapLibre's GeolocateControl (src/main.ts). "When in use" only: the app
+	     has no background-location feature and asking for Always would be both
+	     unjustifiable at review and a battery cost with no payoff. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GridDown shows your position on the map. Your location stays on this device — it is never sent anywhere, and it works with no signal.</string>
+
+	<!-- mesh_connect opens a TCP socket to a Meshtastic radio on the local
+	     network (src-tauri/src/mesh.rs). iOS 14+ prompts on first connection to
+	     a local address. No NSBonjourServices key: the radio is reached at an
+	     explicit host:port, not discovered over mDNS. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>GridDown connects to a Meshtastic radio on your local network to send and receive messages when there is no cell service.</string>
+
+	<!-- Device orientation for the compass (src/compass.ts). The JS side already
+	     handles the required user-gesture call to requestPermission(). -->
+	<key>NSMotionUsageDescription</key>
+	<string>GridDown uses the compass to show which way you are facing on the map.</string>
+
+	<!-- Declares that the app uses only standard HTTPS (rustls, for map-pack
+	     downloads) and no proprietary cryptography. Without this, App Store
+	     Connect asks export-compliance questions on every single upload. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+</dict>
+</plist>
