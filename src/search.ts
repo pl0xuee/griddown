@@ -121,6 +121,35 @@ async function buildIndex(
   return [...seen.values()];
 }
 
+/**
+ * Build (or reuse) the place index for a pack, and return it. Shared by Find
+ * and by Get-there, so a state's places are read from its tiles once and both
+ * features search the same in-memory list.
+ *
+ * Cached by url: the second caller for the same pack gets it instantly, and
+ * switching packs rebuilds. A concurrent second caller waits out the first
+ * rather than reading every tile twice.
+ */
+export async function ensurePlaceIndex(
+  url: string,
+  onProgress?: (done: number, total: number) => void
+): Promise<Place[]> {
+  if (index && indexedUrl === url) return index;
+  while (building) {
+    await new Promise((r) => setTimeout(r, 50));
+    if (index && indexedUrl === url) return index;
+  }
+  building = true;
+  try {
+    const built = await buildIndex(url, (d, t) => onProgress?.(d, t));
+    index = built;
+    indexedUrl = url;
+    return built;
+  } finally {
+    building = false;
+  }
+}
+
 /** Rank matches: prefix > substring, then population, then shorter names. */
 export function rankMatches(places: Place[], q: string, limit = 20): Place[] {
   const needle = q.trim().toLowerCase();
@@ -171,6 +200,8 @@ export function initSearch(deps: {
   sourceUrl: () => string;
   /** Drop the go-to pin at a spot (reuses the goto marker). */
   dropPin: (lng: number, lat: number) => void;
+  /** Called after the map is moved to a result, to reveal it (peek the sheet). */
+  onJump?: () => void;
 }) {
   const panel = document.getElementById("search-panel");
   const input = document.getElementById("search-input") as HTMLInputElement | null;
@@ -186,25 +217,19 @@ export function initSearch(deps: {
   async function ensureIndex() {
     const url = deps.sourceUrl();
     if (index && indexedUrl === url) return;
-    if (building) return;
-    building = true;
-    index = null;
     show(`<div class="search-empty">Reading place names from the map pack…</div>`);
     try {
-      index = await buildIndex(url, (d, t) => {
+      const built = await ensurePlaceIndex(url, (d, t) => {
         // Only while the results area has nothing better in it. Pins and
         // coordinates render before the index exists, and blatting progress
         // over them every 40 tiles took away results the user was mid-read of.
         if (input?.value.trim()) return;
         show(`<div class="search-empty">Reading place names… ${d}/${t} tiles</div>`);
       });
-      indexedUrl = url;
       if (input?.value.trim()) render(input.value);
-      else show(`<div class="search-empty">${index.length} places known here. Type to search.</div>`);
+      else show(`<div class="search-empty">${built.length} places known here. Type to search.</div>`);
     } catch (e) {
       show(`<div class="search-empty">Couldn't read this map pack: ${e}</div>`);
-    } finally {
-      building = false;
     }
   }
 
@@ -219,6 +244,7 @@ export function initSearch(deps: {
     deps.map().flyTo({ center: [lng, lat], zoom: Math.max(deps.map().getZoom(), 13) });
     deps.dropPin(lng, lat);
     panel?.classList.add("hidden");
+    deps.onJump?.();
     toast(`Pin dropped at ${lat.toFixed(5)}, ${lng.toFixed(5)}`, "success");
   }
 
@@ -259,6 +285,7 @@ export function initSearch(deps: {
           deps.map().flyTo({ center: [p.lng, p.lat], zoom: Math.max(deps.map().getZoom(), 14) });
           deps.dropPin(p.lng, p.lat);
           panel?.classList.add("hidden");
+          deps.onJump?.();
           toast(p.note ? `${p.name} — ${p.note}` : p.name, "success");
         });
       });
@@ -305,6 +332,7 @@ export function initSearch(deps: {
         deps.map().flyTo({ center: [p.lng, p.lat], zoom: KIND_ZOOM[p.kind] ?? 12 });
         deps.dropPin(p.lng, p.lat);
         panel?.classList.add("hidden");
+        deps.onJump?.();
         toast(`${p.name} — pin dropped`, "success");
       });
     });

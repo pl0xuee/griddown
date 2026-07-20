@@ -146,13 +146,55 @@ body {
   box-shadow: 0 0 8px #7dd67d;
 }
 
-#hud-legend {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(120, 200, 120, 0.25);
-  font-size: 11px;
+/* Legend, now a collapsible card ON the map rather than a block in the menu.
+   Bottom-right so it clears the top zoom controls and the bottom-left scale
+   bar; lifted above the attribution on desktop and the sheet peek on phones. */
+#map-legend {
+  position: absolute;
+  right: 8px;
+  bottom: 26px;
+  z-index: 15;
+  width: max-content;
+  max-width: 62vw;
+  background: rgba(13, 18, 14, 0.86);
+  backdrop-filter: blur(3px);
+  border: 1px solid rgba(120, 200, 120, 0.3);
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+  pointer-events: auto;
+}
+.legend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: #9fe89f;
+  font-family: inherit;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.legend-caret {
+  transition: transform 0.2s ease;
+  font-size: 9px;
+}
+#map-legend.collapsed .legend-caret {
+  transform: rotate(-90deg);
+}
+#legend-body {
   display: grid;
-  gap: 4px;
+  gap: 5px;
+  padding: 0 10px 9px;
+  font-size: 11px;
+}
+#map-legend.collapsed #legend-body {
+  display: none;
 }
 
 .hud-sub {
@@ -610,6 +652,42 @@ body {
   font-size: 13px;
 }
 
+/* Record-track status: what it does when idle, a live readout while running. */
+.mk-rec {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #9fb6a6;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dotted rgba(120, 200, 120, 0.25);
+  background: rgba(255, 255, 255, 0.02);
+}
+.mk-rec.on {
+  color: #e6f0e0;
+  border: 1px solid rgba(255, 90, 160, 0.5);
+  background: rgba(70, 20, 45, 0.4);
+}
+.mk-rec-live {
+  font-size: 12px;
+}
+.mk-rec-dot {
+  color: #ff5aa0;
+  animation: mk-rec-pulse 1.3s ease-in-out infinite;
+}
+.mk-rec-note {
+  margin-top: 3px;
+  font-size: 10px;
+  color: #d3b9c6;
+  opacity: 0.85;
+}
+@keyframes mk-rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mk-rec-dot { animation: none; }
+}
+
 /* Waypoint pin marker */
 .wp-marker {
   width: 16px;
@@ -634,6 +712,7 @@ body.nightvis #map {
 }
 
 body.nightvis #hud,
+ body.nightvis #map-legend,
 body.nightvis #states-panel,
 body.nightvis #handbook-panel,
 body.nightvis .maplibregl-ctrl {
@@ -724,9 +803,9 @@ body.nightvis {
 
 .state-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
   border-radius: 8px;
   border: 1px solid rgba(120, 200, 120, 0.18);
   background: rgba(255, 255, 255, 0.03);
@@ -737,9 +816,26 @@ body.nightvis {
   background: rgba(60, 90, 60, 0.4);
 }
 
+/* Name and its controls always sit on one line at the top; anything in
+   progress stacks full-width below rather than pushing the controls around. */
+.state-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .state-info {
   flex: 1;
   min-width: 0;
+}
+
+/* The action and its icon cluster, kept together and off the baseline of a
+   growing row. */
+.state-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
 }
 
 .state-name {
@@ -780,49 +876,85 @@ body.nightvis {
 }
 
 .state-progress {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.12);
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
   overflow: hidden;
-  margin-top: 6px;
 }
 
 .state-progress > span {
   display: block;
   height: 100%;
   width: 0;
+  border-radius: inherit;
   background: #7dd67d;
-  transition: width 0.2s;
+  transition: width 0.25s ease;
 }
 
-.state-delete {
+/* Started, but no count yet: sweep instead of sitting at a made-up width. */
+.state-progress.indeterminate > span {
+  width: 40% !important;
+  animation: state-sweep 1.15s ease-in-out infinite;
+}
+@keyframes state-sweep {
+  0% { transform: translateX(-110%); }
+  100% { transform: translateX(275%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .state-progress.indeterminate > span {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.state-delete,
+.state-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   background: none;
   border: none;
-  color: #d98a8a;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
-  padding: 2px 4px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.state-refresh { color: #9fe89f; }
+.state-delete { color: #d98a8a; }
+.state-refresh:hover { background: rgba(120, 200, 120, 0.16); }
+.state-delete:hover { background: rgba(200, 110, 110, 0.16); }
+
+/* A side download in progress (terrain, forest roads): a labelled line with
+   the percent right-aligned, then its bar. One shape for both, so two at once
+   read as a list rather than a pile. */
+.state-task {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.state-task-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  opacity: 0.75;
+}
+.state-task-head span:last-child {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
 }
 
-.state-refresh {
-  background: none;
-  border: none;
-  color: #9fe89f;
-  cursor: pointer;
-  font-size: 15px;
-  padding: 2px 4px;
-}
-
-/* Optional per-state terrain download, shown under an installed row */
+/* The "Add terrain" affordance, shown under an installed row that has none. */
 .state-dem {
-  margin-top: 6px;
   font-size: 10px;
   opacity: 0.85;
 }
-/* What a download is currently doing — "Downloading OR pack (472 MB)…" versus
-   "building it here…", which differ by about twenty minutes. */
+/* What a whole-pack download is currently doing — "Downloading OR pack
+   (472 MB)…" versus "building it here…", which differ by twenty minutes. */
 .state-dl-status {
-  margin-top: 6px;
   font-size: 10px;
   opacity: 0.7;
 }
@@ -1293,6 +1425,25 @@ button {
 }
 
 /* Attribution: keep readable but unobtrusive */
+/* Native map controls (zoom, locate) are anchored top-right. MapLibre pins them
+   at top:0 / right:0 with no notch awareness, so on a device with a status bar
+   or a rounded corner — an iPhone or iPad — they sit under the clock and
+   battery and cannot be tapped at all. Push them in by the safe-area insets,
+   which are zero on devices that have none, so this changes nothing elsewhere.
+
+   `body` qualifier is load-bearing, not tidiness: MapLibre's own stylesheet is
+   imported from main.ts and lands later in the bundle than this file, so it
+   wins on source order at equal specificity (see the bottom-left note below).
+   Without the extra selector these rules silently do nothing. */
+body .maplibregl-ctrl-top-right {
+  top: env(safe-area-inset-top);
+  right: env(safe-area-inset-right);
+}
+body .maplibregl-ctrl-top-left {
+  top: env(safe-area-inset-top);
+  left: env(safe-area-inset-left);
+}
+
 .maplibregl-ctrl-attrib {
   font-size: 10px;
 }
@@ -1847,10 +1998,12 @@ body.battery.nightvis #map {
     contrast(1.05);
 }
 body.battery #hud,
+ body.battery #map-legend,
 body.battery .maplibregl-ctrl {
   filter: brightness(0.7);
 }
 body.battery.nightvis #hud,
+ body.battery.nightvis #map-legend,
 body.battery.nightvis .maplibregl-ctrl {
   filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(7) brightness(0.6);
 }
@@ -2000,26 +2153,184 @@ body.battery.nightvis .maplibregl-ctrl {
   line-height: 1.4;
 }
 
-/* Pin picker rows in the route panel */
-.rt-pin {
+/* --- Get there: endpoint slots + unified picker --- */
+
+/* The two big tap targets that open the picker. A set one reads filled. */
+.rt-slot {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   width: 100%;
-  padding: 7px 8px;
-  border-radius: 6px;
-  border: 1px solid rgba(120, 200, 120, 0.3);
-  background: rgba(30, 40, 30, 0.85);
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(120, 200, 120, 0.35);
+  background: rgba(30, 40, 30, 0.7);
   color: #cdeccd;
   font-family: inherit;
-  font-size: 11px;
   text-align: left;
   cursor: pointer;
 }
-.rt-pin:hover {
-  background: rgba(50, 70, 50, 0.95);
+.rt-slot:hover {
   border-color: rgba(150, 230, 150, 0.7);
+  background: rgba(45, 62, 45, 0.85);
 }
+.rt-slot.set {
+  border-color: rgba(79, 195, 255, 0.55);
+  background: rgba(22, 40, 55, 0.55);
+}
+.rt-slot-k {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #7fbf9a;
+}
+.rt-slot-v {
+  font-size: 13px;
+  word-break: break-word;
+}
+.rt-slot.set .rt-slot-v {
+  color: #cfe9ff;
+}
+.rt-slot-c {
+  font-size: 10px;
+  color: #93a894;
+  font-variant-numeric: tabular-nums;
+}
+/* Swap start and destination — small, centred between the two slots. */
+.rt-swap-row {
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+}
+.rt-swap {
+  padding: 2px 10px;
+  border-radius: 20px;
+  border: 1px solid rgba(120, 200, 120, 0.3);
+  background: none;
+  color: #a8d8a8;
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.rt-swap:hover {
+  background: rgba(50, 70, 50, 0.6);
+}
+
+.rt-pick-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.rt-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.3);
+  background: none;
+  color: #cdeccd;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rt-back:hover {
+  background: rgba(50, 70, 50, 0.7);
+}
+.rt-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(8, 10, 9, 0.9);
+  color: #e6f0e0;
+  font-family: inherit;
+  font-size: 14px;
+}
+.rt-search:focus {
+  outline: none;
+  border-color: rgba(150, 230, 150, 0.8);
+}
+.rt-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rt-quick-btn {
+  flex: 1;
+  min-width: 130px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px dashed rgba(120, 200, 120, 0.45);
+  background: none;
+  color: #a8d8a8;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.rt-quick-btn:hover {
+  background: rgba(50, 70, 50, 0.5);
+  border-style: solid;
+}
+.rt-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+/* Section label between Pins and Places. */
+.rt-sec-h {
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #7fbf9a;
+  opacity: 0.85;
+  margin-top: 4px;
+}
+.rt-sec-h:first-child {
+  margin-top: 0;
+}
+.rt-hit {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 6px;
+  border: 1px solid rgba(120, 200, 120, 0.22);
+  background: rgba(30, 40, 30, 0.75);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.rt-hit:hover {
+  background: rgba(50, 70, 50, 0.95);
+  border-color: rgba(150, 230, 150, 0.6);
+}
+.rt-hit-name {
+  word-break: break-word;
+}
+.rt-hit-sub {
+  flex: none;
+  font-size: 10px;
+  color: #93a894;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.rt-hint {
+  color: #9fb6a6;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
 
 
 /* Version line at the foot of the HUD menu. Deliberately quiet — you only need
@@ -2119,9 +2430,6 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 
 /* Forest-roads sub-row in Map packs, matching the terrain one. */
-.state-mvum {
-  margin-top: 5px;
-}
 .state-mvum-btn {
   width: 100%;
   padding: 5px 7px;
@@ -2598,6 +2906,10 @@ body.battery.nightvis .maplibregl-ctrl {
   #coords {
     bottom: calc(var(--sheet-peek) + 10px);
   }
+  #map-legend {
+    bottom: calc(var(--sheet-peek) + 10px);
+    max-width: 68vw;
+  }
   /* Qualified with `body` on purpose. MapLibre ships
      `.maplibregl-ctrl-bottom-left{bottom:0}` at the same specificity, and its
      stylesheet is imported from main.ts while this one is a <link> in the
@@ -2613,6 +2925,9 @@ body.battery.nightvis .maplibregl-ctrl {
      nothing. Driven by a class on <body> rather than :has(), which needs
      Safari 15.4 — this app still targets iOS 14. */
   body.menu-hidden #coords {
+    bottom: calc(10px + env(safe-area-inset-bottom));
+  }
+  body.menu-hidden #map-legend {
     bottom: calc(10px + env(safe-area-inset-bottom));
   }
   body.menu-hidden .maplibregl-ctrl-bottom-left {

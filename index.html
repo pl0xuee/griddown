@@ -94,24 +94,34 @@
           <button id="states-open" type="button">&#9636; Map packs</button>
           <button id="print-open" type="button">&#9113; Print map</button>
           <button id="readiness-open" type="button">&#9873; Readiness</button>
-          <button id="update-check" type="button" title="Check for app updates (needs internet)">&#8635; Updates</button>
+          <button id="update-check" type="button" hidden title="Check for app updates (needs internet)">&#8635; Updates</button>
         </div>
 
         <div id="hud-version">GridDown <span id="app-version">&mdash;</span></div>
+      </div>
+    </div>
 
-        <div id="hud-legend">
-          <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
-          <div class="legend-row"><span class="swatch trail"></span>Trail</div>
-          <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
-          <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land</div>
-          <div class="legend-row publicland hidden"><span class="swatch forestland"></span>Forest (ownership varies)</div>
-          <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
-          <div class="legend-row mvum hidden"><span class="swatch mvum-all"></span>MVUM: all vehicles</div>
-          <div class="legend-row mvum hidden"><span class="swatch mvum-highway"></span>MVUM: highway-legal only</div>
-          <div class="legend-row mvum hidden"><span class="swatch mvum-ohv"></span>MVUM: OHV under 50&quot;</div>
-          <div class="legend-row mvum hidden"><span class="swatch mvum-moto"></span>MVUM: motorcycle only</div>
-          <div class="legend-row mvum hidden"><span class="swatch mvum-seasonal"></span>Dashed = seasonal</div>
-        </div>
+    <!-- Legend: a collapsible card ON the map, not buried in the menu. The
+         publicland/mvum rows still show and hide with their overlays — the
+         toggles target these rows by class, so moving them here changed
+         nothing about that. -->
+    <div id="map-legend">
+      <button id="legend-toggle" type="button" class="legend-head" aria-expanded="true">
+        <span class="legend-title">Legend</span>
+        <span class="legend-caret">&#9662;</span>
+      </button>
+      <div id="legend-body">
+        <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
+        <div class="legend-row"><span class="swatch trail"></span>Trail</div>
+        <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+        <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land</div>
+        <div class="legend-row publicland hidden"><span class="swatch forestland"></span>Forest (ownership varies)</div>
+        <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-all"></span>MVUM: all vehicles</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-highway"></span>MVUM: highway-legal only</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-ohv"></span>MVUM: OHV under 50&quot;</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-moto"></span>MVUM: motorcycle only</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-seasonal"></span>Dashed = seasonal</div>
       </div>
     </div>
 
@@ -286,6 +296,7 @@
         <button id="marks-backup" type="button">&#9109; Back up everything</button>
         <button id="marks-restore" type="button">&#8635; Restore backup</button>
       </div>
+      <div id="marks-rec" class="mk-rec"></div>
       <div id="marks-content"></div>
     </div>
 

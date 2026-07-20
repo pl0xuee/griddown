@@ -14,21 +14,39 @@ import { confirmAction } from "./dialog";
 
 let busy = false;
 
-/// iOS and Android get their updates from the App Store and Play Store, and the
-/// updater/process plugins are compiled out of mobile builds entirely (see
-/// Cargo.toml). Leaving the button in place would fire IPC at a plugin that
-/// isn't there, so it's removed rather than left to fail.
-function isMobile(): boolean {
-  return /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
-}
-
 export function initUpdater() {
   const btn = document.getElementById("update-check");
   if (!btn) return;
-  if (isMobile()) {
-    btn.remove();
-    return;
-  }
+
+  // Show the button only where in-app update actually works — desktop. iOS and
+  // Android update through their stores, and the updater/process plugins are
+  // compiled out of mobile builds, so the button would fire IPC at a plugin
+  // that isn't there.
+  //
+  // The answer comes from the backend (`cfg!(desktop)`), not from the user
+  // agent: the old check sniffed the UA for "iPad", and iPadOS reports a
+  // *desktop* Safari UA, so the button stayed on iPad. The button starts
+  // hidden and is revealed only once desktop is confirmed, so it never flashes
+  // on a phone or tablet, and stays gone in a browser where there is no updater
+  // at all.
+  void (async () => {
+    let supported = false;
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      supported = await invoke<boolean>("updates_supported");
+    } catch {
+      supported = false; // not running under Tauri (a browser), or no command
+    }
+    if (!supported) {
+      btn.remove();
+      return;
+    }
+    btn.hidden = false;
+    wireUpdateButton(btn);
+  })();
+}
+
+function wireUpdateButton(btn: HTMLElement) {
   btn.addEventListener("click", async () => {
     if (busy) return;
     busy = true;

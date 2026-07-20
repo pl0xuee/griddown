@@ -10,6 +10,7 @@ import {
   type RouteResult,
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
+import { ensurePlaceIndex, rankMatches, rankPins, type Place } from "./search";
 import { esc as escapeHtml } from "./esc";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
@@ -272,6 +273,16 @@ export function initRoute(deps: {
   // moment ago is selectable without a restart.
   let pins: Waypoint[] = [];
   let pinsProblem = "";
+  // The pack's place names, built lazily the first time a picker opens and
+  // shared with Find (see ensurePlaceIndex). Null until read. Keyed by the url
+  // it was built for: initRoute lives for the whole session while the active
+  // pack changes underneath it, so without the url check the picker would keep
+  // searching the previous state's town names after a switch.
+  let places: Place[] | null = null;
+  let placesUrl = "";
+  // Set while an endpoint picker is on screen, so the async place-index load
+  // can re-render it once names are ready.
+  let pickerUpdate: (() => void) | null = null;
   async function refreshPins() {
     try {
       const marks = await loadMarks();
@@ -366,70 +377,176 @@ export function initRoute(deps: {
 
   function renderIdle(msg = "") {
     if (!body) return;
-    const pt = (e: Endpoint | null, fallback: string) =>
-      e ? `${e.label} (${e.lat.toFixed(4)}, ${e.lng.toFixed(4)})` : fallback;
-    const pinBtns =
-      pins.length > 0
-        ? `<div class="rt-btns">
-             <button id="rt-from-pin" type="button">&#9670; Start: a pin</button>
-             <button id="rt-to-pin" type="button">&#9670; Dest: a pin</button>
-           </div>`
-        : `<div class="rt-fine">${
-            pinsProblem || "No saved pins yet — drop one in Marks and it'll show up here."
-          }</div>`;
+    pickerUpdate = null; // no picker on screen now
+    const slot = (e: Endpoint | null, which: "from" | "to") => {
+      const set = !!e;
+      const title = which === "from" ? "Start" : "Destination";
+      const value = e ? escapeHtml(e.label) : `Set ${which === "from" ? "start" : "destination"}`;
+      const coord = e ? `<span class="rt-slot-c">${e.lat.toFixed(4)}, ${e.lng.toFixed(4)}</span>` : "";
+      return `<button class="rt-slot${set ? " set" : ""}" id="rt-set-${which}" type="button">
+          <span class="rt-slot-k">${title}</span>
+          <span class="rt-slot-v">${value}</span>${coord}
+        </button>`;
+    };
+    const canClear = !!(from || to || shown);
     body.innerHTML = `
-      <div class="rt-row"><span class="rt-k">From</span><span class="rt-v">${pt(from, "not set")}</span></div>
-      <div class="rt-row"><span class="rt-k">To</span><span class="rt-v">${pt(to, "not set")}</span></div>
-      ${pinBtns}
-      <div class="rt-btns">
-        <button id="rt-from-here" type="button">Start: my location</button>
-        <button id="rt-from-cross" type="button">Start: crosshair</button>
-        <button id="rt-to-cross" type="button">Dest: crosshair</button>
-        <button id="rt-clear" type="button">Clear</button>
-      </div>
+      ${slot(from, "from")}
+      <div class="rt-swap-row">${
+        from && to ? `<button id="rt-swap" type="button" class="rt-swap">&#8645; swap</button>` : ""
+      }</div>
+      ${slot(to, "to")}
       <button id="rt-go" type="button" class="rt-go">Find the way</button>
+      ${canClear ? `<div class="rt-btns"><button id="rt-clear" type="button">Clear</button></div>` : ""}
       ${msg ? `<div class="rt-msg">${msg}</div>` : ""}
       <div class="rt-disclaimer">Overview only, from map data: no turn restrictions,
       gates, private-road or seasonal-closure information. Check the ground before you commit.</div>`;
     wire();
   }
 
-  /** Pick one of the saved pins as the start or destination. */
-  function renderPinPicker(which: "from" | "to") {
+  /** Kick off (or reuse) the place index for the CURRENT pack, re-rendering
+   *  the picker when ready. */
+  async function loadPlaces() {
+    const url = deps.sourceUrl();
+    if (places && placesUrl === url) {
+      pickerUpdate?.();
+      return;
+    }
+    try {
+      const built = await ensurePlaceIndex(url);
+      places = built;
+      placesUrl = url;
+    } catch {
+      // Retryable, not cached: a failed read (or a place-less pack) must not
+      // permanently disable name search for the session. Pins and the map
+      // point still work meanwhile.
+      places = null;
+      placesUrl = "";
+    }
+    pickerUpdate?.();
+  }
+
+  /**
+   * Choose a start or destination, all in one place: search the pack's towns,
+   * pick one of your saved pins, drop on the map point, or use your location.
+   *
+   * Replaces the old pair of "pick a pin" screens. Pins are shown by default
+   * and searched alongside places, which is where the app finally explains that
+   * your dropped pins are reusable here.
+   */
+  function renderEndpointPicker(which: "from" | "to") {
     if (!body) return;
+    const isFrom = which === "from";
     const here = deps.map().getCenter();
-    // Nearest first: the pin you want is usually the one you're looking at.
-    const sorted = [...pins].sort(
-      (a, b) =>
-        haversineLL({ lng: a.lng, lat: a.lat, label: "" }, { lng: here.lng, lat: here.lat, label: "" }) -
-        haversineLL({ lng: b.lng, lat: b.lat, label: "" }, { lng: here.lng, lat: here.lat, label: "" })
-    );
+    const distTo = (lng: number, lat: number) =>
+      haversineLL({ lng, lat, label: "" }, { lng: here.lng, lat: here.lat, label: "" });
+
+    const choose = (e: Endpoint) => {
+      if (isFrom) from = e;
+      else to = e;
+      renderIdle();
+    };
+
     body.innerHTML = `
-      <div class="rt-row"><span class="rt-k">${which === "from" ? "Start" : "Destination"}</span><span class="rt-v">pick a pin</span></div>
-      <div class="rt-steps">
-        ${sorted
-          .map((w, i) => {
-            const d = haversineLL(
-              { lng: w.lng, lat: w.lat, label: "" },
-              { lng: here.lng, lat: here.lat, label: "" }
-            );
-            return `<button class="rt-pin" data-i="${i}" type="button"><span>${escapeHtml(
-              w.name || "Unnamed pin"
-            )}</span><span>${miles(d)} mi</span></button>`;
-          })
-          .join("")}
+      <div class="rt-pick-head">
+        <button id="rt-pick-back" type="button" class="rt-back" aria-label="Back">&#8249;</button>
+        <span>Set ${isFrom ? "start" : "destination"}</span>
       </div>
-      <div class="rt-btns"><button id="rt-pin-cancel" type="button">Back</button></div>`;
-    body.querySelectorAll<HTMLButtonElement>(".rt-pin").forEach((b) => {
-      b.addEventListener("click", () => {
-        const w = sorted[Number(b.dataset.i)];
-        const e: Endpoint = { lng: w.lng, lat: w.lat, label: w.name || "pin" };
-        if (which === "from") from = e;
-        else to = e;
-        renderIdle();
-      });
+      <input id="rt-pick-search" class="rt-search" type="text" autocomplete="off"
+        placeholder="Search a town or place" aria-label="Search a town or place" />
+      <div class="rt-quick">
+        ${isFrom ? `<button id="rt-q-loc" type="button" class="rt-quick-btn">&#9678; My location</button>` : ""}
+        <button id="rt-q-map" type="button" class="rt-quick-btn">&#10011; Point on the map</button>
+      </div>
+      <div id="rt-pick-results" class="rt-results"></div>
+      <div id="rt-pick-hint" class="rt-hint"></div>`;
+
+    const search = body.querySelector<HTMLInputElement>("#rt-pick-search")!;
+    const resultsEl = body.querySelector<HTMLElement>("#rt-pick-results")!;
+    const hintEl = body.querySelector<HTMLElement>("#rt-pick-hint")!;
+
+    // The lists currently on screen, so one delegated handler can resolve a tap.
+    let curPins: Waypoint[] = [];
+    let curPlaces: Place[] = [];
+
+    const placeKind = (p: Place) =>
+      p.kind === "region" ? "state" : p.kind === "county" ? "county" : p.detail || "place";
+    const pinRow = (w: Waypoint, i: number) =>
+      `<button class="rt-hit" data-kind="pin" data-i="${i}" type="button">
+        <span class="rt-hit-name">&#9670; ${escapeHtml(w.name || "Unnamed pin")}</span>
+        <span class="rt-hit-sub">pin · ${miles(distTo(w.lng, w.lat))} mi</span></button>`;
+    const placeRow = (p: Place, i: number) =>
+      `<button class="rt-hit" data-kind="place" data-i="${i}" type="button">
+        <span class="rt-hit-name">${escapeHtml(p.name)}</span>
+        <span class="rt-hit-sub">${escapeHtml(placeKind(p))} · ${miles(distTo(p.lng, p.lat))} mi</span></button>`;
+    const section = (title: string, rows: string[]) =>
+      rows.length ? `<div class="rt-sec-h">${title}</div>${rows.join("")}` : "";
+
+    const update = () => {
+      const q = search.value.trim();
+      if (!q) {
+        // Default view: your pins, nearest first — and the explanation of them.
+        curPlaces = [];
+        if (pinsProblem) {
+          curPins = [];
+          resultsEl.innerHTML = "";
+          hintEl.textContent = pinsProblem;
+          return;
+        }
+        if (!pins.length) {
+          curPins = [];
+          resultsEl.innerHTML = "";
+          hintEl.innerHTML =
+            "No saved pins yet. Drop a pin on the map and save it in <b>Marks</b> — your pins show up here to reuse as a start or destination. Or search a town above.";
+          return;
+        }
+        curPins = [...pins].sort((a, b) => distTo(a.lng, a.lat) - distTo(b.lng, b.lat));
+        resultsEl.innerHTML = section("Your pins", curPins.map(pinRow));
+        hintEl.textContent = "Your saved pins, nearest first — or type to search places.";
+        return;
+      }
+      // Searching: your matching pins first (they're yours), then map places.
+      // Only trust the index if it was built for the pack that's active now —
+      // a switch leaves last pack's list around until loadPlaces refreshes it.
+      const idx = places && placesUrl === deps.sourceUrl() ? places : null;
+      curPins = rankPins(pins, q, 6);
+      curPlaces = idx ? rankMatches(idx, q, 20) : [];
+      if (!curPins.length && !curPlaces.length) {
+        resultsEl.innerHTML = "";
+        hintEl.textContent = idx ? `Nothing here matches "${escapeHtml(q)}".` : "Reading place names…";
+        return;
+      }
+      hintEl.textContent = idx ? "" : "Still reading place names — more may appear.";
+      resultsEl.innerHTML =
+        section("Pins", curPins.map(pinRow)) + section("Places", curPlaces.map(placeRow));
+    };
+    // So the async place-index load can refresh this exact picker.
+    pickerUpdate = update;
+
+    resultsEl.addEventListener("click", (ev) => {
+      const btn = (ev.target as HTMLElement).closest<HTMLElement>(".rt-hit");
+      if (!btn) return;
+      if (btn.dataset.kind === "pin") {
+        const w = curPins[Number(btn.dataset.i)];
+        if (w) choose({ lng: w.lng, lat: w.lat, label: w.name || "pin" });
+      } else {
+        const p = curPlaces[Number(btn.dataset.i)];
+        if (p) choose({ lng: p.lng, lat: p.lat, label: p.name });
+      }
     });
-    document.getElementById("rt-pin-cancel")?.addEventListener("click", () => renderIdle());
+
+    search.addEventListener("input", update);
+    document.getElementById("rt-pick-back")?.addEventListener("click", () => renderIdle());
+    document.getElementById("rt-q-map")?.addEventListener("click", () => {
+      const c = deps.map().getCenter();
+      choose({ lng: c.lng, lat: c.lat, label: "map point" });
+    });
+    document.getElementById("rt-q-loc")?.addEventListener("click", () =>
+      useMyLocation(() => renderIdle())
+    );
+
+    update();
+    search.focus();
+    void loadPlaces();
   }
 
   function renderResult(s: Shown, problem = "") {
@@ -600,15 +717,10 @@ export function initRoute(deps: {
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
   }
 
-  function center(): Endpoint {
-    const c = deps.map().getCenter();
-    return { lng: c.lng, lat: c.lat, label: "crosshair" };
-  }
-
   /** Set `from` to the current GPS fix, then continue — or explain why not. */
   function useMyLocation(then: () => void) {
     if (!("geolocation" in navigator)) {
-      fail("Location isn't available on this device — use the crosshair instead.");
+      fail("Location isn't available on this device — use the map point instead.");
       return;
     }
     if (body) body.innerHTML = `<div class="rt-msg">Getting your location…</div>`;
@@ -621,8 +733,8 @@ export function initRoute(deps: {
         // Never leave this silent: the user is waiting on a fix that isn't coming.
         fail(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission denied — use the crosshair instead."
-            : "Couldn't get a location fix — use the crosshair instead."
+            ? "Location permission denied — use the map point instead."
+            : "Couldn't get a location fix — use the map point instead."
         );
       },
       { enableHighAccuracy: true, timeout: 15000 }
@@ -630,25 +742,23 @@ export function initRoute(deps: {
   }
 
   function wire() {
-    document.getElementById("rt-from-cross")?.addEventListener("click", () => {
-      from = center();
-      renderIdle();
-    });
-    document.getElementById("rt-to-cross")?.addEventListener("click", () => {
-      to = center();
-      renderIdle();
-    });
-    document.getElementById("rt-from-here")?.addEventListener("click", () =>
-      useMyLocation(() => renderIdle())
+    // The two endpoint slots each open the unified picker.
+    document.getElementById("rt-set-from")?.addEventListener("click", () =>
+      renderEndpointPicker("from")
     );
+    document.getElementById("rt-set-to")?.addEventListener("click", () =>
+      renderEndpointPicker("to")
+    );
+    document.getElementById("rt-swap")?.addEventListener("click", () => {
+      [from, to] = [to, from];
+      renderIdle();
+    });
     // Recompute from where you are now. The route is a one-shot overview, not
     // live navigation — this is the deliberate manual equivalent, so a stale
     // line is only ever replaced when you ask for it.
     document.getElementById("rt-refresh")?.addEventListener("click", () =>
       useMyLocation(() => void go())
     );
-    document.getElementById("rt-from-pin")?.addEventListener("click", () => renderPinPicker("from"));
-    document.getElementById("rt-to-pin")?.addEventListener("click", () => renderPinPicker("to"));
     document.getElementById("rt-clear")?.addEventListener("click", () => {
       from = to = null;
       shown = null;

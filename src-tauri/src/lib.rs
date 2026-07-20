@@ -539,6 +539,21 @@ fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{}.geojson", safe_abbr(abbr))))
 }
 
+/// Whether the in-app self-updater exists on this platform.
+///
+/// Desktop only. iOS and Android update through their stores, and the updater
+/// and process plugins are compiled out of mobile builds entirely (see
+/// Cargo.toml), so the button would fire IPC at a plugin that isn't there.
+///
+/// Compile-time (`cfg!(desktop)`) rather than a runtime guess, on purpose: the
+/// button used to be hidden by sniffing the user agent for "iPad", and iPadOS
+/// reports a *desktop* Safari user agent — so the button stayed on iPad, which
+/// is the whole bug this replaces.
+#[tauri::command]
+fn updates_supported() -> bool {
+    cfg!(desktop)
+}
+
 /// Absolute path to the bundled starter pack (the whole US at low zoom).
 ///
 /// It has to be read through the asset protocol, not fetched from the frontend
@@ -556,7 +571,10 @@ fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
 #[tauri::command]
 fn starter_path(app: AppHandle) -> Result<String, String> {
     app.path()
-        .resolve("mapdata/starter.pmtiles", tauri::path::BaseDirectory::Resource)
+        .resolve(
+            "mapdata/starter.pmtiles",
+            tauri::path::BaseDirectory::Resource,
+        )
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| format!("could not locate the bundled starter map: {e}"))
 }
@@ -943,6 +961,7 @@ pub fn run() {
             list_installed,
             state_path,
             starter_path,
+            updates_supported,
             delete_state,
             download_state,
             read_marks,

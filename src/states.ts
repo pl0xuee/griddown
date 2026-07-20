@@ -232,6 +232,21 @@ function render() {
   }
 }
 
+/**
+ * One in-progress side download (terrain, forest roads) as a labelled bar.
+ *
+ * A percentage of -1 means it has started but has no count yet — shown as an
+ * indeterminate sweep rather than a stuck bar at a made-up width, which is what
+ * the old "…" and fixed 5% were standing in for.
+ */
+function taskRow(label: string, pct: number): string {
+  const indet = pct < 0;
+  return `<div class="state-task">
+      <div class="state-task-head"><span>${label}</span><span>${indet ? "" : pct + "%"}</span></div>
+      <div class="state-progress${indet ? " indeterminate" : ""}"><span style="width:${indet ? 100 : pct}%"></span></div>
+    </div>`;
+}
+
 function rowHtml(s: StateEntry): string {
   const isInstalled = installed.has(s.abbr);
   const isActive = activeAbbr === s.abbr;
@@ -263,10 +278,7 @@ function rowHtml(s: StateEntry): string {
   let demRow = "";
   if (isInstalled && !isDownloading) {
     if (isDemDownloading) {
-      demRow = `<div class="state-dem">
-          <span>Downloading terrain… ${dem! >= 0 ? dem + "%" : ""}</span>
-          <div class="state-progress"><span style="width:${dem! >= 0 ? dem : 5}%"></span></div>
-        </div>`;
+      demRow = taskRow("Terrain", dem!);
     } else if (!hasDem) {
       demRow = `<div class="state-dem">
           <button class="state-dem-btn" data-dem="${s.abbr}">△ Add terrain (~${fmtSize(estDemMB(s.bbox))})</button>
@@ -280,10 +292,7 @@ function rowHtml(s: StateEntry): string {
     const mv = mvumDownloading.get(s.abbr);
     const hasMvum = (packInfo.get(s.abbr)?.mvum_bytes ?? 0) > 0;
     if (mv !== undefined) {
-      mvumRow = `<div class="state-mvum">
-          <span>Downloading forest roads… ${mv >= 0 ? mv + "%" : ""}</span>
-          <div class="state-progress"><span style="width:${mv >= 0 ? mv : 5}%"></span></div>
-        </div>`;
+      mvumRow = taskRow("Forest roads", mv);
     } else if (!hasMvum) {
       mvumRow = `<div class="state-mvum">
           <button class="state-mvum-btn" data-mvum="${s.abbr}">● Add forest roads (MVUM)</button>
@@ -292,18 +301,21 @@ function rowHtml(s: StateEntry): string {
   }
 
   const status = downloadStatus.get(s.abbr);
+  const indet = isDownloading && dl! < 0;
   const progress = isDownloading
     ? (status ? `<div class="state-dl-status">${escapeHtml(status)}</div>` : "") +
-      `<div class="state-progress"><span style="width:${dl! >= 0 ? dl : 15}%"></span></div>`
+      `<div class="state-progress${indet ? " indeterminate" : ""}"><span style="width:${indet ? 100 : dl}%"></span></div>`
     : "";
 
   return `<div class="state-row ${isActive ? "active" : ""}" data-row="${s.abbr}">
-      <div class="state-info">
-        <div class="state-name">${s.name}</div>
-        <div class="state-sub">${isInstalled ? installedSub(s.abbr) : fmtSize(s.estMB) + " download"}</div>
-        ${progress}${demRow}${mvumRow}
+      <div class="state-head">
+        <div class="state-info">
+          <div class="state-name">${s.name}</div>
+          <div class="state-sub">${isInstalled ? installedSub(s.abbr) : fmtSize(s.estMB) + " download"}</div>
+        </div>
+        <div class="state-controls">${action}${extras}</div>
       </div>
-      ${action}${extras}
+      ${progress}${demRow}${mvumRow}
     </div>`;
 }
 

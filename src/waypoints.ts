@@ -2,7 +2,8 @@ import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
-import { BACKUP_KEY } from "./readiness";
+import { BACKUP_KEY, fmtAge } from "./readiness";
+import { haversine } from "./geo";
 import { saveFile } from "./save";
 import { confirmAction, promptAction } from "./dialog";
 
@@ -49,6 +50,7 @@ export async function initWaypoints(map: maplibregl.Map) {
   let recording = false;
   let recPts: Pt[] = [];
   let watchId: number | null = null;
+  let recStart = 0;
 
   // Persisting is async now, but callers are all UI handlers that don't need to
   // wait — surface a failure as a toast rather than swallowing it, since a
@@ -164,6 +166,7 @@ export async function initWaypoints(map: maplibregl.Map) {
     }
     recording = true;
     recPts = [];
+    recStart = Date.now();
     watchId = navigator.geolocation.watchPosition(
       (p) => {
         recPts.push([
@@ -172,6 +175,7 @@ export async function initWaypoints(map: maplibregl.Map) {
           p.coords.altitude ?? undefined,
         ]);
         ensureTrackLayer();
+        updateRecUi(); // keep the live distance/points/time honest
       },
       // Swallowing this left the button reading "■ Stop recording" while nothing
       // was ever captured — the user believes they're recording the route they
@@ -212,12 +216,56 @@ export async function initWaypoints(map: maplibregl.Map) {
     updateRecUi();
     renderList();
   }
+  /** Ground length of a track (or the in-progress one), in metres. */
+  function trackMeters(pts: Pt[]): number {
+    let m = 0;
+    for (let i = 1; i < pts.length; i++) {
+      m += haversine([pts[i - 1][0], pts[i - 1][1]], [pts[i][0], pts[i][1]]);
+    }
+    return m;
+  }
+  function fmtLen(m: number): string {
+    const mi = m / 1609.344;
+    if (mi < 0.1) return `${Math.round(m / 0.3048)} ft`;
+    return `${mi.toFixed(mi < 10 ? 2 : 1)} mi`;
+  }
+  function fmtDur(ms: number): string {
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.round(s / 60);
+    return m < 60 ? `${m} min` : `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
   function updateRecUi() {
     const b = document.getElementById("marks-record");
     if (b) {
       b.textContent = recording ? "■ Stop recording" : "● Record track";
       b.classList.toggle("recording", recording);
     }
+    // The status region below the buttons: what recording is, while idle;
+    // a live readout while it runs. The panel can be closed and the recording
+    // keeps going, so this says so — the button state alone is invisible then.
+    const rec = document.getElementById("marks-rec");
+    if (!rec) return;
+    if (!recording) {
+      rec.className = "mk-rec";
+      rec.innerHTML =
+        "<b>Record track</b> traces the path you walk or drive as a line on the map. " +
+        "Tap it, move, then stop — it&rsquo;s saved to <b>Tracks</b> below, where you can view or export it.";
+      return;
+    }
+    rec.className = "mk-rec on";
+    if (!recPts.length) {
+      rec.innerHTML =
+        `<div class="mk-rec-live"><span class="mk-rec-dot">&#9679;</span> Recording &mdash; waiting for GPS…</div>` +
+        `<div class="mk-rec-note">Keeps recording if you close this. Tap &#9632; Stop recording when you&rsquo;re done.</div>`;
+      return;
+    }
+    const len = fmtLen(trackMeters(recPts));
+    const dur = recStart ? ` &middot; ${fmtDur(Date.now() - recStart)}` : "";
+    rec.innerHTML =
+      `<div class="mk-rec-live"><span class="mk-rec-dot">&#9679;</span> Recording &mdash; <b>${len}</b> &middot; ${recPts.length} pts${dur}</div>` +
+      `<div class="mk-rec-note">A blue line is growing on the map as you move. Keeps going if you close this; tap &#9632; Stop to save it to Tracks.</div>`;
   }
 
   function exportGPX() {
@@ -329,12 +377,15 @@ export async function initWaypoints(map: maplibregl.Map) {
       )
       .join("");
     const trRows = tracks
-      .map(
-        (t) => `<div class="mk-row">
+      .map((t) => {
+        const len = fmtLen(trackMeters(t.pts));
+        const when = t.t ? ` · ${fmtAge(Math.floor((Date.now() - t.t) / 1000))}` : "";
+        return `<div class="mk-row">
           <div class="mk-info"><div class="mk-name">〜 ${esc(t.name)}</div>
-          <div class="mk-sub">${t.pts.length} points</div></div>
-          <button class="mk-del" data-deltr="${esc(t.id)}">🗑</button></div>`
-      )
+          <div class="mk-sub">${len} · ${t.pts.length} points${when}</div></div>
+          <button class="mk-btn" data-flytr="${esc(t.id)}">View</button>
+          <button class="mk-del" data-deltr="${esc(t.id)}">🗑</button></div>`;
+      })
       .join("");
     el.innerHTML =
       `<div class="mk-group">Waypoints (${waypoints.length})</div>` +
@@ -357,12 +408,33 @@ export async function initWaypoints(map: maplibregl.Map) {
     el.querySelectorAll<HTMLElement>("[data-deltr]").forEach((b) =>
       b.addEventListener("click", () => deleteTrack(b.dataset.deltr!))
     );
+    el.querySelectorAll<HTMLElement>("[data-flytr]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const t = tracks.find((x) => x.id === b.dataset.flytr);
+        if (!t || !t.pts.length) return;
+        // A one-point track (only reachable via an imported GPX) has zero-area
+        // bounds, which fitBounds slams to max zoom. Fly to the point instead.
+        if (t.pts.length === 1) {
+          map.flyTo({ center: [t.pts[0][0], t.pts[0][1]], zoom: Math.max(map.getZoom(), 14) });
+        } else {
+          const bounds = new maplibregl.LngLatBounds(
+            [t.pts[0][0], t.pts[0][1]],
+            [t.pts[0][0], t.pts[0][1]]
+          );
+          for (const p of t.pts) bounds.extend([p[0], p[1]]);
+          map.fitBounds(bounds, { padding: 60, duration: 600 });
+        }
+        // Close the panel so the framed track is actually visible.
+        document.getElementById("marks-panel")?.classList.add("hidden");
+      })
+    );
   }
 
   // --- Wire up ---
   const panel = document.getElementById("marks-panel");
   document.getElementById("marks-open")?.addEventListener("click", () => {
     renderList();
+    updateRecUi();
     panel?.classList.remove("hidden");
   });
   document.getElementById("marks-close")?.addEventListener("click", () =>

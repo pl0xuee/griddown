@@ -6,6 +6,38 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.9
+
+**How do I get there is easier to use.** Start and destination are now two clear
+slots. Tapping either opens one picker that searches the towns in your map pack,
+lists your saved pins to reuse, and lets you drop on a point on the map or your
+own location — instead of the old scatter of buttons. Your pins are finally
+explained where you'd look for them.
+
+**The legend is on the map, not buried in the menu.** A small card in the
+corner, which you can collapse to just its title. Its public-land and forest-road
+rows still appear and disappear with those overlays.
+
+**Recording a track tells you what's happening.** While it runs you see the
+distance, point count and time so far, and that it keeps recording if you close
+the panel. Finished tracks now show their length and date, with a button to
+frame them on the map — so you can actually find what you recorded.
+
+**Searching moves the menu out of the way.** Pick a place and the bottom sheet
+drops down so you can see where the map jumped to, instead of it hiding behind
+the menu.
+
+**The update button is gone on iPad, as it should be.** iPhone and iPad update
+through the App Store, so a check-for-updates button never belonged there. It was
+showing on iPad because iPadOS pretends to be a desktop; it's now decided by what
+the app actually is, not what the browser claims.
+
+**Top buttons clear the notch.** The zoom and locate controls no longer hide
+under the clock and battery on the status bar, where they couldn't be tapped.
+
+**The Map packs list is tidier.** A pack that's downloading extras keeps its name
+and controls on one line, with the downloads shown as a clean list below.
+
 ## v0.1.8
 
 **The map shows up before you download anything.** A fresh install opened on a

@@ -900,6 +900,8 @@ async function start() {
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     dropPin: (lng, lat) => dropGotoPin(map, lng, lat),
+    // Reveal the map after a jump: drop the bottom sheet out of the way.
+    onJump: peekSheet,
   });
   mvumCtl = initMvum({
     map: () => map,
@@ -1027,6 +1029,23 @@ function setSheet(hud: HTMLElement, state: SheetState) {
   // Drop the transform a drag left behind, so the class governs again.
   hud.style.transform = "";
   localStorage.setItem("griddown_sheet", state);
+}
+
+/**
+ * Drop the bottom sheet out of the way, so a place the app just moved to is
+ * actually visible instead of hidden behind the menu.
+ *
+ * Phone only — on desktop the menu is a side panel and doesn't cover the map.
+ * Deliberately NOT persisted: this is a temporary get-out-of-the-way for a
+ * search jump, not the user choosing peek as their resting position, so a
+ * reload still restores the height they last set.
+ */
+function peekSheet() {
+  const hud = document.getElementById("hud");
+  if (!hud || !isPhone()) return;
+  hud.classList.remove(...SHEET_STATES);
+  hud.classList.add("sheet-peek");
+  hud.style.transform = "";
 }
 
 /**
@@ -1241,6 +1260,21 @@ function initChrome() {
     syncMenuHidden(hud);
   });
   if (hud) setupSheet(hud);
+
+  // Legend card on the map: collapse it to a title bar and back, remembered.
+  const legend = document.getElementById("map-legend");
+  const legendToggle = document.getElementById("legend-toggle");
+  if (legend && legendToggle) {
+    if (localStorage.getItem("griddown_legend") === "0") legend.classList.add("collapsed");
+    const syncCaret = () =>
+      legendToggle.setAttribute("aria-expanded", String(!legend.classList.contains("collapsed")));
+    syncCaret();
+    legendToggle.addEventListener("click", () => {
+      const collapsed = legend.classList.toggle("collapsed");
+      localStorage.setItem("griddown_legend", collapsed ? "0" : "1");
+      syncCaret();
+    });
+  }
 
   const welcome = document.getElementById("welcome");
   const startBtn = document.getElementById("welcome-start");
