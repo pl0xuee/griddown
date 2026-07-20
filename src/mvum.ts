@@ -38,24 +38,35 @@ export interface MvumClass {
   seasonal: boolean;
 }
 
+// Hues are deliberately kept out of the basemap's range. Forest roads there are
+// amber (#f2a53a) and trails green (#5fe05f), so an amber MVUM line would read
+// as "the road we already drew" instead of "the road you may legally drive" —
+// which is the whole point of the overlay. Cyan through magenta is empty space
+// on this map, so these read as a separate layer at a glance.
+const ALL_VEHICLES = "#00e0ff"; // electric cyan
+const HIGHWAY_LEGAL = "#a56bff"; // violet
+const OHV_SMALL = "#ff2fd0"; // magenta
+const MOTORCYCLE = "#ff4d6d"; // rose
+const SPECIAL = "#ffd400"; // gold — rare enough that it can borrow warm
+
 export const MVUM_CLASSES: Record<string, MvumClass> = {
-  "1": { label: "Open to all vehicles", color: "#4fc3ff", seasonal: false },
-  "2": { label: "Open to all vehicles (seasonal)", color: "#4fc3ff", seasonal: true },
-  "3": { label: "Highway-legal vehicles only", color: "#b388ff", seasonal: false },
-  "4": { label: "Highway-legal vehicles only (seasonal)", color: "#b388ff", seasonal: true },
-  "5": { label: "Trail, all vehicles", color: "#4fc3ff", seasonal: false },
-  "6": { label: "Trail, all vehicles (seasonal)", color: "#4fc3ff", seasonal: true },
-  "7": { label: "Trail, vehicles 50\" or less", color: "#ffd54f", seasonal: false },
-  "8": { label: "Trail, vehicles 50\" or less (seasonal)", color: "#ffd54f", seasonal: true },
-  "9": { label: "Trail, motorcycles only", color: "#ff8a65", seasonal: false },
-  "10": { label: "Trail, motorcycles only (seasonal)", color: "#ff8a65", seasonal: true },
-  "11": { label: "Special designation", color: "#f06292", seasonal: false },
-  "12": { label: "Special designation (seasonal)", color: "#f06292", seasonal: true },
-  "16": { label: "Trail, wheeled OHV under 50\"", color: "#ffd54f", seasonal: false },
-  "17": { label: "Trail, wheeled OHV under 50\" (seasonal)", color: "#ffd54f", seasonal: true },
+  "1": { label: "Open to all vehicles", color: ALL_VEHICLES, seasonal: false },
+  "2": { label: "Open to all vehicles (seasonal)", color: ALL_VEHICLES, seasonal: true },
+  "3": { label: "Highway-legal vehicles only", color: HIGHWAY_LEGAL, seasonal: false },
+  "4": { label: "Highway-legal vehicles only (seasonal)", color: HIGHWAY_LEGAL, seasonal: true },
+  "5": { label: "Trail, all vehicles", color: ALL_VEHICLES, seasonal: false },
+  "6": { label: "Trail, all vehicles (seasonal)", color: ALL_VEHICLES, seasonal: true },
+  "7": { label: "Trail, vehicles 50\" or less", color: OHV_SMALL, seasonal: false },
+  "8": { label: "Trail, vehicles 50\" or less (seasonal)", color: OHV_SMALL, seasonal: true },
+  "9": { label: "Trail, motorcycles only", color: MOTORCYCLE, seasonal: false },
+  "10": { label: "Trail, motorcycles only (seasonal)", color: MOTORCYCLE, seasonal: true },
+  "11": { label: "Special designation", color: SPECIAL, seasonal: false },
+  "12": { label: "Special designation (seasonal)", color: SPECIAL, seasonal: true },
+  "16": { label: "Trail, wheeled OHV under 50\"", color: OHV_SMALL, seasonal: false },
+  "17": { label: "Trail, wheeled OHV under 50\" (seasonal)", color: OHV_SMALL, seasonal: true },
 };
 
-const UNKNOWN: MvumClass = { label: "Designated route", color: "#9e9e9e", seasonal: false };
+const UNKNOWN: MvumClass = { label: "Designated route", color: "#c9c9c9", seasonal: false };
 
 export function mvumClass(symbol: unknown): MvumClass {
   return MVUM_CLASSES[String(symbol ?? "")] ?? UNKNOWN;
@@ -131,6 +142,32 @@ export function seasonalCodes(): string[] {
     .map(([code]) => code);
 }
 
+/**
+ * The MVUM file for a pack, loaded from disk.
+ *
+ * Cached because two callers want it — the overlay and the route checker — and
+ * a state's worth of forest roads is tens of megabytes of JSON. Returns null
+ * when the pack has no overlay downloaded, which is the normal case.
+ */
+let mvumCache: { abbr: string; data: any } | null = null;
+
+export async function loadMvumFor(abbr: string): Promise<any | null> {
+  if (!abbr) return null;
+  if (mvumCache?.abbr === abbr) return mvumCache.data;
+  const inTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
+  if (!inTauri) return null;
+  try {
+    const path = await invoke<string>("mvum_path", { abbr });
+    const res = await fetch(convertFileSrc(path));
+    if (!res.ok) return null;
+    const data = await res.json();
+    mvumCache = { abbr, data };
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export function initMvum(deps: {
   map: () => maplibregl.Map;
   /** Abbreviation of the pack on screen, or "" when none. */
@@ -180,9 +217,12 @@ export function initMvum(deps: {
         source: SRC,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#0b0f0b",
-          "line-opacity": 0.75,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 2.5, 12, 5, 16, 9],
+          // A dark casing is what makes a saturated line legible over both the
+          // dark map and the light one — without it these read as neon smears
+          // on paper-coloured terrain.
+          "line-color": "#07090a",
+          "line-opacity": 0.85,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3.5, 12, 7, 16, 12],
         },
       },
       firstSymbol
@@ -195,7 +235,7 @@ export function initMvum(deps: {
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": colorExpression(),
-          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1, 12, 2.4, 16, 5],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.6, 12, 3.6, 16, 7],
           "line-dasharray": [
             "case",
             ["in", ["to-string", ["get", "symbol"]], ["literal", seasonalCodes()]],
@@ -231,16 +271,11 @@ export function initMvum(deps: {
   async function load(abbr: string): Promise<boolean> {
     if (!abbr || !inTauri) return false;
     if (loadedFor === abbr && data) return true;
-    try {
-      const path = await invoke<string>("mvum_path", { abbr });
-      const res = await fetch(convertFileSrc(path));
-      if (!res.ok) return false;
-      data = await res.json();
-      loadedFor = abbr;
-      return true;
-    } catch {
-      return false;
-    }
+    const loaded = await loadMvumFor(abbr);
+    if (!loaded) return false;
+    data = loaded;
+    loadedFor = abbr;
+    return true;
   }
 
   function describe(f: maplibregl.MapGeoJSONFeature): string {

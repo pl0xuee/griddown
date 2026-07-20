@@ -2027,19 +2027,19 @@ body.battery.nightvis .maplibregl-ctrl {
 /* Legend swatches mirror the line colours in mvum.ts. Kept in sync by hand:
    there are five of them and they change only when the MVUM symbology does. */
 .swatch.mvum-all {
-  border-top-color: #4fc3ff;
+  border-top-color: #00e0ff;
   border-top-style: solid;
 }
 .swatch.mvum-highway {
-  border-top-color: #b388ff;
+  border-top-color: #a56bff;
   border-top-style: solid;
 }
 .swatch.mvum-ohv {
-  border-top-color: #ffd54f;
+  border-top-color: #ff2fd0;
   border-top-style: solid;
 }
 .swatch.mvum-moto {
-  border-top-color: #ff8a65;
+  border-top-color: #ff4d6d;
   border-top-style: solid;
 }
 .swatch.mvum-seasonal {
@@ -2284,4 +2284,15 @@ body.battery.nightvis .maplibregl-ctrl {
   color: #eaf5e6;
   font-family: inherit;
   font-size: 12px;
+}
+
+/* Forest-road legality block inside the route result. */
+.rt-mvum-head {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 224, 255, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  color: #7fe6ff;
+  letter-spacing: 0.3px;
 }

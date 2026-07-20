@@ -864,6 +864,7 @@ async function start() {
   initRoute({
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
+    activeAbbr: () => activePackAbbr,
   });
   initPrint({
     getMap: () => map,

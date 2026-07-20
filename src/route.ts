@@ -11,6 +11,8 @@ import {
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
 import { esc as escapeHtml } from "./esc";
+import { loadMvumFor, mvumClass, formatDates } from "./mvum";
+import { buildMvumIndex, summariseRoute } from "./mvumindex";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -172,6 +174,67 @@ async function loadRoads(
   return { segs, missing };
 }
 
+/**
+ * Say whether the forest roads on this route are ones you may legally drive.
+ *
+ * The router plans over the basemap, which includes forest tracks but knows
+ * nothing about motor-vehicle designation. Where the pack has an MVUM overlay
+ * downloaded, the finished route is matched against it — so "Get there" can
+ * answer the question the map alone cannot.
+ *
+ * Silent when there is no overlay: absence of data must not be dressed up as
+ * an absence of restrictions.
+ */
+async function renderMvumCheck(coords: [number, number][], abbr: string) {
+  const slot = document.getElementById("rt-mvum");
+  if (!slot || !abbr || coords.length < 2) return;
+  const data = await loadMvumFor(abbr);
+  if (!data) return;
+
+  const index = buildMvumIndex(data);
+  if (!index.size) return;
+  const sum = summariseRoute(coords, index, mvumClass, (p) =>
+    // Whichever class is designated tells us the season it's open.
+    formatDates(
+      p.passengervehicle_datesopen ?? p.highclearancevehicle_datesopen ?? p.atv_datesopen
+    )
+  );
+  if (sum.matchedM < 100) return; // nothing meaningful on Forest Service road
+
+  const share = sum.matchedM / (sum.matchedM + sum.unmatchedM);
+  const classes = sum.byClass
+    .filter((c) => c.metres > 80)
+    .map(
+      (c) =>
+        `<div class="rt-step"><span>${escapeHtml(c.label)}</span><span>${miles(c.metres)} mi</span></div>`
+    )
+    .join("");
+
+  const named = sum.routes
+    .filter((r) => r.id || r.name)
+    .slice(0, 6)
+    .map((r) => escapeHtml([r.id, r.name].filter(Boolean).join(" ")))
+    .join(", ");
+
+  const seasonal = sum.seasonal.length
+    ? `<div class="rt-warn">⚠ Seasonal: ${sum.seasonal
+        .slice(0, 4)
+        .map((s) => `${escapeHtml(s.id)}${s.dates ? ` open ${escapeHtml(s.dates)}` : ""}`)
+        .join("; ")}. Outside those dates this route may be closed to vehicles.</div>`
+    : "";
+
+  slot.innerHTML = `
+    <div class="rt-mvum-head">● Forest Service roads on this route</div>
+    <div class="rt-sub">${miles(sum.matchedM)} mi of ${miles(
+      sum.matchedM + sum.unmatchedM
+    )} mi (${Math.round(share * 100)}%) is designated motor-vehicle route</div>
+    <div class="rt-steps">${classes}</div>
+    ${named ? `<div class="rt-sub">Routes: ${named}</div>` : ""}
+    ${seasonal}
+    <div class="rt-fine">Matched to the MVUM by position, so short stretches may
+    be missed. Anything not matched is simply unknown here — not confirmed open.</div>`;
+}
+
 function miles(m: number) {
   const mi = m / 1609.344;
   return mi < 10 ? mi.toFixed(1) : Math.round(mi).toLocaleString();
@@ -187,6 +250,8 @@ export function initRoute(deps: {
   map: () => maplibregl.Map;
   /** Current pmtiles URL WITHOUT the pmtiles:// prefix. */
   sourceUrl: () => string;
+  /** Which pack is active, for looking up its Forest Service overlay. */
+  activeAbbr?: () => string;
 }) {
   const panel = document.getElementById("route-panel");
   const body = document.getElementById("route-body");
@@ -414,6 +479,7 @@ export function initRoute(deps: {
           : ""
       }
       <div class="rt-steps">${steps || `<div class="rt-step"><span>Unnamed roads the whole way</span></div>`}</div>
+      <div id="rt-mvum"></div>
       <button id="rt-refresh" type="button" class="rt-go">↻ Recompute from where I am</button>
       <div class="rt-btns">
         <button id="rt-again" type="button">New route</button>
@@ -424,6 +490,9 @@ export function initRoute(deps: {
       <div class="rt-disclaimer">Overview only, from map data: no turn restrictions,
       gates, private-road or seasonal-closure information. Check the ground before you commit.</div>`;
     wire();
+    // Fills #rt-mvum once the overlay has been read — a state's forest roads
+    // are tens of megabytes, so the route is shown first rather than waiting.
+    void renderMvumCheck(r.coords, deps.activeAbbr?.() ?? "");
   }
 
   /**
