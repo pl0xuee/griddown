@@ -1,0 +1,93 @@
+name: iOS build check
+
+# Compiles the app for iOS on a macOS runner.
+#
+# The point is to catch iOS-only breakage without owning a Mac. Apple's
+# toolchain only runs on macOS, and this repo is public, so macOS runners are
+# free — there is no reason not to know whether the iOS build compiles.
+#
+# Deliberately NOT a release build: producing an installable .ipa needs an
+# Apple Developer account, certificates and a provisioning profile. A simulator
+# build needs none of that and still compiles every line of Rust, Swift and
+# Objective-C the device build would.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths:
+      - "src-tauri/**"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios.yml"
+
+jobs:
+  ios:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # The cheapest, sharpest check: type-check the whole Rust crate against
+      # the real iOS target. This is what catches cfg mistakes — plugins gated
+      # on debug_assertions instead of target OS, desktop-only APIs, crates that
+      # don't cross-compile — without any Xcode involvement.
+      - name: Check Rust compiles for iOS
+        working-directory: src-tauri
+        run: cargo check --target aarch64-apple-ios --release
+
+      - name: Build frontend
+        run: npm run build
+
+      # Generates src-tauri/gen/apple (Xcode project, Info.plist, entitlements).
+      # Also the first real test of Info.ios.plist, which is merged in here.
+      - name: Generate the Xcode project
+        run: npm run tauri ios init
+        env:
+          CI: true
+
+      - name: Show generated Info.plist
+        run: |
+          f=$(find src-tauri/gen/apple -name 'Info.plist' -maxdepth 3 | head -1)
+          echo "--- $f ---"
+          cat "$f"
+
+      # Simulator + CODE_SIGNING_ALLOWED=NO is what keeps this free of an Apple
+      # Developer account. It still compiles everything.
+      - name: Build for the iOS simulator
+        run: |
+          proj=$(find src-tauri/gen/apple -maxdepth 1 -name '*.xcodeproj' | head -1)
+          echo "project: $proj"
+          # Discover the scheme rather than hardcoding it: Tauri derives the
+          # name from productName, and guessing it wrong fails the build for a
+          # reason that has nothing to do with the code.
+          xcodebuild -list -project "$proj"
+          scheme=$(xcodebuild -list -project "$proj" \
+            | awk '/Schemes:/{f=1;next} f&&NF{print $1; exit}')
+          echo "scheme: $scheme"
+          xcodebuild \
+            -project "$proj" \
+            -scheme "$scheme" \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
