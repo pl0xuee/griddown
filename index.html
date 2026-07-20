@@ -31,14 +31,29 @@
           <span id="net-label">checking&hellip;</span>
         </div>
 
-        <div class="hud-sub">VIEW</div>
-        <div class="hud-grid">
-          <button id="theme-toggle" type="button">&#9728; Day</button>
-          <button id="terrain-toggle" type="button">&#9651; Terrain</button>
-          <button id="nightvis-toggle" type="button">&#9681; Night vis</button>
-          <button id="publicland-toggle" type="button" title="Public land">&#9634; Public land</button>
-          <button id="mvum-toggle" type="button" class="off" title="Forest Service motor vehicle use map">&#9679; Forest roads</button>
-          <button id="battery-toggle" type="button" title="Battery saver">&#9098; Battery</button>
+        <!-- Screen modes are one-tap switches with nothing to explain, so they
+             sit as icons rather than spending a labelled row each. Sun & moon
+             joins them because its icon carries information the others don't:
+             tonight's actual moon phase. -->
+        <div class="hud-icons">
+          <button id="theme-toggle" type="button" class="hud-icon" aria-label="Day or night colours" title="Day / night colours">&#9728;</button>
+          <button id="nightvis-toggle" type="button" class="hud-icon" aria-label="Night vision" title="Night vision (red)">&#9681;</button>
+          <button id="battery-toggle" type="button" class="hud-icon" aria-label="Battery saver" title="Battery saver">&#9098;</button>
+          <button id="sky-open" type="button" class="hud-icon" aria-label="Sun and moon times" title="Sun &amp; moon times">&#9728;</button>
+        </div>
+
+        <!-- Layers and resources were two sections of the same thing: toggles
+             for what gets drawn on the map. One row of chips, wrapping. -->
+        <div class="hud-sub">OVERLAYS</div>
+        <div id="hud-resources">
+          <button id="terrain-toggle" class="res-chip" type="button">&#9651; Terrain</button>
+          <button id="publicland-toggle" class="res-chip" type="button" title="Public land">&#9634; Public land</button>
+          <button id="mvum-toggle" class="res-chip off" type="button" title="Forest Service motor vehicle use map">&#9679; Forest roads</button>
+          <button class="res-chip" data-res="water" type="button">💧 Water</button>
+          <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
+          <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
+          <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
+          <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
         </div>
 
         <!-- Grouped by what you reach for, not by when it was built. Where you
@@ -47,15 +62,15 @@
         <div class="hud-sub">NAVIGATE</div>
         <div class="hud-grid">
           <button id="locate-me" type="button" title="Find my location and centre the map">&#9678; My location</button>
-          <button id="goto-open" type="button">&#8982; Go to</button>
-          <button id="search-open" type="button">&#8981; Find place</button>
+          <!-- One "Find": it takes a place name OR a grid reference, so there
+               is no need to know which box to reach for before you look. -->
+          <button id="search-open" type="button" title="Search a place name, or jump to an MGRS or lat/long">&#8981; Find</button>
           <button id="route-open" type="button" title="How do I get there">&#8594; Get there</button>
-          <button id="compass-open" type="button">&#10686; Compass</button>
           <button id="marks-open" type="button">&#9670; Marks</button>
           <button id="mesh-open" type="button" title="Teammate positions over Meshtastic radio">&#9678; Team mesh</button>
         </div>
 
-        <div class="hud-sub">TERRAIN &amp; SKY</div>
+        <div class="hud-sub">MEASURE &amp; SIGHT</div>
         <div class="hud-grid">
           <!-- Viewshed and its range sit side by side: the range only means
                anything in relation to the button next to it. -->
@@ -66,7 +81,7 @@
             <option value="30">Range 30 mi</option>
           </select>
           <button id="measure-open" type="button">&#8901; Measure</button>
-          <button id="sky-open" type="button">&#9728; Sun &amp; moon</button>
+          <button id="compass-open" type="button">&#10686; Compass</button>
         </div>
 
         <div class="hud-sub">LIBRARY &amp; SETUP</div>
@@ -76,15 +91,6 @@
           <button id="print-open" type="button">&#9113; Print map</button>
           <button id="readiness-open" type="button">&#9873; Readiness</button>
           <button id="update-check" type="button" title="Check for app updates (needs internet)">&#8635; Updates</button>
-        </div>
-
-        <div class="hud-sub">RESOURCES</div>
-        <div id="hud-resources">
-          <button class="res-chip" data-res="water" type="button">💧 Water</button>
-          <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
-          <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
-          <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
-          <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
         </div>
 
         <div id="hud-version">GridDown <span id="app-version">&mdash;</span></div>
@@ -105,32 +111,21 @@
       </div>
     </div>
 
-    <!-- Go to coordinates -->
-    <div id="goto-box" class="hidden">
-      <div id="goto-head">
-        <span class="goto-title">&#8982; GO TO</span>
-        <button id="goto-close" type="button" aria-label="Close">&times;</button>
-      </div>
-      <input id="goto-input" type="text" placeholder="MGRS grid or lat, lng" autocomplete="off" spellcheck="false" />
-      <div id="goto-actions">
-        <button id="goto-go" type="button">Go</button>
-        <button id="goto-clear" type="button">Clear pin</button>
-      </div>
-      <div id="goto-hint">e.g. <b>18T VK 1234 5678</b> or <b>39.828, -98.579</b></div>
-    </div>
-
     <!-- Offline place search (names decoded from the map pack itself) -->
     <div id="search-panel" class="hidden">
       <div id="search-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
-          <div class="panel-title">Find place</div>
+          <div class="panel-title">Find</div>
         </div>
         <button id="search-close" type="button" aria-label="Close">&times;</button>
       </div>
-      <input id="search-input" type="text" placeholder="Town, city, county&hellip;" autocomplete="off" spellcheck="false" />
+      <input id="search-input" type="text" placeholder="Place name, grid ref, or lat, lng&hellip;" autocomplete="off" spellcheck="false" />
       <div id="search-results"></div>
-      <div id="search-fine">Names come from the map pack itself &mdash; no internet, ever.</div>
+      <button id="search-clear-pin" type="button" class="search-alt">Clear pin</button>
+      <div id="search-fine">Type a place name, or paste a grid reference
+      (<b>18T VK 1234 5678</b>) or <b>39.828, -98.579</b>. Names come from the map
+      pack itself &mdash; no internet, ever.</div>
     </div>
 
     <!-- Route overview: road-following path from A to B, offline from the pack -->

@@ -3,6 +3,7 @@ import { PMTiles } from "pmtiles";
 import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { toast } from "./toast";
+import { parseCoord, clearGotoPin } from "./goto";
 import { esc } from "./esc";
 
 // Offline place search. There's no name database anywhere — the towns are
@@ -179,7 +180,31 @@ export function initSearch(deps: {
     return p.detail || "place";
   }
 
+  /** Fly to a coordinate and pin it — what the old "Go to" box did. */
+  function goToCoord(lng: number, lat: number) {
+    deps.map().flyTo({ center: [lng, lat], zoom: Math.max(deps.map().getZoom(), 13) });
+    deps.dropPin(lng, lat);
+    panel?.classList.add("hidden");
+    toast(`Pin dropped at ${lat.toFixed(5)}, ${lng.toFixed(5)}`, "success");
+  }
+
   function render(q: string) {
+    // A grid reference is offered before any name matching, and without needing
+    // the place index — so a coordinate still works while the pack is loading,
+    // or in a pack with no place names at all. One box, either kind of input:
+    // in the field you should not have to know which control you need before
+    // you look at what you were handed.
+    const coord = parseCoord(q);
+    if (coord) {
+      show(`<button class="search-hit" id="search-coord">
+          <span class="sh-name">${esc(coord[1].toFixed(5))}, ${esc(coord[0].toFixed(5))}</span>
+          <span class="sh-kind">grid ref</span>
+        </button>`);
+      document
+        .getElementById("search-coord")
+        ?.addEventListener("click", () => goToCoord(coord[0], coord[1]));
+      return;
+    }
     if (!index) return;
     const hits = rankMatches(index, q);
     if (!q.trim()) {
@@ -220,4 +245,13 @@ export function initSearch(deps: {
     panel?.classList.add("hidden");
   });
   input?.addEventListener("input", () => render(input.value));
+  input?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const coord = parseCoord(input.value);
+    if (coord) goToCoord(coord[0], coord[1]);
+  });
+  document.getElementById("search-clear-pin")?.addEventListener("click", () => {
+    clearGotoPin();
+    toast("Pin cleared", "info");
+  });
 }

@@ -1,12 +1,16 @@
 import maplibregl from "maplibre-gl";
 import { toPoint as mgrsToPoint } from "mgrs";
-import { toast } from "./toast";
 
 // Jump to a coordinate someone gives you — an MGRS grid ("18T VK 1234 5678")
 // or a plain "lat, lng". The inverse of the coordinate readout. Fully offline.
+//
+// This used to own a panel of its own. It doesn't any more: "Find" takes a
+// grid reference or a place name in one box, because in the field you should
+// not have to decide which control you need before reading what you were
+// handed. What survives here is the parser and the pin, which Find drives.
 
 // Returns [lng, lat] or null if unparseable.
-function parseCoord(raw: string): [number, number] | null {
+export function parseCoord(raw: string): [number, number] | null {
   const s = raw.trim();
   if (!s) return null;
 
@@ -32,50 +36,15 @@ function parseCoord(raw: string): [number, number] | null {
 let marker: maplibregl.Marker | null = null;
 
 /** Drop (or move) the target pin — also used by place search results. */
+/** Remove the target pin. */
+export function clearGotoPin() {
+  marker?.remove();
+  marker = null;
+}
+
 export function dropGotoPin(map: maplibregl.Map, lng: number, lat: number) {
   marker?.remove();
   const el = document.createElement("div");
   el.className = "goto-marker";
   marker = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
-}
-
-export function initGoto(map: maplibregl.Map) {
-  const box = document.getElementById("goto-box");
-  const input = document.getElementById("goto-input") as HTMLInputElement | null;
-
-  function open() {
-    box?.classList.remove("hidden");
-    input?.focus();
-    input?.select();
-  }
-  function close() {
-    box?.classList.add("hidden");
-  }
-
-  function go() {
-    if (!input) return;
-    const pt = parseCoord(input.value);
-    if (!pt) {
-      toast("Couldn't read that — try an MGRS grid or “lat, lng”.", "error");
-      return;
-    }
-    dropGotoPin(map, pt[0], pt[1]);
-    map.flyTo({ center: pt, zoom: Math.max(map.getZoom(), 13) });
-    toast(`Jumped to ${pt[1].toFixed(5)}, ${pt[0].toFixed(5)}`, "success");
-    close();
-  }
-
-  document.getElementById("goto-open")?.addEventListener("click", open);
-  document.getElementById("goto-close")?.addEventListener("click", close);
-  document.getElementById("goto-go")?.addEventListener("click", go);
-  document.getElementById("goto-clear")?.addEventListener("click", () => {
-    marker?.remove();
-    marker = null;
-    if (input) input.value = "";
-    close();
-  });
-  input?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") go();
-    if (e.key === "Escape") close();
-  });
 }

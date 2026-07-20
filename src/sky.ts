@@ -41,6 +41,9 @@ export function dayLength(sunrise: Date | null | undefined, sunset: Date | null 
 }
 
 export function initSky(getCenter: () => { lat: number; lng: number }) {
+  refreshSkyIcon();
+  // The phase moves slowly; once an hour is ample and costs nothing.
+  window.setInterval(refreshSkyIcon, 3600_000);
   const panel = document.getElementById("sky-panel");
   const content = document.getElementById("sky-content");
   const sub = document.getElementById("sky-sub");
@@ -89,4 +92,36 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
   document.getElementById("sky-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");
   });
+}
+
+/**
+ * A glyph for tonight's moon, for the HUD icon.
+ *
+ * The icon may as well carry information: how much moon there will be decides
+ * whether you can move after dark without a light, which is the main reason to
+ * open this panel at all.
+ */
+export function moonGlyph(phase: number): string {
+  const p = ((phase % 1) + 1) % 1;
+  if (p < 0.03 || p > 0.97) return "\u{1F311}"; // new
+  if (p < 0.22) return "\u{1F312}";
+  if (p < 0.28) return "\u{1F313}"; // first quarter
+  if (p < 0.47) return "\u{1F314}";
+  if (p < 0.53) return "\u{1F315}"; // full
+  if (p < 0.72) return "\u{1F316}";
+  if (p < 0.78) return "\u{1F317}"; // last quarter
+  return "\u{1F318}";
+}
+
+/** Put tonight's phase on the HUD icon. */
+export function refreshSkyIcon() {
+  const el = document.getElementById("sky-open");
+  if (!el) return;
+  try {
+    const phase = SunCalc.getMoonIllumination(new Date()).phase;
+    el.textContent = moonGlyph(phase);
+    el.title = `Sun & moon — ${moonPhaseName(phase).toLowerCase()}`;
+  } catch {
+    /* leave the static glyph */
+  }
 }

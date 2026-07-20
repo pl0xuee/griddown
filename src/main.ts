@@ -10,7 +10,7 @@ import { initHandbook } from "./handbook";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
-import { initGoto, dropGotoPin } from "./goto";
+import { dropGotoPin } from "./goto";
 import { initSearch } from "./search";
 import { initRoute } from "./route";
 import { initUpdater } from "./updater";
@@ -834,7 +834,6 @@ async function start() {
 
   void initWaypoints(map);
   initMeasure(map);
-  initGoto(map);
   // Read through a getter: terrain availability changes when you switch states.
   initReadiness(() => terrainAvailable);
   initCompass(() => {
@@ -886,7 +885,12 @@ function applyThemeUi() {
   const t = THEME[currentTheme];
   document.body.style.background = t.bg;
   const themeBtn = document.getElementById("theme-toggle");
-  if (themeBtn) themeBtn.textContent = currentTheme === "dark" ? "☀ Day" : "☾ Night";
+  // Icon-only now: the glyph shows what tapping switches TO, and the title
+  // carries the words for anyone who needs them.
+  if (themeBtn) {
+    themeBtn.textContent = currentTheme === "dark" ? "☀" : "☾";
+    themeBtn.title = currentTheme === "dark" ? "Switch to day colours" : "Switch to night colours";
+  }
   const terrBtn = document.getElementById("terrain-toggle");
   if (terrBtn) {
     // Label stays short ("Terrain"); on/off is shown by the dimmed .off state.
@@ -972,7 +976,10 @@ function initChrome() {
   function applyNightVis(on: boolean) {
     document.body.classList.toggle("nightvis", on);
     nvBtn?.classList.toggle("on", on);
-    if (nvBtn) nvBtn.textContent = on ? "◉ Night vis" : "◑ Night vis";
+    if (nvBtn) {
+      nvBtn.textContent = on ? "◉" : "◑";
+      nvBtn.title = on ? "Night vision: on" : "Night vision (red)";
+    }
   }
   applyNightVis(localStorage.getItem("griddown_nightvis") === "1");
   nvBtn?.addEventListener("click", () => {

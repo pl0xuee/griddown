@@ -35,7 +35,7 @@ body {
   top: calc(12px + env(safe-area-inset-top));
   left: calc(12px + env(safe-area-inset-left));
   z-index: 10;
-  /* Wide enough that the longest tool label ("Public land", "Sun & moon")
+  /* Wide enough that the longest tool label ("Public land", "Forest roads")
      fits its half of the 2-column grid without ellipsis. */
   width: 252px;
   /* Never taller than the screen — the body scrolls instead of overflowing. */
@@ -331,89 +331,14 @@ body {
 
 
 /* Go-to coordinates box (top-center, like the measure readout) */
-#goto-box {
-  position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 13;
-  width: min(320px, calc(100vw - 24px));
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(120, 200, 120, 0.5);
-  background: rgba(16, 22, 16, 0.94);
-  color: #e6f0e0;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
-  pointer-events: auto;
-}
-#goto-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-#goto-head .goto-title {
+
+/* Panel headings that aren't full panels — compass, measure readout. Was only
+   ever styled under #goto-head, so these inherited nothing once that box went. */
+.goto-title {
   font-size: 11px;
   letter-spacing: 1.5px;
   font-weight: 700;
   color: #9fe89f;
-}
-#goto-head button {
-  background: none;
-  border: none;
-  color: #cdeccd;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-}
-#goto-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(120, 200, 120, 0.4);
-  background: rgba(10, 14, 10, 0.9);
-  color: #eaf5e6;
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-  font-size: 14px;
-}
-#goto-input:focus {
-  outline: none;
-  border-color: rgba(150, 230, 150, 0.8);
-}
-#goto-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-#goto-actions button {
-  flex: 1;
-  padding: 7px 10px;
-  border-radius: 6px;
-  border: 1px solid rgba(120, 200, 120, 0.4);
-  background: rgba(30, 40, 30, 0.9);
-  color: #cdeccd;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-#goto-actions #goto-go {
-  background: rgba(40, 80, 40, 0.95);
-  border-color: rgba(150, 230, 150, 0.7);
-}
-#goto-actions button:hover {
-  background: rgba(50, 70, 50, 0.95);
-}
-#goto-hint {
-  margin-top: 8px;
-  font-size: 10.5px;
-  opacity: 0.6;
-}
-#goto-hint b {
-  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-  font-weight: 600;
-  opacity: 0.9;
 }
 
 /* Go-to target marker (center dot via gradient — no positioned child needed,
@@ -2317,4 +2242,63 @@ body.battery.nightvis .maplibregl-ctrl {
 .mesh-route:hover {
   background: rgba(50, 70, 50, 0.95);
   border-color: rgba(150, 230, 150, 0.8);
+}
+
+/* Screen-mode icons: one-tap switches that need no label. Sized to the same
+   touch target as the tool buttons so they stay usable with gloves on. */
+.hud-icons {
+  margin-top: 6px;
+  display: flex;
+  gap: 5px;
+}
+.hud-icon {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(30, 40, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.hud-icon:hover {
+  background: rgba(50, 70, 50, 0.95);
+  border-color: rgba(150, 230, 150, 0.7);
+}
+.hud-icon:active {
+  transform: translateY(1px);
+}
+.hud-icon.off {
+  opacity: 0.5;
+}
+.hud-icon.on {
+  background: rgba(70, 110, 70, 0.9);
+  border-color: rgba(160, 240, 160, 0.9);
+}
+
+/* An overlay that's off reads as available-but-inactive, not missing. */
+.res-chip.off {
+  opacity: 0.5;
+}
+/* Terrain hides itself entirely when a pack has no elevation downloaded. */
+.res-chip.hidden {
+  display: none;
+}
+.search-alt {
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(120, 200, 120, 0.4);
+  background: rgba(30, 44, 30, 0.9);
+  color: #cdeccd;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.search-alt:hover {
+  background: rgba(50, 70, 50, 0.95);
 }
