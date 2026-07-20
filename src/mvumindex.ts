@@ -154,8 +154,23 @@ export function buildMvumIndex(geojson: any): MvumIndex {
     const lines: LL[][] =
       g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
     const points: LL[] = [];
-    for (const line of lines) for (const c of line) points.push([c[0], c[1]]);
-    if (points.length) index.add({ props: f.properties ?? {}, points });
+    // Segments are built PER PART. Flattening first and pairing consecutive
+    // points joined the end of one part to the start of the next with a
+    // straight line across ground the route does not cover — and MVUM routes
+    // are routinely multi-part exactly where they are interrupted, by an
+    // inholding or a change of jurisdiction. Matching against that phantom
+    // reported the gap as designated, turning "unknown" into "permitted".
+    const segments: Array<[LL, LL]> = [];
+    for (const line of lines) {
+      let prev: LL | null = null;
+      for (const c of line) {
+        const pt: LL = [c[0], c[1]];
+        points.push(pt);
+        if (prev) segments.push([prev, pt]);
+        prev = pt;
+      }
+    }
+    if (points.length) index.add({ props: f.properties ?? {}, points, segments });
   }
   return index;
 }
@@ -205,7 +220,7 @@ export interface MvumRouteSummary {
 export function summariseRoute(
   path: LL[],
   index: MvumIndex,
-  classify: (symbol: unknown) => { label: string },
+  classify: (symbol: unknown) => { label: string; seasonal?: boolean },
   datesFor: (props: Record<string, unknown>) => string,
   maxMeters = 40
 ): MvumRouteSummary {
@@ -230,7 +245,7 @@ export function summariseRoute(
     matchedM += share;
 
     const symbol = String(hit.props.symbol ?? "");
-    const { label } = classify(symbol);
+    const { label, seasonal: seasonalSymbol } = classify(symbol);
     const entry = byClass.get(label);
     if (entry) entry.metres += share;
     else byClass.set(label, { label, metres: share, symbol });
@@ -240,8 +255,11 @@ export function summariseRoute(
     const routeKey = id || name;
     if (routeKey && !routes.has(routeKey)) routes.set(routeKey, { id, name, symbol });
 
-    const seasonalFlag = String(hit.props.seasonal ?? "").trim().toLowerCase();
-    if (seasonalFlag === "seasonal" && routeKey && !seasonal.has(routeKey)) {
+    // The map dashes a route on its SYMBOL code, so the warning must use the
+    // same test or the two disagree: a blank SEASONAL attribute (stripped as
+    // empty on download) would draw dashed and warn about nothing.
+    const seasonalFlag = String(hit.props.seasonal ?? "").trim().toLowerCase() === "seasonal";
+    if ((seasonalFlag || seasonalSymbol === true) && routeKey && !seasonal.has(routeKey)) {
       seasonal.set(routeKey, { id: id || name, dates: datesFor(hit.props) });
     }
   }

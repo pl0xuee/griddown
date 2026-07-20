@@ -152,6 +152,9 @@ function drawGrid(
     Math.abs(bounds.east - bounds.west) * 111320 * Math.cos(((bounds.north + bounds.south) / 2) * (Math.PI / 180));
   const spacing = gridSpacing(widthM);
   const lines = gridLines(bounds, spacing, 12);
+  // Too wide for one UTM zone, or crossing the antimeridian: no honest grid
+  // exists for this view, and a dishonest one is worse than none.
+  if (!lines.length) return 0;
 
   ctx.save();
   // Clip to the map frame: a grid line running out across the header would
@@ -183,11 +186,19 @@ function drawGrid(
   for (const line of lines) {
     const label = gridLabel(line.value, spacing);
     if (line.axis === "easting") {
-      const [px] = projectToImage(line.points[0][0], bounds.south, bounds, w, h);
-      if (px < 4 || px > w - 4) continue;
+      // Each end gets the x where the line actually meets that edge. Using one
+      // end for both put the top label 6 pt — nearly a fifth of a cell — off
+      // its own line, and it is the margin labels that get read under stress.
+      const first = line.points[0];
+      const last = line.points[line.points.length - 1];
+      const northEnd = first[1] > last[1] ? first : last;
+      const southEnd = first[1] > last[1] ? last : first;
+      const [pxTop] = projectToImage(northEnd[0], northEnd[1], bounds, w, h);
+      const [pxBottom] = projectToImage(southEnd[0], southEnd[1], bounds, w, h);
+      if (pxBottom < 4 || pxBottom > w - 4) continue;
       ctx.textAlign = "center";
-      ctx.fillText(label, (left + px) * S, (top - 2.5) * S);
-      ctx.fillText(label, (left + px) * S, (top + h + 8) * S);
+      ctx.fillText(label, (left + pxTop) * S, (top - 2.5) * S);
+      ctx.fillText(label, (left + pxBottom) * S, (top + h + 8) * S);
     } else {
       const [, py] = projectToImage(bounds.west, line.points[0][1], bounds, w, h);
       if (py < 4 || py > h - 4) continue;
@@ -363,7 +374,9 @@ export function initPrint(deps: PrintDeps) {
       // Say what the squares are. A grid whose interval you have to infer is
       // one you will misread under stress.
       ctx.fillText(
-        `Grid: ${gridM >= 1000 ? `${gridM / 1000} km` : `${gridM} m`} UTM`,
+        gridM > 0
+          ? `Grid: ${gridM >= 1000 ? `${gridM / 1000} km` : `${gridM} m`} UTM`
+          : "Grid: none — this view spans more than one UTM zone",
         MARGIN * S,
         (fTop + 37) * S
       );

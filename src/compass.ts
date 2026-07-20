@@ -137,7 +137,16 @@ export function initCompass(here: () => { lat: number; lng: number }) {
       try {
         const res = await doe.requestPermission();
         if (res !== "granted") {
-          if (note) note.textContent = "Compass permission denied — allow motion access in Settings.";
+          // Stop here. Falling through to start() overwrote this with
+          // "Listening…" and then, three seconds later, with "No compass on
+          // this device" — telling someone holding a phone that their hardware
+          // is missing, and hiding the one action that would fix it.
+          box?.classList.remove("hidden");
+          if (readout) readout.textContent = "—";
+          if (note)
+            note.textContent =
+              "Compass permission denied — allow Motion & Orientation access in Settings, then reopen this panel.";
+          return;
         }
       } catch {
         /* fall through; the no-sensor timeout will explain */

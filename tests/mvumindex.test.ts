@@ -224,3 +224,77 @@ describe("summariseRoute", () => {
     expect(s.routes).toEqual([]);
   });
 });
+
+describe("multi-part routes", () => {
+  // MVUM routes are published as multi-part geometry exactly where they are
+  // interrupted — a private inholding, a change of jurisdiction. Flattening the
+  // parts and pairing consecutive points drew a phantom segment straight across
+  // that gap, so a route crossing it was reported as designated: "unknown"
+  // silently became "permitted", which is the one thing this must never do.
+  const split = {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        properties: { id: "500", symbol: "1" },
+        geometry: {
+          type: "MultiLineString",
+          coordinates: [
+            [
+              [-121.75, 45.37],
+              [-121.74, 45.37],
+            ],
+            [
+              [-121.69, 45.37],
+              [-121.68, 45.37],
+            ],
+          ],
+        },
+      },
+    ],
+  };
+
+  it("does not match ground in the gap between two parts", () => {
+    const idx = buildMvumIndex(split);
+    // Dead centre of the ~4 km gap.
+    expect(idx.nearest(-121.715, 45.37, 40)).toBeNull();
+  });
+
+  it("still matches on each part itself", () => {
+    const idx = buildMvumIndex(split);
+    expect(idx.nearest(-121.745, 45.37, 40)?.props.id).toBe("500");
+    expect(idx.nearest(-121.685, 45.37, 40)?.props.id).toBe("500");
+  });
+
+  it("does not attribute the gap to the route's access class", () => {
+    const idx = buildMvumIndex(split);
+    const across: [number, number][] = [
+      [-121.73, 45.37],
+      [-121.7, 45.37],
+    ];
+    const s = summariseRoute(across, idx, mvumClass, datesFor);
+    expect(s.matchedM).toBe(0);
+    expect(s.unmatchedM).toBeGreaterThan(1000);
+  });
+});
+
+describe("seasonal agreement with the map", () => {
+  // The map dashes on the symbol code; the warning used to require a literal
+  // "seasonal" attribute, which the download strips when blank. A route could
+  // therefore draw dashed and warn about nothing.
+  it("warns on an even symbol code even with no seasonal attribute", () => {
+    const idx = buildMvumIndex(
+      collection([road("101", "2", 45.37, { passengervehicle_datesopen: "06/01-10/15" })])
+    );
+    const s = summariseRoute(
+      [
+        [-121.7, 45.37],
+        [-121.68, 45.37],
+      ],
+      idx,
+      mvumClass,
+      datesFor
+    );
+    expect(s.seasonal).toEqual([{ id: "101", dates: "Jun 1 – Oct 15" }]);
+  });
+});

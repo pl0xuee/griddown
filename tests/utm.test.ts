@@ -164,3 +164,51 @@ describe("gridLabel", () => {
     expect(gridLabel(500000, 100000)).toBe("5");
   });
 });
+
+describe("refusing to draw a grid that would lie", () => {
+  // The Redfearn series is an expansion about the zone's central meridian:
+  // exact inside the zone, degrading fast outside it (measured on this
+  // implementation: ~5.7 m at 12°, 463 m at 22°, 8.4 km at 32°). A grid drawn
+  // that far out still LOOKS like a grid while naming ground hundreds of
+  // metres away, which is worse than no grid at all.
+  it("draws nothing for a view spanning many zones", () => {
+    const conus = { west: -125, south: 24, east: -66, north: 49 };
+    expect(gridLines(conus, 50000)).toEqual([]);
+  });
+
+  it("draws nothing for the Alaska pack's full width", () => {
+    // A real bbox from states.json, ~40° wide.
+    expect(gridLines({ west: -170, south: 54, east: -130, north: 71 }, 50000)).toEqual([]);
+  });
+
+  it("still draws for a normal state-sized view", () => {
+    expect(gridLines({ west: -122.8, south: 45.2, east: -121.4, north: 45.8 }, 1000).length)
+      .toBeGreaterThan(4);
+  });
+
+  it("draws nothing across the antimeridian, where west > east", () => {
+    expect(gridLines({ west: 179, south: 50, east: -179, north: 52 }, 10000)).toEqual([]);
+  });
+
+  it("draws nothing for an inverted or empty box", () => {
+    expect(gridLines({ west: -121, south: 46, east: -122, north: 45 }, 1000)).toEqual([]);
+  });
+
+  // Straddling the equator once mixed offset and un-offset northings, giving
+  // 988 lines instead of ~14 and putting southern lines at ~88°N.
+  it("stays sane across the equator", () => {
+    const lines = gridLines({ west: -78.5, south: -1, east: -77.5, north: 1 }, 10000);
+    expect(lines.length).toBeLessThan(40);
+    for (const l of lines) {
+      for (const [, lat] of l.points) expect(Math.abs(lat)).toBeLessThan(5);
+    }
+  });
+
+  it("keeps one hemisphere for the whole grid", () => {
+    const a = latLonToUtm(-0.5, -77.9, 18, true);
+    const b = latLonToUtm(0.5, -77.9, 18, true);
+    // Both forced north: the southern point's northing is negative, not
+    // 10,000,000 m away from its neighbour.
+    expect(Math.abs(b.northing - a.northing)).toBeLessThan(200_000);
+  });
+});

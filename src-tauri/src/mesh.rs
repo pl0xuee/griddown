@@ -433,14 +433,36 @@ impl FrameReader {
         self.buf.extend_from_slice(bytes);
     }
 
+    /// How many bytes are held pending — used by tests to prove it stays bounded.
+    #[cfg(test)]
+    pub fn buffered(&self) -> usize {
+        self.buf.len()
+    }
+
     /// Next complete message, or None when more bytes are needed.
     pub fn next_frame(&mut self) -> Option<Vec<u8>> {
         loop {
             // Find a plausible header.
-            let start = self
+            let Some(start) = self
                 .buf
                 .windows(2)
-                .position(|w| w[0] == START1 && w[1] == START2)?;
+                .position(|w| w[0] == START1 && w[1] == START2)
+            else {
+                // Nothing that could begin a frame. Keep only the last byte, in
+                // case it is a START1 whose START2 has not arrived yet.
+                //
+                // Without this the buffer grows forever against a peer that
+                // never sends a header — and that is not hypothetical: point
+                // this at any other listening TCP service by mistyping the
+                // address and it streams ASCII, which is entirely below 0x80
+                // and so contains no 0x94 at all. Every read would re-scan an
+                // ever-larger buffer.
+                if self.buf.len() > 1 {
+                    let keep = self.buf.len() - 1;
+                    self.buf.drain(..keep);
+                }
+                return None;
+            };
             if start > 0 {
                 self.buf.drain(..start); // debug chatter before the frame
             }
@@ -525,18 +547,48 @@ pub async fn mesh_connect(app: AppHandle, host: String, port: u16) -> Result<(),
     let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
 
     let addr = format!("{}:{}", host, port);
-    let stream = TcpStream::connect(&addr).map_err(|e| format!("Couldn't reach {addr}: {e}"))?;
+    // Resolve and connect off the async runtime, with a deadline. A bare
+    // TcpStream::connect blocks a tokio worker for the OS SYN timeout — up to
+    // two minutes on a routable-but-dead address, which is what a mistyped last
+    // octet gives you — and until it returns the socket is not yet stored, so
+    // Disconnect has nothing to cancel and the panel is stuck on "Connecting…".
+    let addr_for_thread = addr.clone();
+    let stream = tauri::async_runtime::spawn_blocking(move || -> Result<TcpStream, String> {
+        use std::net::ToSocketAddrs;
+        let mut last = format!("no address found for {addr_for_thread}");
+        let addrs = addr_for_thread
+            .to_socket_addrs()
+            .map_err(|e| format!("Couldn't look up {addr_for_thread}: {e}"))?;
+        for sa in addrs {
+            match TcpStream::connect_timeout(&sa, std::time::Duration::from_secs(10)) {
+                Ok(s) => return Ok(s),
+                Err(e) => last = e.to_string(),
+            }
+        }
+        Err(format!("Couldn't reach {addr_for_thread}: {last}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(90)))
+        .map_err(|e| e.to_string())?;
+    // A blocking write to a peer that has stopped reading would otherwise hang
+    // the reader thread forever on its heartbeat.
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_secs(15)))
         .map_err(|e| e.to_string())?;
     let stream = Arc::new(stream);
     *SOCKET.lock().unwrap() = Some(Arc::clone(&stream));
 
     // Ask the radio to dump its database and then stream live packets.
     let config_id: u32 = (now_secs() as u32).rotate_left(7) | 1;
-    (&*stream)
-        .write_all(&frame(&want_config(config_id)))
-        .map_err(|e| format!("Radio didn't accept the handshake: {e}"))?;
+    if let Err(e) = (&*stream).write_all(&frame(&want_config(config_id))) {
+        // Put the socket back down before returning: leaving it in SOCKET with
+        // no reader thread orphans an open connection until the next connect.
+        let _ = mesh_disconnect();
+        return Err(format!("Radio didn't accept the handshake: {e}"));
+    }
 
     let _ = app.emit("mesh-status", format!("Connected to {addr} — syncing…"));
 
@@ -552,7 +604,13 @@ pub async fn mesh_connect(app: AppHandle, host: String, port: u16) -> Result<(),
             }
             match (&*stream).read(&mut buf) {
                 Ok(0) => {
-                    let _ = app.emit("mesh-status", "Radio closed the connection".to_string());
+                    // mesh_disconnect shuts the socket down precisely to unblock
+                    // this read, so a superseded thread lands here on purpose.
+                    // Announcing it would paint "Radio closed the connection"
+                    // over the status of the NEW connection that replaced it.
+                    if GENERATION.load(Ordering::SeqCst) == generation {
+                        let _ = app.emit("mesh-status", "Radio closed the connection".to_string());
+                    }
                     return;
                 }
                 Ok(n) => reader.push(&buf[..n]),
@@ -618,7 +676,11 @@ fn merge(into: &mut MeshNode, from: MeshNode) {
     if !from.short_name.is_empty() {
         into.short_name = from.short_name;
     }
-    if from.lat.is_some() {
+    // Only accept a position at least as new as the one we hold. LoRa meshes
+    // deliver relayed copies late as a matter of course, and an older duplicate
+    // would move a teammate back to where they used to be and walk pos_time
+    // backwards — which then drives both the freshness colour and the age text.
+    if from.lat.is_some() && from.pos_time.unwrap_or(0) >= into.pos_time.unwrap_or(0) {
         into.lat = from.lat;
         into.lng = from.lng;
         into.pos_time = from.pos_time;
@@ -838,6 +900,54 @@ mod tests {
         for cut in 1..full.len() {
             let _ = decode_from_radio(&full[..cut]);
         }
+    }
+
+
+    #[test]
+    fn never_prints_sixty_minutes_worth_of_hours() {
+        // Guarded on the TS side; here we assert the merge rule that feeds it.
+        let mut into = MeshNode { pos_time: Some(1000), lat: Some(1.0), ..Default::default() };
+        let older = MeshNode { pos_time: Some(500), lat: Some(2.0), ..Default::default() };
+        merge(&mut into, older);
+        assert_eq!(into.lat, Some(1.0), "an older relayed copy must not win");
+        assert_eq!(into.pos_time, Some(1000));
+    }
+
+    #[test]
+    fn a_newer_position_still_replaces_the_old_one() {
+        let mut into = MeshNode { pos_time: Some(1000), lat: Some(1.0), ..Default::default() };
+        let newer = MeshNode { pos_time: Some(2000), lat: Some(2.0), ..Default::default() };
+        merge(&mut into, newer);
+        assert_eq!(into.lat, Some(2.0));
+        assert_eq!(into.pos_time, Some(2000));
+    }
+
+    #[test]
+    fn the_frame_reader_does_not_grow_without_bound() {
+        // Point the app at some other TCP service by mistyping the address and
+        // it streams ASCII forever — none of which contains 0x94, so nothing
+        // would ever be discarded and every read re-scanned a larger buffer.
+        let mut r = FrameReader::default();
+        for _ in 0..1000 {
+            r.push(b"INFO | radio ok, nothing to see here\r\n");
+            assert_eq!(r.next_frame(), None);
+        }
+        assert!(r.buffered() <= 2, "buffer grew to {}", r.buffered());
+    }
+
+    #[test]
+    fn a_frame_split_by_the_drain_still_completes() {
+        // The drain keeps the last byte in case it is a lone START1.
+        let whole = frame(&bytes(fx::FROM_RADIO_CONFIG_COMPLETE));
+        let mut r = FrameReader::default();
+        r.push(b"noise");
+        r.push(&whole[..1]); // 0x94 alone
+        assert_eq!(r.next_frame(), None);
+        r.push(&whole[1..]);
+        assert_eq!(
+            decode_from_radio(&r.next_frame().expect("frame should complete")),
+            Update::ConfigComplete(0xdeadbeef)
+        );
     }
 
     #[test]

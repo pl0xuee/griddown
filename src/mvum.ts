@@ -334,7 +334,12 @@ export function initMvum(deps: {
       .addTo(map);
   }
 
+  // Bumped by every toggle and pack switch, so a load that finishes late can
+  // tell it has been superseded.
+  let applyToken = 0;
+
   async function apply() {
+    const token = ++applyToken;
     if (!on) {
       removeLayers();
       setLegend(false);
@@ -342,6 +347,12 @@ export function initMvum(deps: {
     }
     const abbr = deps.activeAbbr();
     const ok = await load(abbr);
+    // Reading a state's forest roads is tens of megabytes and seconds long.
+    // Without this check, toggling off mid-load drew the overlay back with the
+    // button showing "off", and switching packs mid-load left the PREVIOUS
+    // state's roads on screen permanently — addLayers() early-returns once the
+    // source exists, so the correct pack could never replace it.
+    if (token !== applyToken || !on || deps.activeAbbr() !== abbr) return;
     if (!ok) {
       on = false;
       syncButton();

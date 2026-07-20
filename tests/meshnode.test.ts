@@ -149,3 +149,31 @@ describe("displayName", () => {
     expect(displayName(node({ longName: "", shortName: "", id: "!abc" }))).toBe("!abc");
   });
 });
+
+describe("formatAge at the hour boundaries", () => {
+  const now = 1_800_000_000;
+
+  // Rounding minutes pushed 59.5 min into the hours branch and then printed
+  // "0 h 60 min ago" — for 30 seconds of every hour, on the one number this
+  // module exists to state honestly.
+  it("never prints sixty minutes", () => {
+    for (let age = 3400; age < 90_000; age += 7) {
+      expect(formatAge(now - age, now)).not.toMatch(/\b60 min/);
+    }
+  });
+
+  it("crosses each boundary cleanly", () => {
+    expect(formatAge(now - 3569, now)).toBe("59 min ago");
+    expect(formatAge(now - 3599, now)).toBe("59 min ago");
+    expect(formatAge(now - 3600, now)).toBe("1 h ago");
+    expect(formatAge(now - 7170, now)).toBe("1 h 59 min ago");
+    expect(formatAge(now - 86370, now)).toBe("23 h 59 min ago");
+    expect(formatAge(now - 86400, now)).toBe("1 day ago");
+  });
+
+  it("never prints zero minutes", () => {
+    for (let age = 45; age < 3600; age += 3) {
+      expect(formatAge(now - age, now)).not.toBe("0 min ago");
+    }
+  });
+});

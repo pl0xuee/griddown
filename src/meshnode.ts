@@ -73,14 +73,18 @@ export function formatAge(posTime: number | undefined, nowSec: number): string {
   if (!posTime) return "never";
   const age = Math.max(0, nowSec - posTime);
   if (age < 45) return "just now";
-  const min = Math.round(age / 60);
-  if (min < 60) return `${min} min ago`;
+  // Floor, not round, at every level. Rounding 3,570 s up to "60 min" skipped
+  // the minutes branch and then printed "0 h 60 min ago" — nonsense text on the
+  // one number this module exists to state honestly, for 30 seconds of every
+  // hour.
+  const min = Math.floor(age / 60);
+  if (min < 60) return `${Math.max(1, min)} min ago`;
   const h = Math.floor(age / 3600);
   if (h < 24) {
-    const rem = Math.round((age - h * 3600) / 60);
+    const rem = Math.floor((age - h * 3600) / 60);
     return rem ? `${h} h ${rem} min ago` : `${h} h ago`;
   }
-  const d = Math.round(age / 86400);
+  const d = Math.floor(age / 86400);
   return d === 1 ? "1 day ago" : `${d} days ago`;
 }
 
