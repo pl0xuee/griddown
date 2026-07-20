@@ -1,6 +1,6 @@
 [
  {"abbr":"AL","name":"Alabama","bbox":[-88.471,30.247,-84.889,35.001],"center":[-86.68,32.624],"estMB":437},
- {"abbr":"AK","name":"Alaska","bbox":[-170,51.2,-129.9,71.5],"center":[-149.95,61.35],"estMB":1331},
+ {"abbr":"AK","name":"Alaska","bbox":[-170,51.2,-129.9,71.5],"center":[-149.95,61.35],"estMB":1331,"maxzoom":14},
  {"abbr":"AZ","name":"Arizona","bbox":[-114.815,31.332,-109.043,37.006],"center":[-111.929,34.169],"estMB":466},
  {"abbr":"AR","name":"Arkansas","bbox":[-94.616,33.002,-89.731,36.502],"center":[-92.173,34.752],"estMB":237},
  {"abbr":"CA","name":"California","bbox":[-124.411,32.537,-114.136,42.012],"center":[-119.273,37.275],"estMB":1536},

@@ -13,6 +13,19 @@ export interface StateEntry {
   bbox: [number, number, number, number];
   center: [number, number];
   estMB: number;
+  /**
+   * Cut this state shallower than the usual z15.
+   *
+   * Only Alaska sets it. Alaska at z15 is 19.6 M tiles — fourteen times
+   * California — because Mercator stretches tiles at that latitude, and it
+   * cannot be built inside CI's six-hour job limit. One level down is a
+   * quarter of the work, and vector tiles overzoom, so the map still zooms in;
+   * detail just stops improving a level earlier.
+   *
+   * CI reads the same field, so the pack is cut at exactly the zoom the app
+   * asks for and the manifest's zoom check still holds.
+   */
+  maxzoom?: number;
 }
 
 export interface SwitchTarget {
@@ -372,7 +385,7 @@ async function download(s: StateEntry, refresh = false) {
     await invoke<string>("download_state", {
       abbr: s.abbr,
       bbox: s.bbox.join(","),
-      maxzoom: 15,
+      maxzoom: s.maxzoom ?? 15,
     });
     downloading.delete(s.abbr);
     downloadStatus.delete(s.abbr);
