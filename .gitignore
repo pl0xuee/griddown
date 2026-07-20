@@ -26,7 +26,13 @@ dist-ssr
 # --- Large generated / downloaded map data (regenerate with tools/) ---
 # State basemap extracts (hundreds of MB each)
 /mapdata/
-/public/mapdata/
+# Contents rather than the directory itself: git cannot re-include a file whose
+# parent directory is excluded, and the starter pack below has to ship.
+/public/mapdata/*
+# The one exception — a whole-US basemap at low zoom, ~11 MB, bundled so a fresh
+# install opens on a real map instead of an empty screen. Built by
+# `src-tauri/src/bin/build-pack.rs`; see docs/prebuilt-packs.md.
+!/public/mapdata/starter.pmtiles
 # Offline elevation tile pyramid (~1 GB per state)
 /public/dem/
 

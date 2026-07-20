@@ -69,8 +69,13 @@ async function loadRegion(): Promise<Region & { configured: boolean }> {
     /* fall through to generic default */
   }
   return {
+    // The bundled whole-US basemap at low zoom, ~11 MB. A fresh install has no
+    // state pack — correctly, since one is hundreds of megabytes — and used to
+    // open on an empty screen with a notice over it, which reads as broken. This
+    // is a real map, just a coarse one: enough to see the country, orient
+    // yourself and find the state you want to download.
     name: "GridDown",
-    pmtiles: "region.pmtiles",
+    pmtiles: "starter.pmtiles",
     center: [-98.58, 39.83],
     zoom: 4,
     configured: false,
@@ -672,25 +677,33 @@ async function start() {
     console.error("[map error]", e && (e as any).error ? (e as any).error : e);
   });
 
+  // Whether a downloaded pack is already chosen. Checked here rather than
+  // inferred from the basemap loading: the bundled starter pack always loads,
+  // so a load failure no longer means "fresh install" the way it used to.
+  const hasActivePack = !!localStorage.getItem("griddown_active_state");
+
   void basemapCheck.then((problem) => {
-    if (!problem) return;
-    if (!region.configured) {
-      // Fresh install: there is no bundled map yet, and that's expected. Point
-      // at the fix instead of reporting a missing file as a fault.
+    if (!region.configured && !hasActivePack) {
+      // Running on the bundled starter pack — a real map, but the whole country
+      // at low zoom. Say what it is and point at the fix, rather than letting
+      // someone zoom in and conclude the app is broken when the detail runs out.
       //
       // This can be premature: a packaged build runs on a different origin than
       // dev, so it starts with empty localStorage and no active-state key, even
       // when packs are already installed. states.ts finds and activates one a
       // moment later — so the notice has to clear itself when that happens,
-      // rather than sitting there claiming "no map" over a rendered map.
+      // rather than sitting there over a fully detailed map.
       noMapNotice = true;
       const el = document.getElementById("net-label");
-      if (el) el.textContent = "No map yet — open Map packs";
-      watchPlaceholderStyleReloads(map);
-      void showPlaceholderStates(map);
-      toast("Welcome. Open ▤ Map packs and download your state to get started.", "info", 9000);
+      if (el) el.textContent = "Overview only — open Map packs";
+      toast(
+        "This is the whole-US overview. Open ▤ Map packs and download your state for detail.",
+        "info",
+        9000
+      );
       return;
     }
+    if (!problem) return;
     surfaceError(problem);
     toast(problem, "error");
   });
@@ -726,13 +739,11 @@ async function start() {
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
-    // A map is now loaded, so retract any "no map yet" notice — and the
-    // placeholder outlines with it, or they would sit on top of the real map.
+    // A map is now loaded, so retract any "no map yet" notice.
     if (noMapNotice) {
       noMapNotice = false;
       refreshNetStatus();
     }
-    hidePlaceholderStates(map);
     // Drop the protocol's cached instance for this file — after a pack refresh
     // the bytes on disk changed but the URL didn't, and a stale cached header/
     // directory would point at the wrong tile offsets.
@@ -956,141 +967,6 @@ window.addEventListener("offline", refreshNetStatus);
 refreshNetStatus();
 
 // --- First-run placeholder ---
-
-/** Source and layer ids for the placeholder, so it can be removed cleanly. */
-const PLACEHOLDER_SRC = "griddown-placeholder-states";
-const PLACEHOLDER_LAYERS = [
-  "griddown-placeholder-fill",
-  "griddown-placeholder-line",
-  "griddown-placeholder-label",
-];
-
-/**
- * Whether the placeholder should be on screen at all.
- *
- * Two separate problems need this, and both are invisible without it:
- *
- * Changing the theme, terrain, public land, battery saver or any overlay chip
- * rebuilds the whole style, which drops every layer added to it — so the
- * outlines would disappear on the first tap and never return. Every other
- * custom layer here already re-adds itself on `style.load`; this one did not.
- *
- * And the state list can activate an already-installed pack a moment after the
- * "no map" path starts, while this is still awaiting states.json. Without a
- * flag to check on arrival, the outlines would be added *over* a real map — an
- * opaque fill covering the thing the user came for.
- */
-let placeholderWanted = false;
-/** The features, cached so a style rebuild does not re-fetch them. */
-let placeholderFeatures: GeoJSON.Feature[] | null = null;
-
-/**
- * Draw the states as outlines on a fresh install.
- *
- * A brand-new install has no map data at all — correctly, since a single state
- * is hundreds of megabytes — and until now that meant opening the app to an
- * empty void with a notice over it. That reads as broken even when it isn't,
- * and it is the first thing an App Store reviewer would see.
- *
- * Drawn from `public/states.json`, which already ships for the download list,
- * so this costs no new bundled data. It doubles as an index of what there is to
- * download rather than being decoration.
- */
-async function showPlaceholderStates(map: maplibregl.Map): Promise<void> {
-  placeholderWanted = true;
-  try {
-    if (!placeholderFeatures) {
-      const r = await fetch(`${origin}/states.json`, { cache: "no-store" });
-      if (!r.ok) return;
-      const raw = (await r.json()) as unknown;
-      const rows = (Array.isArray(raw) ? raw : (raw as any)?.states) as
-        | { abbr: string; name: string; bbox: [number, number, number, number] }[]
-        | undefined;
-      if (!rows?.length) return;
-
-      placeholderFeatures = rows
-        .filter((s) => Array.isArray(s.bbox) && s.bbox.length === 4)
-        .map((s) => {
-          const [w, so, e, n] = s.bbox;
-          return {
-            type: "Feature" as const,
-            properties: { abbr: s.abbr, name: s.name },
-            geometry: {
-              type: "Polygon" as const,
-              coordinates: [[[w, so], [e, so], [e, n], [w, n], [w, so]]],
-            },
-          };
-        });
-    }
-    const features = placeholderFeatures;
-    if (!features?.length) return;
-
-    // A pack may have loaded while states.json was in flight. Painting an
-    // opaque fill over a real map is worse than showing nothing.
-    if (!placeholderWanted) return;
-    if (map.getSource(PLACEHOLDER_SRC)) return;
-
-    map.addSource(PLACEHOLDER_SRC, {
-      type: "geojson",
-      data: { type: "FeatureCollection", features },
-    });
-    map.addLayer({
-      id: "griddown-placeholder-fill",
-      type: "fill",
-      source: PLACEHOLDER_SRC,
-      paint: { "fill-color": "#1d2a1d", "fill-opacity": 0.55 },
-    });
-    map.addLayer({
-      id: "griddown-placeholder-line",
-      type: "line",
-      source: PLACEHOLDER_SRC,
-      paint: { "line-color": "#4d7a4d", "line-width": 1 },
-    });
-    map.addLayer({
-      id: "griddown-placeholder-label",
-      type: "symbol",
-      source: PLACEHOLDER_SRC,
-      layout: {
-        "text-field": ["get", "abbr"],
-        "text-font": ["Noto Sans Regular"],
-        "text-size": 11,
-        "text-allow-overlap": false,
-      },
-      paint: {
-        "text-color": "#7dd67d",
-        "text-halo-color": "#0a0f0a",
-        "text-halo-width": 1.2,
-      },
-    });
-  } catch {
-    // Purely cosmetic — a fresh install without it is what shipped before.
-  }
-}
-
-/** Take the placeholder away once real map data is on screen, for good. */
-function hidePlaceholderStates(map: maplibregl.Map): void {
-  // Cleared first: a fetch still in flight checks this before drawing anything.
-  placeholderWanted = false;
-  for (const id of PLACEHOLDER_LAYERS) {
-    if (map.getLayer(id)) map.removeLayer(id);
-  }
-  if (map.getSource(PLACEHOLDER_SRC)) map.removeSource(PLACEHOLDER_SRC);
-}
-
-/**
- * Put the placeholder back after a style rebuild.
- *
- * Every style change — theme, terrain, public land, battery saver, an overlay
- * chip — throws away the layers added to the old style. This is the same
- * `style.load` re-add that mvum, mesh, measure, waypoints, viewshed and route
- * all do; the placeholder was the one that lacked it.
- */
-function watchPlaceholderStyleReloads(map: maplibregl.Map): void {
-  map.on("style.load", () => {
-    if (!placeholderWanted) return;
-    void showPlaceholderStates(map);
-  });
-}
 
 // --- Bottom sheet (phones only) ---
 

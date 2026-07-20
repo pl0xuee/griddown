@@ -2,7 +2,10 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager};
 
 mod mesh;
-mod pmtiles_extract;
+// Public so the pack builder (src/bin/build-pack.rs) can reuse it. Cutting a
+// pack in CI and cutting one on the phone must be the same code — a separate
+// implementation is how the two quietly stop producing identical archives.
+pub mod pmtiles_extract;
 
 /// A state abbreviation that is safe to paste into a path.
 ///

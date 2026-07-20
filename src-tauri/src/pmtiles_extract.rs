@@ -419,7 +419,7 @@ pub trait TileSource {
 fn read_ranges_parallel(
     ranges: &[(u64, u64)],
     workers: usize,
-    read: &(dyn Fn(u64, u64) -> Result<Vec<u8>, String> + Sync),
+    read: &(dyn Fn(usize, u64, u64) -> Result<Vec<u8>, String> + Sync),
 ) -> Result<Vec<Vec<u8>>, String> {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -428,18 +428,21 @@ fn read_ranges_parallel(
     let workers = workers.max(1).min(ranges.len());
 
     std::thread::scope(|s| {
-        for _ in 0..workers {
+        for w in 0..workers {
             let tx = tx.clone();
             let next = &next;
             // Workers pull the next index rather than taking a fixed slice:
             // batches differ in size and the network is uneven, so a static
             // split would leave threads idle behind one slow request.
+            //
+            // `w` is the worker's own number, passed through so a caller can
+            // give each one its own connection rather than sharing.
             s.spawn(move || loop {
                 let i = next.fetch_add(1, Ordering::Relaxed);
                 let Some(&(offset, len)) = ranges.get(i) else {
                     break;
                 };
-                if tx.send((i, read(offset, len))).is_err() {
+                if tx.send((i, read(w, offset, len))).is_err() {
                     break;
                 }
             });
@@ -492,7 +495,15 @@ impl TileSource for FileSource {
 
 /// A remote archive, read over HTTP range requests.
 pub struct HttpSource {
-    client: reqwest::blocking::Client,
+    /// One client per worker, not one shared between them.
+    ///
+    /// `reqwest::blocking` is a wrapper: every client owns a single background
+    /// thread running the real async client, and each request hops onto that
+    /// thread and streams its body back. Sixteen threads sharing one client
+    /// therefore funnel sixteen "parallel" downloads — TLS and all — through
+    /// one thread, which is why raising the worker count kept not helping.
+    /// A client each gives them genuinely independent connections.
+    clients: Vec<reqwest::blocking::Client>,
     url: String,
 }
 
@@ -512,27 +523,28 @@ const MAX_BACKOFF_SECS: u64 = 30;
 
 impl HttpSource {
     pub fn new(url: &str) -> Result<Self, String> {
-        let client = reqwest::blocking::Client::builder()
+        let mut clients = Vec::with_capacity(CONCURRENT_REQUESTS);
+        for _ in 0..CONCURRENT_REQUESTS {
+            clients.push(Self::client()?);
+        }
+        Ok(HttpSource {
+            clients,
+            url: url.to_string(),
+        })
+    }
+
+    fn client() -> Result<reqwest::blocking::Client, String> {
+        reqwest::blocking::Client::builder()
             // Identify ourselves: this hits Protomaps' free public build server,
             // and unattributed traffic is how public services get locked down.
             .user_agent(concat!("GridDown/", env!("CARGO_PKG_VERSION")))
             .timeout(std::time::Duration::from_secs(120))
             .connect_timeout(std::time::Duration::from_secs(20))
-            // Keep a connection per worker alive between requests.
-            //
-            // This single line is the difference between a state download
-            // taking 14 seconds and 22. Measured on Rhode Island — 650
-            // requests, 78 MB — with sixteen workers either way:
-            //
-            //   without: 24.8 s, and 19.0 s on a second run
-            //   with:    13.3 s, and 14.0 s on a second run
-            //
-            // Raising the worker count on its own had barely helped, which is
-            // what sent me looking. The workers were reconnecting rather than
-            // reusing, so most of each "parallel" request went on a fresh TCP
-            // and TLS handshake. curl over the same link and ranges scaled
-            // cleanly to 114 requests a second, so the server was never it.
-            .pool_max_idle_per_host(CONCURRENT_REQUESTS)
+            // Keep the connection alive between this worker's requests, rather
+            // than paying a TCP and TLS handshake for every range. Measured on
+            // Rhode Island (650 requests, 78 MB) it was worth roughly 24.8s
+            // versus 14.0s when the client was still shared.
+            .pool_max_idle_per_host(2)
             // Does nothing today: http2 is not in this build's feature set, so
             // ALPN never offers it — checked with `cargo tree -e features`.
             // Kept because cargo features are additive and Tauri also depends
@@ -541,17 +553,17 @@ impl HttpSource {
             // connection, which is the worst case for many small range reads.
             .http1_only()
             .build()
-            .map_err(|e| format!("could not create HTTP client: {e}"))?;
-        Ok(HttpSource {
-            client,
-            url: url.to_string(),
-        })
+            .map_err(|e| format!("could not create HTTP client: {e}"))
     }
 
-    fn try_read(&self, offset: u64, len: u64) -> Result<Vec<u8>, (String, bool)> {
+    fn try_read(
+        &self,
+        client: &reqwest::blocking::Client,
+        offset: u64,
+        len: u64,
+    ) -> Result<Vec<u8>, (String, bool)> {
         let end = offset + len - 1;
-        let resp = self
-            .client
+        let resp = client
             .get(&self.url)
             .header(reqwest::header::RANGE, format!("bytes={offset}-{end}"))
             .send()
@@ -585,14 +597,16 @@ impl HttpSource {
     }
 }
 
-impl TileSource for HttpSource {
-    fn read_range(&self, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+impl HttpSource {
+    /// Read a range on a nominated worker's client, with the full retry budget.
+    fn read_range_on(&self, worker: usize, offset: u64, len: u64) -> Result<Vec<u8>, String> {
         if len == 0 {
             return Ok(Vec::new());
         }
+        let client = &self.clients[worker % self.clients.len()];
         let mut last = String::new();
         for attempt in 0..MAX_ATTEMPTS {
-            match self.try_read(offset, len) {
+            match self.try_read(client, offset, len) {
                 Ok(b) => return Ok(b),
                 Err((msg, retryable)) => {
                     if !retryable {
@@ -614,12 +628,23 @@ impl TileSource for HttpSource {
             "could not read map data after {MAX_ATTEMPTS} attempts: {last}"
         ))
     }
+}
+
+impl TileSource for HttpSource {
+    fn read_range(&self, offset: u64, len: u64) -> Result<Vec<u8>, String> {
+        // Single reads — the header, the root directory — go on the first
+        // client. There is nothing to spread them across.
+        self.read_range_on(0, offset, len)
+    }
 
     fn read_ranges(&self, ranges: &[(u64, u64)]) -> Result<Vec<Vec<u8>>, String> {
-        // Each worker calls read_range, so every request keeps the full retry
-        // and backoff budget above — including the long tail that carries a
-        // download across the app being suspended.
-        read_ranges_parallel(ranges, CONCURRENT_REQUESTS, &|o, l| self.read_range(o, l))
+        // Each worker gets its own client, so the requests are genuinely
+        // independent rather than queued through one background thread. Every
+        // one keeps the full retry and backoff budget above, including the long
+        // tail that carries a download across the app being suspended.
+        read_ranges_parallel(ranges, CONCURRENT_REQUESTS, &|w, o, l| {
+            self.read_range_on(w, o, l)
+        })
     }
 }
 
@@ -1560,17 +1585,30 @@ mod tests {
     fn measure_live_state_download() {
         use std::time::Instant;
 
-        let today = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            / 86400) as i64;
-        let url = latest_build_url(today).expect("no recent planet build");
+        // GRIDDOWN_BENCH_URL points this at a local archive instead of the live
+        // planet. The public server's throughput varies by 3-4x run to run,
+        // which is far more than the client-side changes being measured — so
+        // any tuning has to be judged against a server that holds still, and
+        // only the final result checked against the real one.
+        let (url, bbox) = match std::env::var("GRIDDOWN_BENCH_URL") {
+            Ok(u) => {
+                let bbox = (-124.6, 41.9, -116.4, 46.3); // Oregon
+                (u, bbox)
+            }
+            Err(_) => {
+                let today = (std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    / 86400) as i64;
+                let bbox = if std::env::var("GRIDDOWN_BENCH_OREGON").is_ok() { (-124.6, 41.9, -116.4, 46.3) } else { (-71.91, 41.14, -71.12, 42.02) };
+                (latest_build_url(today).expect("no recent planet build"), bbox)
+            }
+        };
+        eprintln!("archive: {url}");
         let src = HttpSource::new(&url).unwrap();
         let h = Header::parse(&src.read_range(0, HEADER_LEN as u64).unwrap()).unwrap();
 
-        // Rhode Island.
-        let bbox = (-71.91, 41.14, -71.12, 42.02);
         let (min_lon, min_lat, max_lon, max_lat) = bbox;
 
         let t0 = Instant::now();
@@ -1586,12 +1624,51 @@ mod tests {
         let total: u64 = batches.iter().map(|b| b.length).sum();
         let windows = windows_by_bytes(&batches).len();
 
+        // Fetch only, no writing, same windows the real extract would use.
+        // Splits the one number that mattered: how much of a download is the
+        // network, and how much is us writing the archive while nothing is in
+        // flight.
+        let t_net = Instant::now();
+        let mut fetched = 0u64;
+        for window in windows_by_bytes(&batches) {
+            let ranges: Vec<(u64, u64)> = window
+                .iter()
+                .map(|b| (h.tile_data_offset + b.offset, b.length))
+                .collect();
+            for blob in src.read_ranges(&ranges).unwrap() {
+                fetched += blob.len() as u64;
+            }
+        }
+        let net_s = t_net.elapsed().as_secs_f64();
+
+        if std::env::var("GRIDDOWN_BENCH_PLAN_ONLY").is_ok() {
+            eprintln!(
+                "\nPLAN ONLY: {} batches, {:.0} MB, mean {:.1} KB\n",
+                batches.len(),
+                total as f64 / 1e6,
+                total as f64 / batches.len() as f64 / 1e3
+            );
+            return;
+        }
+
         let t2 = Instant::now();
         let dest = std::env::temp_dir().join("griddown-measure.pmtiles");
         let _ = std::fs::remove_file(&dest);
         let written = extract(&src, &h, &dest, 0, 15, bbox, &mut |_, _| {}).unwrap();
         let fetch_s = t2.elapsed().as_secs_f64();
         let _ = std::fs::remove_file(&dest);
+
+        eprintln!("\n--- where the time goes ---");
+        eprintln!(
+            "network only    {net_s:.1} s  -> {:.0} MB at {:.1} MB/s",
+            fetched as f64 / 1e6,
+            fetched as f64 / 1e6 / net_s
+        );
+        eprintln!(
+            "writing costs   {:.1} s  ({:.0}% of a full extract)",
+            fetch_s - net_s,
+            100.0 * (fetch_s - net_s) / fetch_s
+        );
 
         eprintln!("\n--- Rhode Island, zoom 0..15 ---");
         eprintln!("planning        {plan_ms} ms (no network)");
@@ -1804,7 +1881,7 @@ mod tests {
         let ranges: Vec<(u64, u64)> = (0..12u64).map(|i| (i * 100, 4)).collect();
         let n = ranges.len();
 
-        let out = read_ranges_parallel(&ranges, 6, &|offset, _len| {
+        let out = read_ranges_parallel(&ranges, 6, &|_w, offset, _len| {
             let i = (offset / 100) as usize;
             std::thread::sleep(std::time::Duration::from_millis((n - i) as u64 * 4));
             Ok(vec![i as u8; 4])
@@ -1826,7 +1903,7 @@ mod tests {
     #[test]
     fn a_failed_range_fails_the_whole_batch() {
         let ranges = [(0u64, 4u64), (100, 4), (200, 4)];
-        let err = read_ranges_parallel(&ranges, 3, &|offset, _len| {
+        let err = read_ranges_parallel(&ranges, 3, &|_w, offset, _len| {
             if offset == 100 {
                 Err("server said no".into())
             } else {
@@ -1841,11 +1918,11 @@ mod tests {
     /// a thread pool to come back.
     #[test]
     fn empty_and_single_ranges_are_fine() {
-        assert!(read_ranges_parallel(&[], 6, &|_, _| Ok(vec![]))
+        assert!(read_ranges_parallel(&[], 6, &|_, _, _| Ok(vec![]))
             .expect("empty is ok")
             .is_empty());
 
-        let one = read_ranges_parallel(&[(7, 3)], 6, &|o, l| Ok(vec![o as u8; l as usize]))
+        let one = read_ranges_parallel(&[(7, 3)], 6, &|_w, o, l| Ok(vec![o as u8; l as usize]))
             .expect("single is ok");
         assert_eq!(one, vec![vec![7u8; 3]]);
     }
