@@ -11,6 +11,7 @@ import {
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
 import { ensurePlaceIndex, rankMatches, rankPins, type Place } from "./search";
+import { getFix } from "./geoloc";
 import { esc as escapeHtml } from "./esc";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
@@ -717,27 +718,24 @@ export function initRoute(deps: {
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
   }
 
-  /** Set `from` to the current GPS fix, then continue — or explain why not. */
+  /** Set `from` to the current fix, then continue — or explain why not.
+   *  Via geoloc.ts, so on a phone it's the native, single-prompt path. */
   function useMyLocation(then: () => void) {
-    if (!("geolocation" in navigator)) {
-      fail("Location isn't available on this device — use the map point instead.");
-      return;
-    }
     if (body) body.innerHTML = `<div class="rt-msg">Getting your location…</div>`;
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        from = { lng: p.coords.longitude, lat: p.coords.latitude, label: "my location" };
+    void getFix().then(
+      (f) => {
+        from = { lng: f.lng, lat: f.lat, label: "my location" };
         then();
       },
       (err) => {
         // Never leave this silent: the user is waiting on a fix that isn't coming.
+        const msg = err instanceof Error ? err.message : String(err);
         fail(
-          err.code === err.PERMISSION_DENIED
+          /denied/i.test(msg)
             ? "Location permission denied — use the map point instead."
             : "Couldn't get a location fix — use the map point instead."
         );
-      },
-      { enableHighAccuracy: true, timeout: 15000 }
+      }
     );
   }
 

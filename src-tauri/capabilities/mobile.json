@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Native geolocation. Mobile only: the geolocation plugin is compiled out of desktop builds (see Cargo.toml), and a capability naming permissions from an absent plugin is a hard startup error — so this is gated to iOS/Android, mirroring desktop.json.",
+  "platforms": ["iOS", "android"],
+  "windows": ["main"],
+  "permissions": [
+    "geolocation:allow-check-permissions",
+    "geolocation:allow-request-permissions",
+    "geolocation:allow-get-current-position",
+    "geolocation:allow-watch-position"
+  ]
+}

@@ -21,6 +21,7 @@ import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
 import { initCompass, headingFrom, shortestTurn } from "./compass";
 import { declination, magneticToTrue } from "./geomag";
+import { getFix, type GeoFix } from "./geoloc";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
 import { toast } from "./toast";
@@ -641,39 +642,118 @@ async function start() {
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
-  // "Where am I" — takes ONE fix, marks it, and centres the map there.
-  //
-  // trackUserLocation is deliberately FALSE. With it on, MapLibre's first press
-  // starts a continuous high-accuracy `watchPosition` that only a second press
-  // stops — and nothing in this app ever stopped it, so one tap to check your
-  // position left GPS polling until the battery died. That is the single
-  // heaviest drain available to us, on a device you may need alive tomorrow,
-  // and it contradicted the rest of the codebase: compass.ts kills its sensor
-  // the moment its panel hides, waypoints.ts clears its watch on stop, and
-  // route.ts uses one-shot positioning. `false` routes to getCurrentPosition.
-  //
-  // The accuracy circle stays: a fix from wifi/cell triangulation can be a
-  // kilometre out, and a confident dot with no sense of that is the same class
-  // of lie as the terrain shadow and the invented elevation profile.
-  const geolocate = new maplibregl.GeolocateControl({
-    positionOptions: { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-    trackUserLocation: false,
-    showAccuracyCircle: true,
-    showUserLocation: true,
-  });
-  map.addControl(geolocate, "top-right");
+  // "Where am I" — one fix, marked with a dot and an accuracy circle, the map
+  // centred on it. Never a continuous GPS watch: a stray one was the single
+  // heaviest battery drain available to us, and the rest of the app is one-shot
+  // too (route.ts, compass.ts). The fix comes from geoloc.ts, which on a phone
+  // uses the native location plugin so there is only the OS permission prompt,
+  // not WKWebView's extra per-website one.
 
-  // --- Heading-up ("your perspective") mode -------------------------------
+  // --- User-location dot + accuracy circle --------------------------------
+  // Drawn here rather than by MapLibre's GeolocateControl: that control is
+  // hardwired to the web geolocation API, which is exactly the double-prompt
+  // this whole change avoids.
+  let userMarker: maplibregl.Marker | null = null;
+  let shownFix: GeoFix | null = null;
+  const ULOC = "gd-userloc";
+
+  function accuracyRing(lng: number, lat: number, metres: number, n = 64): [number, number][] {
+    const R = 6378137;
+    const latR = (lat * Math.PI) / 180;
+    const ring: [number, number][] = [];
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * 2 * Math.PI;
+      const dLat = ((metres * Math.cos(a)) / R) * (180 / Math.PI);
+      const dLng = ((metres * Math.sin(a)) / (R * Math.cos(latR))) * (180 / Math.PI);
+      ring.push([lng + dLng, lat + dLat]);
+    }
+    return ring;
+  }
+  function ensureUserLayers() {
+    if (map.getSource(ULOC)) return;
+    map.addSource(ULOC, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    const firstSymbol = map.getStyle().layers.find((l) => l.type === "symbol")?.id;
+    map.addLayer(
+      { id: "gd-userloc-fill", type: "fill", source: ULOC,
+        paint: { "fill-color": "#3b82f6", "fill-opacity": 0.15 } },
+      firstSymbol
+    );
+    map.addLayer(
+      { id: "gd-userloc-ring", type: "line", source: ULOC,
+        paint: { "line-color": "#3b82f6", "line-opacity": 0.5, "line-width": 1 } },
+      firstSymbol
+    );
+  }
+  function drawUserLoc(f: GeoFix) {
+    ensureUserLayers();
+    const feats =
+      f.accuracy && f.accuracy > 1
+        ? [{
+            type: "Feature",
+            properties: {},
+            geometry: { type: "Polygon", coordinates: [accuracyRing(f.lng, f.lat, f.accuracy)] },
+          }]
+        : [];
+    (map.getSource(ULOC) as maplibregl.GeoJSONSource | undefined)?.setData({
+      type: "FeatureCollection",
+      features: feats as any,
+    });
+    if (!userMarker) {
+      const el = document.createElement("div");
+      el.className = "gd-userloc-dot";
+      userMarker = new maplibregl.Marker({ element: el }).setLngLat([f.lng, f.lat]).addTo(map);
+    } else {
+      userMarker.setLngLat([f.lng, f.lat]);
+    }
+  }
+  // A theme switch rebuilds the style and drops the source/layers; restore them.
+  map.on("style.load", () => {
+    if (shownFix) drawUserLoc(shownFix);
+  });
+
+  // --- Combined locate / heading-up control -------------------------------
   //
-  // Rotates the map so the way you're pointing is up, following as you turn.
-  // Driven by the compass (device orientation), NOT by tracking your position:
-  // that keeps it consistent with the deliberately one-shot Locate button and
-  // costs no GPS battery. A toggle, so it's off by default and always killable.
-  let headingUpOn = false;
+  // One button, three states, like the location button in other map apps:
+  //   off      → tap: find me and centre there (a one-shot fix + dot).
+  //   located  → tap: turn the map to face the way I point, centred on me.
+  //   heading  → tap: back to north up.
+  //
+  // Heading is compass-driven (device orientation), never a GPS watch, so it
+  // stays consistent with the deliberately one-shot Locate and costs no extra
+  // battery.
+  type LocState = "off" | "located" | "heading";
+  let locState: LocState = "off";
+  let locBusy = false; // true while a fix is being fetched
+  let locBtn: HTMLButtonElement | null = null;
+  let lastFix: { lng: number; lat: number } | null = null;
   let headingBusy = false; // true while the iOS permission prompt is pending
   let headingDec = 0; // magnetic→true correction for the area, degrees
   let smoothBearing = 0; // continuous, low-pass filtered to damp sensor jitter
-  let headingBtn: HTMLButtonElement | null = null;
+
+  const LOCATE_SVG =
+    '<svg class="gd-loc-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+    '<circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<circle cx="12" cy="12" r="1.5" fill="currentColor"/>' +
+    '<path d="M12 1.5V5M12 19v3.5M1.5 12H5M19 12h3.5" stroke="currentColor" stroke-width="2"/></svg>';
+  const HEADING_SVG =
+    '<svg class="gd-loc-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
+    '<path d="M12 2 L19 21 L12 16.5 L5 21 Z" fill="currentColor"/></svg>';
+
+  function renderLoc() {
+    if (!locBtn) return;
+    const heading = locState === "heading";
+    locBtn.innerHTML = heading ? HEADING_SVG : LOCATE_SVG;
+    locBtn.classList.toggle("gd-on", locState !== "off");
+    locBtn.classList.toggle("gd-busy", locBusy);
+    locBtn.setAttribute("aria-pressed", String(locState !== "off"));
+    locBtn.title = locBusy
+      ? "Finding your location…"
+      : heading
+        ? "Heading up — tap for north up"
+        : locState === "located"
+          ? "Located — tap to turn the map to face your heading"
+          : "Show my location";
+  }
 
   function applyHeading(e: DeviceOrientationEvent) {
     const mag = headingFrom(e);
@@ -685,115 +765,109 @@ async function start() {
     smoothBearing += shortestTurn(smoothBearing, target) * 0.25;
     map.setBearing(((smoothBearing % 360) + 360) % 360);
   }
-
-  async function setHeadingUp(on: boolean) {
-    if (on === headingUpOn || headingBusy) return;
-    if (on) {
-      const doe = (window as any).DeviceOrientationEvent;
-      if (!doe) {
-        toast("No compass on this device — heading-up needs a phone or tablet.", "error");
-        return;
-      }
-      // iOS gates the sensor behind a permission prompt that must come from a
-      // user gesture — the click that called this is that gesture. `headingBusy`
-      // blocks a second tap from starting a second prompt while it's pending.
-      if (typeof doe.requestPermission === "function") {
-        headingBusy = true;
-        try {
-          if ((await doe.requestPermission()) !== "granted") {
-            toast("Compass permission denied — can't turn the map to your heading.", "error");
-            return;
-          }
-        } catch {
-          toast("Couldn't start the compass.", "error");
-          return;
-        } finally {
-          headingBusy = false;
-        }
-      }
-      const c = map.getCenter();
-      try {
-        headingDec = declination(c.lat, c.lng);
-      } catch {
-        headingDec = 0;
-      }
-      smoothBearing = map.getBearing();
-      window.addEventListener("deviceorientationabsolute" as any, applyHeading);
-      window.addEventListener("deviceorientation", applyHeading);
-      headingUpOn = true;
-      toast("Heading up — the map turns to face the way you point. Tap again for north up.", "info");
-    } else {
-      window.removeEventListener("deviceorientationabsolute" as any, applyHeading);
-      window.removeEventListener("deviceorientation", applyHeading);
-      headingUpOn = false;
-      map.easeTo({ bearing: 0, duration: 400 }); // back to north up
-    }
-    headingBtn?.classList.toggle("gd-on", headingUpOn);
-    headingBtn?.setAttribute("aria-pressed", String(headingUpOn));
+  function stopHeadingSensor() {
+    window.removeEventListener("deviceorientationabsolute" as any, applyHeading);
+    window.removeEventListener("deviceorientation", applyHeading);
   }
 
-  class HeadingUpControl implements maplibregl.IControl {
+  /** Begin heading-up: centre on the user (not the crosshair) and rotate. */
+  async function startHeading(): Promise<boolean> {
+    const doe = (window as any).DeviceOrientationEvent;
+    if (!doe) {
+      toast("No compass on this device — heading-up needs a phone or tablet.", "error");
+      return false;
+    }
+    // iOS gates the sensor behind a permission prompt that must come from a user
+    // gesture — the click that called this is that gesture. `headingBusy` blocks
+    // a second tap from starting a second prompt while it's pending.
+    if (typeof doe.requestPermission === "function") {
+      if (headingBusy) return false;
+      headingBusy = true;
+      try {
+        if ((await doe.requestPermission()) !== "granted") {
+          toast("Compass permission denied — can't turn the map to your heading.", "error");
+          return false;
+        }
+      } catch {
+        toast("Couldn't start the compass.", "error");
+        return false;
+      } finally {
+        headingBusy = false;
+      }
+    }
+    // Centre on you rather than wherever the map was left. lastFix is from the
+    // locate that got us to this state, so it's fresh — no extra GPS.
+    const at = lastFix ?? { lng: map.getCenter().lng, lat: map.getCenter().lat };
+    if (lastFix) map.easeTo({ center: [lastFix.lng, lastFix.lat], duration: 400 });
+    try {
+      headingDec = declination(at.lat, at.lng);
+    } catch {
+      headingDec = 0;
+    }
+    smoothBearing = map.getBearing();
+    window.addEventListener("deviceorientationabsolute" as any, applyHeading);
+    window.addEventListener("deviceorientation", applyHeading);
+    toast("Heading up — the map turns to face the way you point. Tap again for north up.", "info");
+    return true;
+  }
+
+  async function cycleLocate() {
+    if (locBusy) return;
+    if (locState === "off") {
+      locBusy = true;
+      renderLoc();
+      try {
+        const f = await getFix();
+        lastFix = { lng: f.lng, lat: f.lat };
+        shownFix = f;
+        drawUserLoc(f);
+        map.flyTo({ center: [f.lng, f.lat], zoom: Math.max(map.getZoom(), 14) });
+        locState = "located";
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        toast(
+          /denied/i.test(msg)
+            ? "Location permission denied — allow it in your system settings."
+            : "Couldn't get a location fix. Most desktops have no GPS; this works on a phone or tablet.",
+          "error",
+          6000
+        );
+      } finally {
+        locBusy = false;
+        renderLoc();
+      }
+    } else if (locState === "located") {
+      if (await startHeading()) {
+        locState = "heading";
+        renderLoc();
+      }
+    } else {
+      stopHeadingSensor();
+      map.easeTo({ bearing: 0, duration: 400 }); // north up
+      locState = "off";
+      renderLoc();
+    }
+  }
+
+  class LocateControl implements maplibregl.IControl {
     private _c!: HTMLElement;
     onAdd() {
       const c = document.createElement("div");
       c.className = "maplibregl-ctrl maplibregl-ctrl-group";
       const b = document.createElement("button");
       b.type = "button";
-      b.title = "Heading up — turn the map to face the way you're pointing";
-      b.setAttribute("aria-pressed", "false");
-      b.innerHTML =
-        '<svg class="gd-heading-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
-        '<path d="M12 2 L19 21 L12 16.5 L5 21 Z" fill="currentColor"/></svg>';
-      b.addEventListener("click", () => void setHeadingUp(!headingUpOn));
-      headingBtn = b;
+      b.addEventListener("click", () => void cycleLocate());
+      locBtn = b;
       c.appendChild(b);
       this._c = c;
+      renderLoc();
       return c;
     }
     onRemove() {
       this._c.remove();
     }
   }
-  map.addControl(new HeadingUpControl(), "top-right");
-
-  // Same action from the HUD, where people actually look for it — the map
-  // control is easy to miss next to the zoom buttons, especially on a phone.
-  const locateBtn = document.getElementById("locate-me");
-  const locateIdle = locateBtn?.innerHTML ?? "";
-  function locateDone() {
-    if (!locateBtn) return;
-    locateBtn.removeAttribute("disabled");
-    locateBtn.innerHTML = locateIdle;
-  }
-  locateBtn?.addEventListener("click", () => {
-    // trigger() returns false when the control is still finishing its async
-    // permission check. Without this the button is simply dead for the first
-    // moment after launch, with nothing said — the exact silent failure the
-    // error handler below exists to prevent.
-    const started = geolocate.trigger();
-    if (!started) {
-      toast("Location is still starting up — try again in a second.", "info");
-      return;
-    }
-    // A fix can take the full 15s timeout, so say something is happening
-    // rather than leaving a button that looks like it did nothing.
-    locateBtn.setAttribute("disabled", "");
-    locateBtn.textContent = "◎ Locating…";
-  });
-  geolocate.on("geolocate", locateDone);
-  geolocate.on("trackuserlocationend", locateDone);
-  geolocate.on("error", (e: any) => {
-    locateDone();
-    // Never fail silently: the user pressed a button and is waiting.
-    const denied = e?.code === 1; // PERMISSION_DENIED
-    toast(
-      denied
-        ? "Location permission denied — allow it in your system settings."
-        : "Couldn't get a location fix. Most desktops have no GPS; this works on a phone or tablet.",
-      "error",
-      6000
-    );
-  });
+  map.addControl(new LocateControl(), "top-right");
   map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
 
@@ -1039,7 +1113,8 @@ function applyThemeUi() {
   // Icon-only now: the glyph shows what tapping switches TO, and the title
   // carries the words for anyone who needs them.
   if (themeBtn) {
-    themeBtn.textContent = currentTheme === "dark" ? "☀" : "☾";
+    (themeBtn.querySelector(".hud-icon-glyph") ?? themeBtn).textContent =
+      currentTheme === "dark" ? "☀" : "☾";
     themeBtn.title = currentTheme === "dark" ? "Switch to day colours" : "Switch to night colours";
   }
   const terrBtn = document.getElementById("terrain-toggle");
@@ -1398,7 +1473,7 @@ function initChrome() {
     document.body.classList.toggle("nightvis", on);
     nvBtn?.classList.toggle("on", on);
     if (nvBtn) {
-      nvBtn.textContent = on ? "◉" : "◑";
+      (nvBtn.querySelector(".hud-icon-glyph") ?? nvBtn).textContent = on ? "◉" : "◑";
       nvBtn.title = on ? "Night vision: on" : "Night vision (red)";
     }
   }

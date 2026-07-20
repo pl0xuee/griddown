@@ -1368,7 +1368,8 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Safe-area padding for the slide-out panels (notch / home indicator) */
+/* Safe-area padding for the slide-out panels (notch / home indicator) — keeps
+   each panel's close (×) button out from under the status-bar clock/battery. */
 #states-panel,
 #handbook-panel,
 #sky-panel,
@@ -1399,8 +1400,7 @@ button {
      not min-height: these hold glyphs of wildly different metrics (one is a
      colour emoji for the real moon phase) and none of them may set the size. */
   .hud-icon {
-    height: 42px;
-    font-size: 17px;
+    min-height: 52px;
   }
   .state-action {
     min-height: 40px;
@@ -1489,9 +1489,16 @@ body .maplibregl-ctrl-group button:focus:not(:focus-visible) {
 body .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
   filter: invert(0.86) sepia(0.35) saturate(3) hue-rotate(72deg) brightness(1.05);
 }
+/* Scale bars, themed to match instead of the default white-on-nothing. */
+body .maplibregl-ctrl-scale {
+  background-color: rgba(20, 28, 21, 0.82);
+  border-color: rgba(120, 200, 120, 0.55);
+  color: #cdeccd;
+}
+
 /* Heading-up toggle: its own inline SVG (uses currentColor, so the icon filter
    above doesn't touch it), lit brighter when the mode is on. */
-body .maplibregl-ctrl-group .gd-heading-svg {
+body .maplibregl-ctrl-group .gd-loc-svg {
   display: block;
   margin: auto;
   color: #a8d8a8;
@@ -1499,8 +1506,34 @@ body .maplibregl-ctrl-group .gd-heading-svg {
 body .maplibregl-ctrl-group button.gd-on {
   background-color: rgba(120, 200, 120, 0.28);
 }
-body .maplibregl-ctrl-group button.gd-on .gd-heading-svg {
+body .maplibregl-ctrl-group button.gd-on .gd-loc-svg {
   color: #eaffea;
+}
+/* While a fix is being fetched, pulse the icon so the button doesn't look dead
+   through the up-to-15s wait. */
+body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
+  animation: gd-loc-pulse 1s ease-in-out infinite;
+}
+@keyframes gd-loc-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg { animation: none; opacity: 0.6; }
+}
+
+/* The "you are here" dot we draw ourselves (see main.ts) — blue with a white
+   ring, the conventional location marker. The accuracy circle around it is a
+   map layer, not this element. */
+.gd-userloc-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 3px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 1px 5px rgba(0, 0, 0, 0.5);
 }
 
 .maplibregl-ctrl-attrib {
@@ -1635,7 +1668,11 @@ body .maplibregl-ctrl-group button.gd-on .gd-heading-svg {
   font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   display: flex;
   flex-direction: column;
+  /* Safe-area top so the × clears the status bar — this panel was missed by the
+     shared slide-out rule, and its own `padding` shorthand overrode it anyway. */
   padding: 14px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
 }
 #readiness-head {
   display: flex;
@@ -2694,25 +2731,28 @@ body.battery.nightvis .maplibregl-ctrl {
 .hud-icons {
   margin-top: 6px;
   display: flex;
-  gap: 5px;
+  align-items: stretch;
+  gap: 7px;
 }
 .hud-icon {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
-  height: 34px;
-  /* Centre the glyph rather than letting the line box place it, and keep the
-     border inside the height, so a tall glyph cannot change the button. */
+  /* Glyph over a short label, stacked. box-sizing keeps the border inside the
+     height so a tall glyph can't change the button. */
   box-sizing: border-box;
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
+  min-height: 46px;
   overflow: hidden;
-  border-radius: 7px;
+  padding: 8px 4px;
+  border-radius: 8px;
   border: 1px solid rgba(120, 200, 120, 0.4);
   background: rgba(30, 40, 30, 0.9);
   color: #cdeccd;
   font-family: inherit;
-  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
@@ -2724,6 +2764,24 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .hud-icon:active {
   transform: translateY(1px);
+}
+/* A fixed box for the glyph so every button is the same size regardless of what
+   sits in it — the moon is a full-colour emoji that otherwise renders larger
+   than the monochrome text glyphs and made that one button look bigger. */
+.hud-icon-glyph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  font-size: 16px;
+  line-height: 1;
+}
+.hud-icon-label {
+  font-size: 9px;
+  letter-spacing: 0.2px;
+  line-height: 1;
+  opacity: 0.85;
+  white-space: nowrap;
 }
 .hud-icon.off {
   opacity: 0.5;
@@ -2902,7 +2960,7 @@ body.battery.nightvis .maplibregl-ctrl {
     gap: 5px;
   }
   .hud-icons {
-    gap: 5px;
+    gap: 7px;
   }
 
   /* The body takes whatever is left. At the peek that is nothing, which is what
@@ -2949,7 +3007,9 @@ body.battery.nightvis .maplibregl-ctrl {
     bottom: calc(var(--sheet-peek) + 10px);
   }
   #map-legend {
-    bottom: calc(var(--sheet-peek) + 10px);
+    /* Sit above the centred coordinate readout (~2 lines), not beside it — on a
+       phone the right-aligned legend and the centre coords collided. */
+    bottom: calc(var(--sheet-peek) + 62px);
     max-width: 68vw;
   }
   /* Qualified with `body` on purpose. MapLibre ships
@@ -2970,7 +3030,7 @@ body.battery.nightvis .maplibregl-ctrl {
     bottom: calc(10px + env(safe-area-inset-bottom));
   }
   body.menu-hidden #map-legend {
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    bottom: calc(62px + env(safe-area-inset-bottom));
   }
   body.menu-hidden .maplibregl-ctrl-bottom-left {
     bottom: 0;

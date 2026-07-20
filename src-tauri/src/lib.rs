@@ -554,6 +554,14 @@ fn updates_supported() -> bool {
     cfg!(desktop)
 }
 
+/// Whether this is a mobile build (iOS/Android). The frontend uses it to pick
+/// native geolocation over the web API — see the note on the geolocation plugin
+/// in Cargo.toml. Compile-time, like `updates_supported`.
+#[tauri::command]
+fn is_mobile() -> bool {
+    cfg!(mobile)
+}
+
 /// Absolute path to the bundled starter pack (the whole US at low zoom).
 ///
 /// It has to be read through the asset protocol, not fetched from the frontend
@@ -956,12 +964,19 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
 
+    // Native geolocation, mobile only (the crate is not built for desktop —
+    // see Cargo.toml). Lets the app reach CoreLocation directly on iOS so there
+    // is only the system permission prompt, not WKWebView's extra website one.
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_geolocation::init());
+
     builder
         .invoke_handler(tauri::generate_handler![
             list_installed,
             state_path,
             starter_path,
             updates_supported,
+            is_mobile,
             delete_state,
             download_state,
             read_marks,

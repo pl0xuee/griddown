@@ -119,7 +119,7 @@ export function refreshSkyIcon() {
   if (!el) return;
   try {
     const phase = SunCalc.getMoonIllumination(new Date()).phase;
-    el.textContent = moonGlyph(phase);
+    (el.querySelector(".hud-icon-glyph") ?? el).textContent = moonGlyph(phase);
     el.title = `Sun & moon — ${moonPhaseName(phase).toLowerCase()}`;
   } catch {
     /* leave the static glyph */

@@ -6,6 +6,35 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.11
+
+**One location button, like other map apps.** The map's locate button now
+cycles: tap to find yourself, tap again to turn the map to face the way you're
+pointing (centred on you, not the crosshair), tap once more for north up. The
+separate compass button is gone, and "My location" has been removed from the
+menu — it was the same action, in a place the map already covers.
+
+**On iPhone, only the system location prompt now.** Asking for your location
+used to bring up two boxes: the real iOS one, and a second "localhost would like
+to use your location" from the web layer underneath. The app now reads location
+natively on a phone, so there is just the one iOS prompt. Nothing about where
+your location goes has changed — it still never leaves the device.
+
+**The mode buttons at the top of the menu have labels.** Theme, night vision,
+battery saver and sun/moon now say what they are under each icon, all the same
+size and with room to breathe.
+
+**The corner map controls and scale bars match the app.** The zoom and locate
+buttons, and the distance scales, were plain white boxes; they are dark with
+green markings now, like everything else.
+
+**The legend no longer overlaps the coordinates.** On a phone the legend card
+sat on top of the position readout at the bottom; it now sits clear above it.
+
+**The Readiness page's close button clears the status bar.** Its × was tucked
+under the clock and battery where it couldn't be tapped, like the other panels
+already handle.
+
 ## v0.1.10
 
 **The legend on the map is readable, and stays out of the way.** It shipped in

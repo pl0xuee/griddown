@@ -4,6 +4,7 @@ import { buildGPX, parseGPX } from "./gpx";
 import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
 import { BACKUP_KEY, fmtAge } from "./readiness";
 import { haversine } from "./geo";
+import { watchFix } from "./geoloc";
 import { saveFile } from "./save";
 import { confirmAction, promptAction } from "./dialog";
 
@@ -49,7 +50,11 @@ export async function initWaypoints(map: maplibregl.Map) {
 
   let recording = false;
   let recPts: Pt[] = [];
-  let watchId: number | null = null;
+  let stopWatch: (() => void) | null = null;
+  // Bumped on every startRec. The watch is async (native path spans real IPC),
+  // so a start→stop→start burst can leave an earlier watchFix still resolving;
+  // the generation lets a superseded watch stop itself instead of leaking.
+  let recGen = 0;
   let recStart = 0;
 
   // Persisting is async now, but callers are all UI handlers that don't need to
@@ -160,48 +165,57 @@ export async function initWaypoints(map: maplibregl.Map) {
   }
 
   function startRec() {
-    if (!("geolocation" in navigator)) {
-      toast("Location isn't available on this device.", "error");
-      return;
+    // Never leave a prior watch running, whatever state it's in.
+    if (stopWatch) {
+      stopWatch();
+      stopWatch = null;
     }
     recording = true;
     recPts = [];
     recStart = Date.now();
-    watchId = navigator.geolocation.watchPosition(
-      (p) => {
-        recPts.push([
-          p.coords.longitude,
-          p.coords.latitude,
-          p.coords.altitude ?? undefined,
-        ]);
+    const gen = ++recGen;
+    // Via geoloc.ts, so on a phone it's the native, single-prompt location.
+    void watchFix(
+      (f) => {
+        // Ignore a watch that's been superseded by a newer start, or fires
+        // after recording stopped but before its clearWatch takes effect.
+        if (gen !== recGen || !recording) return;
+        recPts.push([f.lng, f.lat, f.altitude]);
         ensureTrackLayer();
         updateRecUi(); // keep the live distance/points/time honest
       },
       // Swallowing this left the button reading "■ Stop recording" while nothing
       // was ever captured — the user believes they're recording the route they
       // walked, and finds out only when the track isn't there afterwards.
-      (err) => {
-        const why =
-          err.code === err.PERMISSION_DENIED
-            ? "location permission denied"
-            : err.code === err.POSITION_UNAVAILABLE
-              ? "no position fix available"
-              : "location timed out";
+      (msg) => {
+        if (gen !== recGen) return;
+        const why = /denied/i.test(msg)
+          ? "location permission denied"
+          : /no geolocation/i.test(msg)
+            ? "location isn't available on this device"
+            : "no position fix available";
         if (recPts.length === 0) {
           toast(`Can't record a track — ${why}.`, "error", 6000);
           stopRec();
         } else {
           toast(`Track recording interrupted — ${why}.`, "error", 5000);
         }
-      },
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
-    );
+      }
+    ).then((stop) => {
+      // Keep the stop fn only if this watch is still the current, active one;
+      // otherwise it was superseded or already stopped — kill it now so no
+      // native watch is left running (the drain the one-shot design avoids).
+      if (gen === recGen && recording) stopWatch = stop;
+      else stop();
+    });
     updateRecUi();
   }
   function stopRec() {
     recording = false;
-    if (watchId != null) navigator.geolocation.clearWatch(watchId);
-    watchId = null;
+    if (stopWatch) {
+      stopWatch();
+      stopWatch = null;
+    }
     if (recPts.length > 1) {
       tracks.push({ id: rid(), name: `Track ${tracks.length + 1}`, pts: recPts, t: Date.now() });
       saveTr();

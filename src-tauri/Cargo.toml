@@ -1,6 +1,6 @@
 [package]
 name = "griddown"
-version = "0.1.10"
+version = "0.1.11"
 description = "Offline topographic maps for when the grid is down"
 authors = ["pl0xuee"]
 edition = "2021"
@@ -52,4 +52,12 @@ sha2 = "0.10"
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+
+# Native geolocation, mobile only. On iOS this goes straight to CoreLocation, so
+# the only prompt is the system one — the web `navigator.geolocation` path we use
+# on desktop makes WKWebView add a second, per-website "localhost wants your
+# location" prompt on top of it. Desktop keeps the web API (no such double
+# prompt there), so this crate is not built for desktop at all.
+[target."cfg(any(target_os = \"android\", target_os = \"ios\"))".dependencies]
+tauri-plugin-geolocation = "2"
 

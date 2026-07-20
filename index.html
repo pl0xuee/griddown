@@ -40,10 +40,10 @@
              joins them because its icon carries information the others don't:
              tonight's actual moon phase. -->
         <div class="hud-icons">
-          <button id="theme-toggle" type="button" class="hud-icon" aria-label="Day or night colours" title="Day / night colours">&#9728;</button>
-          <button id="nightvis-toggle" type="button" class="hud-icon" aria-label="Night vision" title="Night vision (red)">&#9681;</button>
-          <button id="battery-toggle" type="button" class="hud-icon" aria-label="Battery saver" title="Battery saver">&#9098;</button>
-          <button id="sky-open" type="button" class="hud-icon" aria-label="Sun and moon times" title="Sun &amp; moon times">&#9728;</button>
+          <button id="theme-toggle" type="button" class="hud-icon" aria-label="Day or night colours" title="Day / night colours"><span class="hud-icon-glyph">&#9728;</span><span class="hud-icon-label">Theme</span></button>
+          <button id="nightvis-toggle" type="button" class="hud-icon" aria-label="Night vision" title="Night vision (red)"><span class="hud-icon-glyph">&#9681;</span><span class="hud-icon-label">Night vis</span></button>
+          <button id="battery-toggle" type="button" class="hud-icon" aria-label="Battery saver" title="Battery saver"><span class="hud-icon-glyph">&#9098;</span><span class="hud-icon-label">Battery</span></button>
+          <button id="sky-open" type="button" class="hud-icon" aria-label="Sun and moon times" title="Sun &amp; moon times"><span class="hud-icon-glyph">&#9728;</span><span class="hud-icon-label">Sun/moon</span></button>
         </div>
 
         <!-- Layers and resources were two sections of the same thing: toggles
@@ -65,7 +65,6 @@
              library last, since none of it is needed in a hurry. -->
         <div class="hud-sub">NAVIGATE</div>
         <div class="hud-grid">
-          <button id="locate-me" type="button" title="Find my location and centre the map">&#9678; My location</button>
           <!-- One "Find": it takes a place name OR a grid reference, so there
                is no need to know which box to reach for before you look. -->
           <button id="search-open" type="button" title="Search a place name, or jump to an MGRS or lat/long">&#8981; Find</button>
