@@ -1,6 +1,6 @@
 [package]
 name = "griddown"
-version = "0.1.6"
+version = "0.1.7"
 description = "Offline topographic maps for when the grid is down"
 authors = ["pl0xuee"]
 edition = "2021"

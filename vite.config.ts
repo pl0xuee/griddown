@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -33,13 +33,19 @@ const host = process.env.TAURI_DEV_HOST;
  * and is what a fresh install is supposed to open on.
  */
 function stripDevRegion() {
+  // Taken from the resolved config rather than hardcoded. `rmSync` with
+  // `force` swallows a missing path, so a wrong directory here would not fail
+  // — it would silently do nothing and ship the 941 MB it was added to remove.
+  let outDir = "dist";
   return {
     name: "griddown:strip-dev-region",
     apply: "build" as const,
+    configResolved(config: { root: string; build: { outDir: string } }) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
     closeBundle() {
-      const out = "dist";
       for (const f of ["region.json", join("mapdata", "region.pmtiles"), "dem"]) {
-        rmSync(join(out, f), { force: true, recursive: true });
+        rmSync(join(outDir, f), { force: true, recursive: true });
       }
     },
   };

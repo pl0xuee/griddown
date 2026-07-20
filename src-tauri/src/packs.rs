@@ -200,14 +200,54 @@ fn resume_from(part: &Path, meta: &Path, pack: &Pack) -> u64 {
     have
 }
 
+/// What to do after a failed attempt.
+enum Recover {
+    /// Retrying cannot help.
+    Stop,
+    /// Retry, keeping the bytes already on disk — they are still a valid prefix.
+    Retry,
+    /// Retry, but throw the partial away first: it is itself the problem.
+    ///
+    /// Without this a bad partial is immortal. `resume_from` only rejects a file
+    /// *longer* than the pack, so a short-but-wrong one is offered up again on
+    /// every future attempt, and the state can never be downloaded again.
+    Reset,
+}
+
+/// Where the server says this body starts, and how long the whole file is.
+/// `bytes 1000-1999/2000` -> `(Some(1000), Some(2000))`. Either may be absent:
+/// the total is `*` when the server does not know it, and anything malformed
+/// yields `None` rather than a guess — the caller treats not-knowing as a
+/// reason to start over, never as agreement.
+fn parse_content_range(v: &str) -> (Option<u64>, Option<u64>) {
+    // The unit is required, not assumed. Without this check a header in some
+    // other unit still yields a plausible-looking total, and that total is
+    // compared against the manifest — so a malformed header would abort a
+    // perfectly healthy download as "the index is out of date".
+    let Some(rest) = v.trim().strip_prefix("bytes ") else {
+        return (None, None);
+    };
+    let rest = rest.trim();
+    let (range, total) = rest.split_once('/').unwrap_or((rest, "*"));
+    let start = range.split('-').next().and_then(|s| s.trim().parse().ok());
+    (start, total.trim().parse().ok())
+}
+
+fn content_range(resp: &reqwest::blocking::Response) -> (Option<u64>, Option<u64>) {
+    resp.headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .map(parse_content_range)
+        .unwrap_or((None, None))
+}
+
 /// One download attempt, resuming from whatever is already on disk.
-/// The bool in the error is whether retrying could plausibly help.
 fn attempt(
     client: &reqwest::blocking::Client,
     pack: &Pack,
     part: &Path,
     progress: &mut dyn FnMut(u64, u64),
-) -> Result<(), (String, bool)> {
+) -> Result<(), (String, Recover)> {
     let have = part.metadata().map(|m| m.len()).unwrap_or(0);
     if have == pack.bytes {
         return Ok(());
@@ -217,7 +257,7 @@ fn attempt(
     if have > 0 {
         req = req.header(reqwest::header::RANGE, format!("bytes={have}-"));
     }
-    let resp = req.send().map_err(|e| (format!("{e}"), true))?;
+    let resp = req.send().map_err(|e| (format!("{e}"), Recover::Retry))?;
 
     let status = resp.status();
     // A 200 to a ranged request means the server sent the whole file from the
@@ -225,9 +265,54 @@ fn attempt(
     // start the file over rather than appending it to what is already there.
     let restart = have > 0 && status == reqwest::StatusCode::OK;
     if !status.is_success() {
-        let retryable =
-            status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
-        return Err((format!("server returned {status}"), retryable));
+        // 416 means we asked to start past the end of the file — so what is on
+        // disk is longer than the file actually is, and resuming from it can
+        // only ask the same impossible question again. The partial has to go.
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            return Err((
+                "the pack on the server is smaller than the partial download".into(),
+                Recover::Reset,
+            ));
+        }
+        let how = if status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            Recover::Retry
+        } else {
+            Recover::Stop
+        };
+        return Err((format!("server returned {status}"), how));
+    }
+
+    // What the server says about the file, checked against what the manifest
+    // claims. They disagree while a pack is being re-cut: the asset is replaced
+    // before the manifest that describes it. Downloading anyway would fail the
+    // hash after a full transfer, so stop now and let the caller fall back.
+    let (start, total) = content_range(&resp);
+    let served_total = total.or_else(|| if restart { resp.content_length() } else { None });
+    if let Some(t) = served_total {
+        if t != pack.bytes {
+            let _ = std::fs::remove_file(part);
+            return Err((
+                format!(
+                    "pack index is out of date (server has {t} bytes, index says {})",
+                    pack.bytes
+                ),
+                Recover::Stop,
+            ));
+        }
+    }
+    // A 206 that does not begin where we asked would be appended blind,
+    // producing a file of the right length and the wrong content — caught only
+    // by the hash, after paying for the whole transfer.
+    if have > 0 && !restart {
+        match start {
+            Some(s) if s == have => {}
+            _ => {
+                return Err((
+                    format!("server resumed at {start:?}, not {have}"),
+                    Recover::Reset,
+                ))
+            }
+        }
     }
 
     let mut written = if restart { 0 } else { have };
@@ -237,7 +322,12 @@ fn attempt(
         .truncate(restart)
         .append(!restart)
         .open(part)
-        .map_err(|e| (format!("could not open {}: {e}", part.display()), false))?;
+        .map_err(|e| {
+            (
+                format!("could not open {}: {e}", part.display()),
+                Recover::Stop,
+            )
+        })?;
     let mut out = std::io::BufWriter::new(file);
 
     let mut body = resp;
@@ -250,24 +340,41 @@ fn attempt(
             // of resuming, and the next attempt picks up from it.
             Err(e) => {
                 let _ = out.flush();
-                return Err((format!("{e}"), true));
+                return Err((format!("{e}"), Recover::Retry));
             }
         };
-        out.write_all(&buf[..n])
-            .map_err(|e| (format!("could not write to {}: {e}", part.display()), false))?;
+        out.write_all(&buf[..n]).map_err(|e| {
+            (
+                format!("could not write to {}: {e}", part.display()),
+                Recover::Stop,
+            )
+        })?;
         written += n as u64;
-        progress(written, pack.bytes);
+        // Clamped: a server that sends more than it should would otherwise
+        // drive the progress bar past 100%.
+        progress(written.min(pack.bytes), pack.bytes);
     }
-    out.flush()
-        .map_err(|e| (format!("could not write to {}: {e}", part.display()), false))?;
+    out.flush().map_err(|e| {
+        (
+            format!("could not write to {}: {e}", part.display()),
+            Recover::Stop,
+        )
+    })?;
     drop(out);
 
+    // From the file, not from the running count: the count tracks bytes handed
+    // to the writer, and the flush above is the last thing that can lose them.
     let got = part.metadata().map(|m| m.len()).unwrap_or(0);
+    progress(got.min(pack.bytes), pack.bytes);
     if got != pack.bytes {
-        return Err((
-            format!("short download: expected {} bytes, have {got}", pack.bytes),
-            true,
-        ));
+        // Too long means the body did not line up with what was already there,
+        // so the file is wrong rather than merely incomplete.
+        let how = if got > pack.bytes {
+            Recover::Reset
+        } else {
+            Recover::Retry
+        };
+        return Err((format!("expected {} bytes, have {got}", pack.bytes), how));
     }
     Ok(())
 }
@@ -308,28 +415,38 @@ pub fn download(
                 ok = true;
                 break;
             }
-            Err((e, retryable)) => {
+            Err((e, how)) => {
                 last_err = e;
-                if !retryable || n + 1 == MAX_ATTEMPTS {
+                if matches!(how, Recover::Reset) {
+                    // The bytes on disk are the problem, so keeping them would
+                    // just reproduce this failure on every future attempt.
+                    let _ = std::fs::remove_file(&part);
+                    progress(0, pack.bytes);
+                }
+                if matches!(how, Recover::Stop) || n + 1 == MAX_ATTEMPTS {
                     break;
                 }
                 let wait = (1u64 << n).min(MAX_BACKOFF_SECS);
                 status(&format!(
-                    "Connection lost ({last_err}) — retrying in {wait}s…"
+                    "Download interrupted ({last_err}) — retrying in {wait}s…"
                 ));
                 std::thread::sleep(std::time::Duration::from_secs(wait));
             }
         }
     }
     if !ok {
-        // The partial file is left alone: it is still a valid prefix, and the
-        // next attempt resumes from it rather than starting over.
+        // Whatever survived is left alone: it is a valid prefix, and the next
+        // attempt resumes from it rather than starting over. Anything that was
+        // NOT a valid prefix has already been deleted above.
         return Err(last_err);
     }
 
     status("Verifying…");
     let got = file_sha256(&part)?;
-    if got != pack.sha256 {
+    // Case-insensitively: we emit lowercase, but nothing stops the manifest
+    // carrying uppercase, and a false mismatch here deletes a perfectly good
+    // 1.4 GB download and looks exactly like real corruption.
+    if !got.eq_ignore_ascii_case(&pack.sha256) {
         // Not resumable: we cannot tell which bytes are wrong, so keeping the
         // file would make every future resume inherit the corruption.
         let _ = std::fs::remove_file(&part);
@@ -553,6 +670,26 @@ mod tests {
         assert_eq!(file_sha256(&out).unwrap(), p.sha256);
         assert!(!part.exists() && !meta.exists(), "scratch files cleaned up");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reads_where_the_server_says_the_body_starts() {
+        assert_eq!(
+            parse_content_range("bytes 1000-1999/2000"),
+            (Some(1000), Some(2000))
+        );
+        // Total unknown is legal, and must not read as "0 bytes" — that would
+        // look like the manifest disagreeing and abort a healthy download.
+        assert_eq!(parse_content_range("bytes 1000-1999/*"), (Some(1000), None));
+        assert_eq!(
+            parse_content_range("  bytes 0-99/100  "),
+            (Some(0), Some(100))
+        );
+        // Junk yields None, never a guess: the caller restarts rather than
+        // appending a body it cannot place.
+        assert_eq!(parse_content_range("pages 1-2/3"), (None, None));
+        assert_eq!(parse_content_range(""), (None, None));
+        assert_eq!(parse_content_range("bytes */1234"), (None, Some(1234)));
     }
 
     #[test]

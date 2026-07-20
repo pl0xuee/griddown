@@ -6,6 +6,53 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v0.1.7
+
+**Downloading a state is one file now.** It never was a file: the app rebuilt
+each state on your phone out of a shared archive of the whole planet. Oregon
+took 65,160 separate requests averaging 8 KB each, and most of the wait was
+round trips, not data. All 52 states are now cut ahead of time and published as
+finished packs, so downloading one is a single request. Oregon takes seconds.
+
+**Downloads survive a dropped connection.** A half-gigabyte file over a phone
+connection will be interrupted, so a download now resumes from the bytes already
+on disk instead of starting over, and a retry re-sends only what was lost. Every
+finished pack is checked against a fingerprint published alongside it before it
+counts as installed; one that arrives damaged is discarded rather than kept.
+
+**A fresh install opens on a real map.** v0.1.6 drew the states as outlines,
+which was better than an empty screen but still not a map. The app now ships a
+coarse map of the whole country — 11 MB — so a new install opens on real coast,
+rivers and roads, and you can find the state you want before downloading it.
+
+**Alaska builds at all.** It could not be prepared: it is fourteen times the
+work of California, not through any fault of its own but because it genuinely is
+that large that far north. It is now cut one zoom level shallower, which is a
+quarter of the work. The map still zooms in; detail simply stops sharpening a
+step earlier — a fair trade for Alaska existing.
+
+**Every yes/no prompt was skipped, not shown.** Deleting a map pack, restoring a
+backup of your pins and tracks, and installing an update all went ahead without
+asking. The confirmation was being requested in a way that could never return an
+answer, and the check treated "no answer yet" as yes — so the action always
+proceeded and an error was logged after the fact. Plain messages were unaffected,
+which is why nothing looked wrong. The restore is the one that mattered: it is
+the guard standing in front of replacing every pin and track you have, and it
+had stopped standing there.
+
+**Interrupted downloads no longer leave hundreds of megabytes behind.** A
+download that died partway left scrap that nothing would ever read or clean up —
+323 MB of it on the machine this was found on. It is now cleared before a
+download starts, so the space comes back before it is needed rather than after.
+
+**The app icon has rounded corners** on Windows, Linux and macOS. iOS and
+Android are left square on purpose: both round icons themselves, and a
+pre-rounded image shows its own dark corners inside the system's mask.
+
+_Also: fixed a packaged build made on a developer's machine swallowing their
+local map and terrain data — 953 MB of app where 13 MB was correct — and the
+app refusing to start in development at all since the pack builder was added._
+
 ## v0.1.6
 
 **The app shows a map on first launch.** A new install has no map data — a
@@ -29,12 +76,18 @@ it out of the way, up to use it. The button did the same job as the gesture and
 left a pill in the corner that collided with the map controls.
 
 **Downloads are faster again, and this time it was measured.** Raising how many
-requests run at once had barely helped, and the reason was not the server: the
-HTTP client negotiates HTTP/2, which multiplexes every request onto a single
-connection, so all the workers queued behind one window. Given real connections
-instead, a Rhode Island download went from 21.4 to 14.0 seconds. Sixteen at once
-is where it stops helping — thirty-two is slower — and the benchmark that
-established that ships as a test.
+requests run at once had barely helped. Giving each worker its own connection
+took a Rhode Island download from 21.4 to 14.0 seconds. Sixteen at once is where
+it stops helping — thirty-two is slower — and the benchmark that established
+that ships as a test.
+
+> **Correction (v0.1.7).** This entry originally blamed HTTP/2 multiplexing.
+> That was wrong: HTTP/2 is not in this build at all, which `cargo tree` shows
+> plainly and which nobody checked before publishing. The real cause was the
+> blocking HTTP client — every client owns one background thread, so sixteen
+> workers sharing one client funnelled sixteen "parallel" downloads through it.
+> The fix and the numbers above are unchanged; only the explanation was wrong.
+> See v0.1.7 for what the measurements eventually turned up.
 
 ## v0.1.5
 

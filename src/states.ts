@@ -98,6 +98,11 @@ export async function initStateLibrary(cb: (t: SwitchTarget) => void) {
           return;
         }
         if (typeof e.payload.pct !== "number") return;
+        // Same stale-event guard the line branch and the DEM handler already
+        // have. Without it a progress event arriving after the command's
+        // promise resolves puts the state back into `downloading`, and the row
+        // is stuck on a disabled percentage with no way back short of restart.
+        if (!downloading.has(e.payload.abbr)) return;
         downloading.set(e.payload.abbr, e.payload.pct);
         updateRow(e.payload.abbr);
       }
@@ -314,6 +319,10 @@ function updateRow(abbr: string) {
   list?.querySelector(`[data-mvum="${abbr}"]`)?.addEventListener("click", () => downloadMvum(s));
   list?.querySelector(`[data-del="${abbr}"]`)?.addEventListener("click", () => remove(abbr));
   list?.querySelector(`[data-dl="${abbr}"]`)?.addEventListener("click", () => download(s));
+  // render() binds this too. Leaving it out here meant that after any row
+  // refresh — terrain finishing, forest roads finishing, a pack update — the
+  // node was replaced and Export stopped working until a full re-render.
+  list?.querySelector(`[data-share="${abbr}"]`)?.addEventListener("click", () => sharePack(s));
 }
 
 async function downloadDem(s: StateEntry) {
@@ -516,8 +525,12 @@ async function importPack() {
 async function remove(abbr: string) {
   if (!inTauri) return;
   const s = catalog.find((c) => c.abbr === abbr);
-  if (!(await confirmAction(`Delete the downloaded map for ${s?.name ?? abbr}?`))) return;
   try {
+    // Inside the try: `remove` is called as a floating promise, so a dialog
+    // that rejects would otherwise be an unhandled rejection and the button
+    // would simply appear dead — the exact failure this dialog work set out
+    // to remove.
+    if (!(await confirmAction(`Delete the downloaded map for ${s?.name ?? abbr}?`))) return;
     await invoke("delete_state", { abbr });
     if (activeAbbr === abbr) {
       activeAbbr = "";
