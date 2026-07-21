@@ -39,6 +39,7 @@ import { initRoute } from "./route";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
 import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
+import { initPlantPanel, openPlant, findPlant } from "./plantpanel";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
 import { initCompass, headingFrom, shortestTurn } from "./compass";
@@ -1242,7 +1243,14 @@ async function start() {
     hideCards(forageBox);
     const g = likelyForage({ landuseKind, elevationFt: elevFt, lat, lng, month: new Date().getMonth() });
     const elevLabel = elevFt != null ? `${Math.round(elevFt).toLocaleString()} ft · ` : "";
-    const plants = g.plants.map((s) => `<span class="card-chip">${esc(s)}</span>`).join("");
+    const plants = g.plants
+      .map((s) => {
+        const sym = findPlant(s);
+        return sym
+          ? `<button class="card-chip card-chip--link" type="button" data-plant="${esc(sym)}">${esc(s)} &#8250;</button>`
+          : `<span class="card-chip">${esc(s)}</span>`;
+      })
+      .join("");
     const game = g.game.map((s) => `<span class="card-chip">${esc(s)}</span>`).join("");
     forageBox.innerHTML = `
       <div class="card-head">
@@ -1267,6 +1275,12 @@ async function start() {
     document.getElementById("forage-route")?.addEventListener("click", () => {
       forageBox.classList.add("hidden");
       routeCtl?.routeTo(lng, lat, g.habitat);
+    });
+    forageBox.querySelectorAll<HTMLElement>("[data-plant]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const sym = el.dataset.plant;
+        if (sym) openPlant(sym);
+      });
     });
     document.getElementById("forage-book")?.addEventListener("click", () =>
       openHandbook("survival use of plants")
@@ -1871,6 +1885,10 @@ async function start() {
     const c = map.getCenter();
     return { lat: c.lat, lng: c.lng };
   });
+
+  // Reads the active pack straight from where states.ts keeps it, so the plant
+  // list marks what is recorded in the state you are actually looking at.
+  initPlantPanel(() => localStorage.getItem("griddown_active_state") || "");
 
   void initWaypoints(map);
   initMeasure(map);

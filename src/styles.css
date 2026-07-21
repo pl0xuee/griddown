@@ -3556,6 +3556,252 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 
 
+/* --- Plant reference -----------------------------------------------------
+   Verdict colour is the loudest thing on each row on purpose: someone scanning
+   this list is deciding what NOT to eat, and that has to read before the name
+   does. Deadly is the same red as the military keep-out card, deliberately —
+   both mean "this will hurt you", and one vocabulary is easier to learn. */
+#plants-search {
+  flex: none;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--surface-sunk);
+  color: var(--type-loud);
+  font-family: inherit;
+  font-size: 14px;
+}
+#plants-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pl-group {
+  margin: 14px 0 6px;
+  font-family: var(--font-collar);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 9.5px;
+  color: var(--type-quiet);
+}
+.pl-group:first-child { margin-top: 2px; }
+
+.pl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 5px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: var(--wash);
+  color: var(--type);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-row:hover { border-color: var(--rule-hot); }
+.pl-row-body { flex: 1; min-width: 0; }
+.pl-row-name { display: block; font-size: 13px; color: var(--type-loud); }
+.pl-row-sci {
+  display: block;
+  font-size: 10.5px;
+  font-style: italic;
+  color: var(--type-quiet);
+}
+.pl-row-warn {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--bad-soft);
+}
+.pl-row-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.pl-here {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--good);
+}
+
+.pl-thumb {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: var(--radius-xs);
+  background: var(--surface-sunk);
+}
+.pl-thumb--none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  opacity: 0.5;
+}
+
+.pl-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 8.5px;
+  white-space: nowrap;
+}
+.pl-deadly { background: rgba(255, 90, 90, 0.22); color: var(--bad); }
+.pl-toxic { background: var(--warn-wash); color: var(--warn); }
+.pl-irritant { background: var(--warn-wash); color: var(--warn-soft); }
+.pl-edible-with-care { background: var(--good-wash); color: var(--good); }
+.pl-edible { background: var(--good-wash); color: var(--good); }
+
+/* --- detail --- */
+.pl-back {
+  flex: none;
+  margin-bottom: 10px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pl-back:hover { border-color: var(--rule-hot); }
+.pl-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pl-title { font-size: 17px; color: var(--type-loud); }
+.pl-sci {
+  margin-top: 2px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--type-quiet);
+}
+.pl-fig { margin: 10px 0 0; }
+.pl-fig img {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+}
+.pl-fig figcaption {
+  margin-top: 3px;
+  font-size: 9.5px;
+  color: var(--type-quiet);
+}
+
+/* A wild-food chip the plant reference knows about — tapping it opens the entry,
+   where the dangerous lookalikes are. */
+.card-chip--link {
+  cursor: pointer;
+  border-color: var(--rule-firm);
+  font-family: inherit;
+}
+.card-chip--link:hover {
+  border-color: var(--rule-hot);
+  color: var(--type-loud);
+}
+
+.pl-of { color: var(--warn-soft); }
+.pl-nophoto {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--rule-firm);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+
+.pl-section { margin-top: 14px; }
+.pl-section p { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.pl-h {
+  margin-bottom: 5px;
+  font-family: var(--font-collar);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 9.5px;
+  color: var(--type-quiet);
+}
+
+/* The tell is the single most useful sentence on the page — the one thing you
+   can actually check in the field — so it gets the emphasis. */
+.pl-section--tell {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  border-left: 3px solid var(--type-loud);
+  background: var(--wash);
+}
+.pl-section--tell p { color: var(--type-loud); }
+
+/* The lookalike block for an edible sits above everything about eating it. */
+.pl-section--warn {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 90, 90, 0.45);
+  background: rgba(255, 90, 90, 0.08);
+}
+.pl-section--warn .pl-h { color: var(--bad); }
+
+.pl-look {
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--rule-faint);
+  background: var(--surface-sunk);
+  color: var(--type);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pl-look:hover { border-color: var(--rule-hot); }
+.pl-look--deadly { border-color: rgba(255, 90, 90, 0.5); }
+.pl-look-body { flex: 1; min-width: 0; }
+.pl-look-name { display: block; font-size: 13px; color: var(--type-loud); margin-bottom: 3px; }
+.pl-look-tell {
+  display: block;
+  margin-top: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--type-2);
+}
+
+.pl-note,
+.pl-empty {
+  margin: 4px 0 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+.pl-caution {
+  /* flex: none inside .panel, so it holds the bottom of the panel while
+     #plants-body scrolls above it. */
+  flex: none;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 90, 90, 0.35);
+  background: rgba(255, 90, 90, 0.06);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--bad-soft);
+}
+
+
 /* =========================================================================
    Type roles — deliberately LAST.
 

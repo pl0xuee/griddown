@@ -6,6 +6,36 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.4
+
+**Edible and dangerous plants, with pictures.** A new **Plants** reference under
+Off the land: 33 plants, photographed, with what each one looks like, where and
+when it grows, and — the part that matters — what it is confused with.
+
+Nothing edible is ever shown on its own. Open wild carrot and you meet water
+hemlock first, before a word about eating it. Open wild onion and death camas is
+right there, with the one test that separates them: *if it does not smell of
+onion, it is not an onion*. Every entry carries a "How to tell" — a single thing
+you can check in the field, not a paragraph of description. A true morel is
+hollow from tip to base; a destroying angel has a cup around its buried stem;
+water hemlock's root is chambered and no edible root in that family is.
+
+The deadly plants come first in the list, always, because the cost of missing
+them is not the same as the cost of missing a meal.
+
+- **Marked for your state.** Plants recorded where your map pack is get a
+  "Recorded here" tag. Nothing is ever hidden on that basis — the official state
+  records are patchy, so an unmarked plant may still grow at your feet.
+- **Wild food links through.** Plant names in the Wild food card are now
+  tappable and open the full entry, so a habitat guess leads to the warnings
+  rather than stopping at a name.
+- **84 photographs**, every one public domain or CC0, credited. Where a picture
+  is of a close relative rather than the exact species, it says so on the caption.
+
+The safety warning stays pinned to the bottom of the panel rather than sitting
+at the end of a long scroll. This is a reference, not an identification — it
+cannot tell you what you are holding, and it never pretends to.
+
 ## v1.1.3
 
 **A new look, and public land you can tap.**

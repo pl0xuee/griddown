@@ -156,6 +156,7 @@
           <button id="camp-open" type="button" title="Is the spot under the crosshair good to camp?">&#9978; Camp check</button>
           <button id="season-open" type="button" title="What's in season here right now">&#128197; In season</button>
           <button id="lakes-open" type="button" title="Named lakes, reservoirs, rivers and creeks, nearest to you first">&#128167; Nearby water</button>
+          <button id="plants-open" type="button" title="Edible and dangerous plants — what grows here and what it is confused with">&#127807; Plants</button>
         </div>
 
         <!-- Quietest group on purpose: none of it is any use once you are out
@@ -265,6 +266,25 @@
     <div id="fish-box" class="hidden"></div>
     <!-- Wild-food identify (tap woods/fields with the Wild food layer on) -->
     <div id="forage-box" class="card-box hidden"></div>
+    <!-- Plant reference: edible and dangerous plants, deadliest first. The
+         detail view always renders an edible's dangerous lookalikes on the same
+         screen — see src/plantpanel.ts. -->
+    <div id="plants-panel" class="panel hidden">
+      <div id="plants-head" class="panel-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Plants</div>
+        </div>
+        <button id="plants-close" class="panel-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <input id="plants-search" type="text" placeholder="Search plants&hellip;" autocomplete="off" spellcheck="false" />
+      <div id="plants-body"></div>
+      <!-- Pinned, not appended. This warning is the reason the panel exists, and
+           at the bottom of a scrolling list it was only ever read by people who
+           had already finished deciding. -->
+      <div id="plants-caution" class="pl-caution"></div>
+    </div>
+
     <!-- Public-land identify (tap a park/forest/military area with the Public
          land layer on) -->
     <div id="land-box" class="card-box hidden"></div>
