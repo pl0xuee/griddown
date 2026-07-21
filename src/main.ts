@@ -1,6 +1,21 @@
 import maplibregl from "maplibre-gl";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import "maplibre-gl/dist/maplibre-gl.css";
+
+// UI typefaces, bundled rather than linked. The app's CSP is `font-src 'self'
+// data:`, so a webfont CDN could not load even with a signal; and the point of
+// this app is that it works with no signal at all. Latin subsets only — six
+// woff2 files, ~120 KB, against state packs measured in gigabytes.
+//
+// Three roles, and only three: Archivo Narrow letters the collar and labels,
+// Public Sans carries prose, IBM Plex Mono is reserved for measured values.
+// See the type-role comment at the top of styles.css.
+import "@fontsource/archivo-narrow/latin-500.css";
+import "@fontsource/archivo-narrow/latin-600.css";
+import "@fontsource/public-sans/latin-400.css";
+import "@fontsource/public-sans/latin-600.css";
+import "@fontsource/ibm-plex-mono/latin-400.css";
+import "@fontsource/ibm-plex-mono/latin-500.css";
 import { Protocol } from "pmtiles";
 import { layers, namedFlavor } from "@protomaps/basemaps";
 import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
@@ -10,6 +25,7 @@ import { initMesh } from "./mesh";
 import { initHandbook, openHandbook } from "./handbook";
 import { likelyFish, FISHABLE_KINDS } from "./fish";
 import { likelyForage } from "./forage";
+import { landInfo, type LandInfo } from "./publicland";
 import { seasonReport } from "./season";
 import { scoreCamp, type CampInputs } from "./campsite";
 import { nearbyLakes, lakeNameNear, clearLakesCache, type Lake } from "./lakes";
@@ -22,11 +38,11 @@ import { initSearch, resetPlaceIndex } from "./search";
 import { initRoute } from "./route";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
-import { initPanels } from "./panels";
+import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
 import { initCompass, headingFrom, shortestTurn } from "./compass";
-import { declination, magneticToTrue } from "./geomag";
+import { declination, magneticToTrue, formatDeclination } from "./geomag";
 import { getFix, type GeoFix } from "./geoloc";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
@@ -527,6 +543,25 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     source: "protomaps",
     "source-layer": "water",
     filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "name"]],
+    paint: { "circle-radius": 3, "circle-opacity": 0, "circle-stroke-width": 0 },
+  });
+
+  // Public land has the same problem lakes do, one step worse: the `landuse`
+  // polygons carry ONLY `kind` and `sort_rank` — no name field exists on them.
+  // The unit names ("Three Sisters Wilderness") live in `pois` as separate
+  // points. This invisible layer makes them queryable so a tapped polygon can
+  // be matched to the name whose point falls inside it.
+  base.push({
+    id: "app-land-name",
+    type: "circle",
+    source: "protomaps",
+    "source-layer": "pois",
+    filter: [
+      "all",
+      ["==", ["geometry-type"], "Point"],
+      ["has", "name"],
+      ["in", ["get", "kind"], ["literal", [...PUBLIC_KINDS, ...MILITARY_KINDS, "forest", "wood"]]],
+    ],
     paint: { "circle-radius": 3, "circle-opacity": 0, "circle-stroke-width": 0 },
   });
 
@@ -1079,6 +1114,7 @@ async function start() {
   });
   document.getElementById("publicland-toggle")?.addEventListener("click", () => {
     publicLandOn = !publicLandOn;
+    if (!publicLandOn) document.getElementById("land-box")?.classList.add("hidden");
     localStorage.setItem("griddown_publicland", publicLandOn ? "1" : "0");
     map.setStyle(buildStyle(currentTheme));
     applyThemeUi();
@@ -1116,6 +1152,7 @@ async function start() {
   // reads the pack's own data, so it all works offline. ---
   const fishBox = document.getElementById("fish-box");
   const forageBox = document.getElementById("forage-box");
+  const landBox = document.getElementById("land-box");
   const campBox = document.getElementById("camp-box");
   const seasonBox = document.getElementById("season-box");
   const lakesBox = document.getElementById("lakes-box");
@@ -1130,7 +1167,7 @@ async function start() {
   // cancels any pending render for a card we're hiding.
   function hideCards(keep?: Element | null) {
     cardGen++;
-    for (const b of [fishBox, forageBox, campBox, seasonBox, lakesBox]) {
+    for (const b of [fishBox, forageBox, landBox, campBox, seasonBox, lakesBox]) {
       if (b && b !== keep) b.classList.add("hidden");
     }
   }
@@ -1236,6 +1273,57 @@ async function start() {
     );
   }
 
+  /**
+   * Who owns this ground, and what that lets you do.
+   *
+   * The access verdict drives the card's accent, because "may I be here" is the
+   * question — a military boundary has to read as a stop, not as another
+   * information card the same colour as the rest.
+   */
+  function renderLandBox(lng: number, lat: number, info: LandInfo) {
+    if (!landBox) return;
+    hideCards(landBox);
+    const rules = info.rules
+      .map(
+        (r) =>
+          `<div class="land-rule ${r.ok === true ? "yes" : r.ok === false ? "no" : ""}">` +
+          `<span class="lr-k">${esc(r.label)}</span><span class="lr-v">${esc(r.value)}</span></div>`
+      )
+      .join("");
+    const notes = info.notes.map((n) => `<li>${esc(n)}</li>`).join("");
+    // Three things, in the order you want them: which unit you are in, what
+    // kind of public land that is, and who runs it. The name is the headline
+    // when we recovered one; the category always shows, because "what is this"
+    // is the question being asked.
+    const heading = info.name || info.title;
+    const kindLine = info.name ? info.title : "";
+    landBox.className = `card-box access-${info.access}`;
+    landBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#9634; ${esc(heading)}</span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      ${kindLine ? `<div class="land-kind">${esc(kindLine)}</div>` : ""}
+      <div class="land-manager">${esc(info.manager)}</div>
+      <div class="card-sub">${esc(info.accessNote)}</div>
+      <div class="land-rules">${rules}</div>
+      <div class="card-label">Worth knowing</div>
+      <ul class="card-reasons">${notes}</ul>
+      <div class="card-caveat">${esc(info.caveat)}</div>
+      <div class="card-actions">
+        <button id="land-route" type="button">&#10148; Get there</button>
+      </div>`;
+    landBox.classList.remove("hidden");
+    landBox.querySelector(".card-close")?.addEventListener("click", () => {
+      cardGen++;
+      landBox.classList.add("hidden");
+    });
+    document.getElementById("land-route")?.addEventListener("click", () => {
+      landBox.classList.add("hidden");
+      routeCtl?.routeTo(lng, lat, heading);
+    });
+  }
+
   async function showForageBox(lng: number, lat: number, landuseKind: string) {
     if (!forageBox) return;
     const gen = ++cardGen;
@@ -1286,15 +1374,85 @@ async function start() {
     return "";
   }
 
-  // ---- Combined tap handler: water first (Fishing), then land (Wild food) ----
+  /**
+   * Land ownership under a tap, read from the always-present invisible landuse
+   * fill so it works whichever overlays are drawn.
+   *
+   * Returns the most restrictive thing found rather than the topmost: a park
+   * polygon can overlap a military boundary, and being told about the park while
+   * standing on a range is the wrong answer.
+   */
+  /**
+   * The name of a tapped public-land polygon, recovered from the `pois` label
+   * point that falls inside it — the landuse polygon itself has no name field.
+   *
+   * Queried over the whole viewport rather than a fixed radius: a wilderness or
+   * national forest can be far larger than the screen, so its label may be
+   * nowhere near the tap. Containment is what makes the match unambiguous, so a
+   * wide query costs nothing in correctness. A label whose kind matches the
+   * polygon's wins over one that merely happens to sit inside it.
+   */
+  function landName(
+    labels: maplibregl.MapGeoJSONFeature[],
+    polyGeom: any,
+    polyKind: string
+  ): string {
+    if (!polyGeom) return "";
+    let fallback = "";
+    for (const lf of labels) {
+      const nm = lf.properties?.name;
+      if (!nm || lf.geometry.type !== "Point") continue;
+      if (!inGeom(lf.geometry.coordinates as [number, number], polyGeom)) continue;
+      if (String(lf.properties?.kind || "") === polyKind) return String(nm);
+      if (!fallback) fallback = String(nm);
+    }
+    return fallback;
+  }
+
+  function landAt(box: [maplibregl.PointLike, maplibregl.PointLike]): LandInfo | null {
+    let feats: maplibregl.MapGeoJSONFeature[] = [];
+    try { feats = map.queryRenderedFeatures(box, { layers: ["app-landuse-query"] }); }
+    catch { return null; } // layers mid-rebuild
+    if (!feats.length) return null;
+    // One viewport query for the labels, shared by every candidate polygon.
+    let labels: maplibregl.MapGeoJSONFeature[] = [];
+    try { labels = map.queryRenderedFeatures({ layers: ["app-land-name"] }); }
+    catch { /* layers mid-rebuild — fall back to unnamed */ }
+    let best: LandInfo | null = null;
+    for (const f of feats) {
+      const kind = String(f.properties?.kind || "");
+      const info = landInfo(kind, landName(labels, f.geometry, kind));
+      if (!info) continue;
+      if (info.access === "closed") return info; // nothing outranks keep-out
+      // A named unit beats an anonymous polygon, and a polygon whose name gave
+      // us a real designation beats one that only gave us a name.
+      if (!best) { best = info; continue; }
+      if (!best.designation && info.designation) best = info;
+      else if (!best.name && info.name) best = info;
+    }
+    return best;
+  }
+
+  // ---- Combined tap handler: water (Fishing), then land (Wild food), then
+  //      who owns the ground (Public land). Military short-circuits the lot. ----
   map.on("click", (e) => {
-    if (!fishingOn && !wildfoodOn) return;
+    if (!fishingOn && !wildfoodOn && !publicLandOn) return;
     // Don't steal the tap from the measure tool while it's placing points.
     if (!document.getElementById("measure-readout")?.classList.contains("hidden")) return;
     const pad = 6;
     const box: [maplibregl.PointLike, maplibregl.PointLike] = [
       [e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad],
     ];
+
+    // Resolved once. Keep-out ground is reported before anything else, whatever
+    // you tapped it for — being told what berries grow on an impact area is not
+    // useful — and the same lookup answers the public-land case at the end.
+    const land = publicLandOn ? landAt(box) : null;
+    if (land?.access === "closed") {
+      renderLandBox(e.lngLat.lng, e.lngLat.lat, land);
+      return;
+    }
+
     if (fishingOn) {
       let water: maplibregl.MapGeoJSONFeature[] = [];
       try { water = map.queryRenderedFeatures(box, { layers: ["app-fish-fill", "app-fish-line"] }); }
@@ -1317,13 +1475,15 @@ async function start() {
       }
     }
     if (wildfoodOn) {
-      let land: maplibregl.MapGeoJSONFeature[] = [];
-      try { land = map.queryRenderedFeatures(box, { layers: ["app-forage-wild-fill", "app-forage-crop-fill"] }); }
+      let ground: maplibregl.MapGeoJSONFeature[] = [];
+      try { ground = map.queryRenderedFeatures(box, { layers: ["app-forage-wild-fill", "app-forage-crop-fill"] }); }
       catch { /* layers mid-rebuild */ }
-      if (land.length) {
-        void showForageBox(e.lngLat.lng, e.lngLat.lat, String(land[0].properties?.kind || "forest"));
+      if (ground.length) {
+        void showForageBox(e.lngLat.lng, e.lngLat.lat, String(ground[0].properties?.kind || "forest"));
+        return;
       }
     }
+    if (land) renderLandBox(e.lngLat.lng, e.lngLat.lat, land);
   });
 
   // ---- Camp check: score the ground under the crosshair ----
@@ -1602,18 +1762,50 @@ async function start() {
   let lastGrid = "";
   let lastLL = "";
   let lastElev = "";
-  // Build the two spans once and update textContent thereafter — rewriting
-  // innerHTML every frame reparsed and recreated the nodes on the pan hot path.
-  let gridSpan: HTMLElement | null = null;
-  let llSpan: HTMLElement | null = null;
-  if (coordsEl) {
-    coordsEl.innerHTML = `<span class="c-grid"></span><span class="c-ll"></span>`;
-    gridSpan = coordsEl.querySelector(".c-grid");
-    llSpan = coordsEl.querySelector(".c-ll");
-  }
+  // The collar's cells are in index.html; look them up once and write
+  // textContent thereafter. Rewriting innerHTML every frame reparsed and
+  // recreated the nodes on the pan hot path.
+  const gridSpan = coordsEl?.querySelector<HTMLElement>(".c-grid") ?? null;
+  const llSpan = coordsEl?.querySelector<HTMLElement>(".c-ll") ?? null;
+  const elevCell = document.getElementById("collar-elev");
+  const elevSpan = elevCell?.querySelector<HTMLElement>(".ce-v") ?? null;
+  const decGroup = document.querySelector<SVGGElement>(".dec-mag-group");
+  const decLabel = document.querySelector<HTMLElement>(".dec-label");
+
   function renderCoords() {
     if (gridSpan) gridSpan.textContent = lastGrid;
-    if (llSpan) llSpan.textContent = lastLL + (lastElev ? " · " + lastElev : "");
+    if (llSpan) llSpan.textContent = lastLL;
+    if (elevSpan) elevSpan.textContent = lastElev;
+    // No DEM pack for this state means no elevation to show. Hide the cell
+    // rather than leave a dash sitting there — an empty slot reads as "not
+    // available here", a permanent placeholder reads as a broken readout.
+    elevCell?.classList.toggle("empty", !lastElev);
+  }
+
+  /**
+   * The declination diagram — the signature of the collar.
+   *
+   * Two rays from one origin: true north upright with its star, magnetic north
+   * splayed by the real local angle, exactly the way a USGS quad draws it in
+   * its margin. Positive declination is east of true north, which on screen is
+   * clockwise, which is the direction SVG rotate() already turns.
+   *
+   * Set through the `transform` *attribute* with an explicit rotation origin
+   * rather than the CSS `transform` property: CSS transforms on SVG children
+   * need `transform-box`/`transform-origin` support that iOS 14 WebKit does
+   * not reliably have, and the attribute form has worked since SVG 1.1.
+   */
+  function renderDeclination(lat: number, lng: number) {
+    if (!decGroup && !decLabel) return;
+    let dec: number;
+    try {
+      dec = declination(lat, lng);
+    } catch {
+      return; // outside the model's domain — leave the last good reading up
+    }
+    // 22,27 is the shared origin of both rays in the SVG's viewBox.
+    decGroup?.setAttribute("transform", `rotate(${dec.toFixed(1)} 22 27)`);
+    if (decLabel) decLabel.textContent = `MN ${formatDeclination(dec)}`;
   }
   // Coalesce a burst of `move` events into one update per animation frame — the
   // MGRS projection and DOM write then run once per frame, not once per event.
@@ -1653,10 +1845,16 @@ async function start() {
     renderCoords();
   }
 
+  function updateSlowReadouts() {
+    const c = map.getCenter();
+    renderDeclination(c.lat, c.lng);
+    void updateElevation();
+  }
+
   map.on("move", updateCoords);
-  map.on("moveend", updateElevation);
+  map.on("moveend", updateSlowReadouts);
   updateCoords();
-  updateElevation();
+  updateSlowReadouts();
   coordsEl?.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(
@@ -1732,7 +1930,9 @@ async function start() {
     printStyle: () => buildStyle("light"),
     regionName: () => document.getElementById("hud-state")?.textContent || "",
   });
-  initPanels();
+  // Opening any panel drops the phone menu out of the way — peekSheet is
+  // already exactly that, and is a no-op on a desktop.
+  initPanels(peekSheet);
 
   void initStateLibrary(switchToSource);
 }
@@ -1855,7 +2055,87 @@ function setSheet(hud: HTMLElement, state: SheetState) {
   hud.classList.add(state);
   // Drop the transform a drag left behind, so the class governs again.
   hud.style.transform = "";
-  localStorage.setItem("griddown_sheet", state);
+  syncMoreButton(hud);
+}
+
+/** Keep More's lit state and aria-expanded honest, however the sheet moved. */
+function syncMoreButton(hud: HTMLElement) {
+  const more = document.getElementById("cmd-more");
+  if (!more) return;
+  const open = hud.classList.contains("sheet-full");
+  more.classList.toggle("on", open);
+  more.setAttribute("aria-expanded", String(open));
+}
+
+/**
+ * The phone command bar.
+ *
+ * Find / Get there / Mark do not own their panels — they forward a click to
+ * the canonical button still sitting in the menu. That button is what
+ * panels.ts keys on (toggle-to-close, close-the-others) and what each panel
+ * module listens to, so both keep working untouched and there is exactly one
+ * definition of what "Find" does.
+ *
+ * More drives the existing sheet through setSheet(), so the drag positions stay
+ * the single source of truth for where the menu rests.
+ */
+function setupCmdBar(hud: HTMLElement) {
+  const bar = document.getElementById("cmdbar");
+  if (!bar) return;
+
+  bar.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement | null)?.closest?.<HTMLElement>(".cmd");
+    if (!btn) return;
+
+    // Every slot in this bar leaves exactly one thing showing. The menu and the
+    // panels are separate layers that each only knew how to close their own
+    // kind, so without this you could stack the menu on top of an open panel and
+    // have two bar buttons lit at once.
+    if (btn.id === "cmd-more") {
+      const open = hud.classList.contains("sheet-full");
+      // More closes a panel first: if something was up, the menu is what you
+      // asked for, so the panel goes.
+      if (!open && anyPanelOpen()) closeAllPanels();
+      setSheet(hud, open ? "sheet-peek" : "sheet-full");
+      return;
+    }
+
+    const target = btn.dataset.forward;
+    if (!target) return;
+    // Drop the menu before opening a panel. panels.ts already closes the other
+    // panels; the menu is the layer it cannot see.
+    if (hud.classList.contains("sheet-full")) setSheet(hud, "sheet-peek");
+    document.getElementById(target)?.click();
+  });
+
+  syncMoreButton(hud);
+  watchKeyboard();
+}
+
+/**
+ * Get the dock out of the way while the software keyboard is actually up.
+ *
+ * Driven by visualViewport, not by focus. Focus was the wrong signal: the Find
+ * and Get-there panels focus their input the moment they open (search.ts:408,
+ * route.ts:550), so on a desktop — where there is no software keyboard at all —
+ * pressing Find made the whole bottom dock disappear.
+ *
+ * visualViewport is the real thing. WKWebView does not resize the *layout*
+ * viewport for the keyboard, which is the whole problem, but it does shrink the
+ * visual one — so comparing the two detects a keyboard and nothing else. On a
+ * desktop the two are equal and this never fires. Supported since iOS 13, and
+ * absent means no software keyboard to worry about.
+ */
+function watchKeyboard() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const sync = () => {
+    // A generous threshold: pinch-zoom and browser chrome move this by a little,
+    // a keyboard moves it by a lot.
+    document.body.classList.toggle("kbd-open", vv.height < window.innerHeight - 120);
+  };
+  vv.addEventListener("resize", sync);
+  sync();
 }
 
 /**
@@ -1873,6 +2153,7 @@ function peekSheet() {
   hud.classList.remove(...SHEET_STATES);
   hud.classList.add("sheet-peek");
   hud.style.transform = "";
+  syncMoreButton(hud);
 }
 
 /**
@@ -1891,11 +2172,10 @@ function setupSheet(hud: HTMLElement) {
   const bar = document.getElementById("hud-bar");
   if (!grip || !bar) return;
 
-  const stored = localStorage.getItem("griddown_sheet") as SheetState | null;
-  // Anything that isn't one of the two current states (including a "sheet-half"
-  // saved by an older build) falls back to the menu being up.
-  const initial: SheetState = stored && SHEET_STATES.includes(stored) ? stored : "sheet-full";
-  hud.classList.add(initial);
+  // The menu starts closed on a phone, every time. It is a drawer behind More
+  // now, not a resting panel, so restoring "open" from a previous session would
+  // launch the app with the map covered.
+  hud.classList.add(isPhone() ? "sheet-peek" : "sheet-full");
 
   // The desktop panel's collapsed state means nothing to a sheet, and a choice
   // made on a desktop must not arrive on the phone as a menu that will not
@@ -1911,6 +2191,10 @@ function setupSheet(hud: HTMLElement) {
     if (!phoneQuery.matches) return;
     hud.classList.remove("collapsed");
     document.body.classList.remove("menu-hidden");
+    // Entering the phone layout means the menu becomes a drawer behind More, so
+    // it starts closed — otherwise rotating an iPhone out of landscape (844px,
+    // the desktop layout) lands you in portrait with the menu covering the map.
+    if (!hud.classList.contains("sheet-peek")) setSheet(hud, "sheet-peek");
   };
   dropDesktopState();
   // addEventListener on MediaQueryList is Safari 14+; addListener is the
@@ -1955,14 +2239,20 @@ function setupSheet(hud: HTMLElement) {
     return shown < 0.5 ? 1 : 0; // 1 = peek, 0 = full
   };
 
+  /** Height of the collar + command bar, which the sheet rests on top of. */
+  const dockH = () => document.getElementById("dock")?.offsetHeight ?? 0;
+
   /**
    * How far the sheet is currently pushed down.
    *
-   * Untranslated it sits flush with the bottom, so its top would be at
-   * `innerHeight - height`. Anything below that is the shift.
+   * Untranslated it sits on the dock, not on the bottom of the screen, so its
+   * top would be at `innerHeight - dock - height`. Anything below that is the
+   * shift. Leaving the dock out here made every drag start from a shift of
+   * -dock, so the sheet jumped by that much on touch-down.
    */
   const currentShift = () =>
-    hud.getBoundingClientRect().top - (window.innerHeight - hud.offsetHeight);
+    hud.getBoundingClientRect().top -
+    (window.innerHeight - dockH() - hud.offsetHeight);
   /**
    * Which pointer owns the drag, or null when idle.
    *
@@ -2001,7 +2291,10 @@ function setupSheet(hud: HTMLElement) {
 
     // Only the transform changes, so this costs a composite and no layout —
     // which is the whole reason the sheet moves instead of resizing.
-    const limit = hud.offsetHeight - 48;
+    // At rest the sheet is entirely off-screen (More reopens it), so a drag
+    // down has nothing it needs to leave showing — and it has to clear the dock
+    // as well as its own height to get there.
+    const limit = hud.offsetHeight + dockH();
     const shift = Math.max(0, Math.min(limit, startShift + dy));
     hud.style.transform = `translateY(${shift}px)`;
 
@@ -2086,7 +2379,10 @@ function initChrome() {
     localStorage.setItem("griddown_menu_collapsed", collapsed ? "1" : "0");
     syncMenuHidden(hud);
   });
-  if (hud) setupSheet(hud);
+  if (hud) {
+    setupSheet(hud);
+    setupCmdBar(hud);
+  }
 
   // Legend card on the map: collapse it to a title bar and back, remembered.
   const legend = document.getElementById("map-legend");

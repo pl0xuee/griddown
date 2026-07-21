@@ -7,6 +7,7 @@ import { haversine } from "./geo";
 import { watchFix } from "./geoloc";
 import { saveFile } from "./save";
 import { confirmAction, promptAction } from "./dialog";
+import { OVERPRINT_LIFT } from "./overprint";
 
 // Waypoints (dropped pins) and recorded GPS tracks. Persisted via ./store (a
 // real file in the app data dir) and exchangeable as standard GPX. Fully offline.
@@ -111,7 +112,7 @@ export async function initWaypoints(map: maplibregl.Map) {
         type: "line",
         source: "gd-track",
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#ff5aa0", "line-width": 4, "line-opacity": 0.9 },
+        paint: { "line-color": OVERPRINT_LIFT, "line-width": 4, "line-opacity": 0.9 },
       });
     } else {
       src.setData(trackGeoJSON());

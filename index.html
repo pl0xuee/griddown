@@ -14,7 +14,67 @@
   <body>
     <div id="map"></div>
     <div id="crosshair"></div>
-    <button id="coords" type="button" title="Tap to copy">&mdash;</button>
+
+    <!-- The collar: the printed margin of the sheet. A USGS quad carries its
+         instrumentation here — where you are, which way north is, how high you
+         are — rather than floating it over the map. Everything in this strip is
+         a reading, so it is all set in the mono face.
+
+         The command bar joins it inside #dock on phones, so the two move as one
+         and every other bottom-anchored thing clears them both by --dock-h. -->
+    <div id="dock">
+      <div id="collar">
+        <button id="coords" class="collar-cell" type="button" title="Tap to copy">
+          <span class="c-grid">&mdash;</span><span class="c-ll"></span>
+        </button>
+
+        <!-- Declination: the angle between true north and where a compass
+             needle actually points, for this spot, computed offline from the
+             WMM2025 model. You cannot take a bearing off a map without it, and
+             it is the one thing on a topo sheet that no other app draws. -->
+        <div id="collar-dec" class="collar-cell" title="Magnetic declination here — the angle between true north and compass north">
+          <svg class="dec-diagram" viewBox="0 0 44 30" aria-hidden="true" focusable="false">
+            <!-- True north: star and upright ray, the survey reference. -->
+            <line class="dec-true" x1="22" y1="27" x2="22" y2="6" />
+            <path class="dec-star" d="M22 1.5 L23.1 4.6 L26.3 4.6 L23.7 6.5 L24.7 9.6 L22 7.7 L19.3 9.6 L20.3 6.5 L17.7 4.6 L20.9 4.6 Z" />
+            <!-- Magnetic north: splayed by the real local angle, half-arrow
+                 head, exactly as a quad's diagram draws it. -->
+            <g class="dec-mag-group">
+              <line class="dec-mag" x1="22" y1="27" x2="22" y2="8" />
+              <path class="dec-arrow" d="M22 5.5 L25 11 L22 9.4 Z" />
+            </g>
+          </svg>
+          <span class="dec-label">&mdash;</span>
+        </div>
+
+        <div id="collar-elev" class="collar-cell" title="Elevation at the crosshair">
+          <span class="ce-mark" aria-hidden="true">&#9650;</span>
+          <span class="ce-v">&mdash;</span>
+        </div>
+      </div>
+
+      <!-- Phones only. The three things you reach for in a hurry stay under
+           your thumb; everything else lives behind More, which raises the same
+           bottom sheet the menu has always been.
+
+           These forward their clicks to the canonical buttons in the menu
+           rather than owning the panels themselves — see cmdbar wiring in
+           main.ts. That keeps panels.ts, which keys off button id, unchanged. -->
+      <nav id="cmdbar" aria-label="Main actions">
+        <button class="cmd" type="button" data-forward="search-open">
+          <span class="cmd-glyph" aria-hidden="true">&#8981;</span><span class="cmd-label">Find</span>
+        </button>
+        <button class="cmd" type="button" data-forward="route-open">
+          <span class="cmd-glyph" aria-hidden="true">&#8594;</span><span class="cmd-label">Get there</span>
+        </button>
+        <button class="cmd" type="button" data-forward="marks-open">
+          <span class="cmd-glyph" aria-hidden="true">&#9670;</span><span class="cmd-label">Mark</span>
+        </button>
+        <button id="cmd-more" class="cmd" type="button" aria-expanded="false">
+          <span class="cmd-glyph" aria-hidden="true">&#9776;</span><span class="cmd-label">More</span>
+        </button>
+      </nav>
+    </div>
 
     <div id="hud">
       <!-- Drag handle. Only visible on phones, where the HUD is a bottom
@@ -46,12 +106,28 @@
           <button id="sky-open" type="button" class="hud-icon" aria-label="Sun and moon times" title="Sun &amp; moon times"><span class="hud-icon-glyph">&#9728;</span><span class="hud-icon-label">Sun/moon</span></button>
         </div>
 
-        <!-- Layers and resources were two sections of the same thing: toggles
-             for what gets drawn on the map. One row of chips, wrapping. -->
-        <div class="hud-sub">OVERLAYS</div>
+        <!-- The three you reach for in a hurry, at full size and first, with no
+             heading over them — a heading would imply there is another kind of
+             thing they could be confused with. Everything below is grouped and
+             labelled precisely because it can wait.
+
+             On a phone these three ARE the command bar, which forwards its
+             clicks to these exact buttons — so the group is hidden there. -->
+        <div class="hud-grid hud-grid--primary">
+          <!-- One "Find": it takes a place name OR a grid reference, so there
+               is no need to know which box to reach for before you look. -->
+          <button id="search-open" type="button" title="Search a place name, or jump to an MGRS or lat/long">&#8981; Find</button>
+          <button id="route-open" type="button" title="How do I get there">&#8594; Get there</button>
+          <button id="marks-open" type="button">&#9670; Marks</button>
+        </div>
+
+        <!-- Grouped by what the thing IS, in the language of the sheet. What is
+             drawn on it; what reads it; what you do with it out there; and the
+             library, which is the only group you use before you leave. -->
+        <div class="hud-sub">On the sheet</div>
         <div id="hud-resources">
           <button id="terrain-toggle" class="res-chip" type="button">&#9651; Terrain</button>
-          <button id="publicland-toggle" class="res-chip" type="button" title="Public land">&#9634; Public land</button>
+          <button id="publicland-toggle" class="res-chip" type="button" title="Public land — tap an area for who owns it and what you may do there">&#9634; Public land</button>
           <button id="mvum-toggle" class="res-chip off" type="button" title="Forest Service motor vehicle use map">&#9679; Forest roads</button>
           <button id="fishing-toggle" class="res-chip off" type="button" title="Water — lakes, rivers, springs &amp; wells; tap water for fish and drinking info">&#128167; Water</button>
           <button id="wildfood-toggle" class="res-chip off" type="button" title="Wild food — tap woods or fields for what to forage and hunt">&#127807; Wild food</button>
@@ -61,20 +137,7 @@
           <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
         </div>
 
-        <!-- Grouped by what you reach for, not by when it was built. Where you
-             are and where you're going first; planning tools next; setup and
-             library last, since none of it is needed in a hurry. -->
-        <div class="hud-sub">NAVIGATE</div>
-        <div class="hud-grid">
-          <!-- One "Find": it takes a place name OR a grid reference, so there
-               is no need to know which box to reach for before you look. -->
-          <button id="search-open" type="button" title="Search a place name, or jump to an MGRS or lat/long">&#8981; Find</button>
-          <button id="route-open" type="button" title="How do I get there">&#8594; Get there</button>
-          <button id="marks-open" type="button">&#9670; Marks</button>
-          <button id="mesh-open" type="button" title="Teammate positions over Meshtastic radio">&#9678; Team mesh</button>
-        </div>
-
-        <div class="hud-sub">MEASURE &amp; SIGHT</div>
+        <div class="hud-sub">Instruments</div>
         <div class="hud-grid">
           <!-- Viewshed and its range sit side by side: the range only means
                anything in relation to the button next to it. -->
@@ -88,15 +151,18 @@
           <button id="compass-open" type="button">&#10686; Compass</button>
         </div>
 
-        <div class="hud-sub">LIVING OFF THE LAND</div>
+        <div class="hud-sub">Off the land</div>
         <div class="hud-grid">
           <button id="camp-open" type="button" title="Is the spot under the crosshair good to camp?">&#9978; Camp check</button>
           <button id="season-open" type="button" title="What's in season here right now">&#128197; In season</button>
           <button id="lakes-open" type="button" title="Named lakes, reservoirs, rivers and creeks, nearest to you first">&#128167; Nearby water</button>
         </div>
 
-        <div class="hud-sub">LIBRARY &amp; SETUP</div>
-        <div class="hud-grid">
+        <!-- Quietest group on purpose: none of it is any use once you are out
+             there, and all of it competed with Find at equal weight before. -->
+        <div class="hud-sub">Library</div>
+        <div class="hud-grid hud-grid--quiet">
+          <button id="mesh-open" type="button" title="Teammate positions over Meshtastic radio">&#9678; Team mesh</button>
           <button id="handbook-open" type="button">&#9873; Handbook</button>
           <button id="states-open" type="button">&#9636; Map packs</button>
           <button id="print-open" type="button">&#9113; Print map</button>
@@ -125,7 +191,7 @@
         <div class="legend-row fishing hidden"><span class="swatch watersrc"></span>Spring / well &mdash; drinking water</div>
         <div class="legend-row wildfood hidden"><span class="swatch wildfood-wild"></span>Wild ground &mdash; forage &amp; game</div>
         <div class="legend-row wildfood hidden"><span class="swatch wildfood-crop"></span>Farmland &amp; orchards</div>
-        <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land</div>
+        <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land &mdash; tap to identify</div>
         <div class="legend-row publicland hidden"><span class="swatch forestland"></span>Forest (ownership varies)</div>
         <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
         <div class="legend-row mvum hidden"><span class="swatch mvum-all"></span>MVUM: all vehicles</div>
@@ -137,13 +203,13 @@
     </div>
 
     <!-- Offline place search (names decoded from the map pack itself) -->
-    <div id="search-panel" class="hidden">
-      <div id="search-head">
+    <div id="search-panel" class="panel hidden">
+      <div id="search-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Find</div>
         </div>
-        <button id="search-close" type="button" aria-label="Close">&times;</button>
+        <button id="search-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <input id="search-input" type="text" placeholder="Place name, grid ref, or lat, lng&hellip;" autocomplete="off" spellcheck="false" />
       <div id="search-results"></div>
@@ -154,25 +220,25 @@
     </div>
 
     <!-- Route overview: road-following path from A to B, offline from the pack -->
-    <div id="route-panel" class="hidden">
-      <div id="route-head">
+    <div id="route-panel" class="panel panel--scroll hidden">
+      <div id="route-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">How do I get there</div>
         </div>
-        <button id="route-close" type="button" aria-label="Close">&times;</button>
+        <button id="route-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="route-body"></div>
     </div>
 
     <!-- Team mesh: teammate positions over Meshtastic LoRa radio -->
-    <div id="mesh-panel" class="hidden">
-      <div id="mesh-head">
+    <div id="mesh-panel" class="panel hidden">
+      <div id="mesh-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Team mesh</div>
         </div>
-        <button id="mesh-close" type="button" aria-label="Close">&times;</button>
+        <button id="mesh-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="mesh-status">Not connected</div>
       <div id="mesh-body"></div>
@@ -199,6 +265,9 @@
     <div id="fish-box" class="hidden"></div>
     <!-- Wild-food identify (tap woods/fields with the Wild food layer on) -->
     <div id="forage-box" class="card-box hidden"></div>
+    <!-- Public-land identify (tap a park/forest/military area with the Public
+         land layer on) -->
+    <div id="land-box" class="card-box hidden"></div>
     <!-- Camp check + In season tool cards -->
     <div id="camp-box" class="card-box hidden"></div>
     <div id="season-box" class="card-box hidden"></div>
@@ -221,13 +290,13 @@
     </div>
 
     <!-- Slide-out survival handbook -->
-    <div id="handbook-panel" class="hidden">
-      <div id="handbook-head">
+    <div id="handbook-panel" class="panel hidden">
+      <div id="handbook-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Survival handbook</div>
         </div>
-        <button id="handbook-close" type="button" aria-label="Close">&times;</button>
+        <button id="handbook-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <input id="handbook-search" type="text" placeholder="Search the handbook&hellip;" />
       <div id="handbook-content"></div>
@@ -238,13 +307,13 @@
     </div>
 
     <!-- Sun & moon panel -->
-    <div id="sky-panel" class="hidden">
-      <div id="sky-head">
+    <div id="sky-panel" class="panel hidden">
+      <div id="sky-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Sun &amp; moon</div>
         </div>
-        <button id="sky-close" type="button" aria-label="Close">&times;</button>
+        <button id="sky-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="sky-sub">For the map center &middot; computed offline</div>
       <div id="sky-content"></div>
@@ -252,25 +321,25 @@
 
     <!-- Marks & tracks panel -->
     <!-- Preflight: what's missing while you still have a connection -->
-    <div id="readiness-panel" class="hidden">
-      <div id="readiness-head">
+    <div id="readiness-panel" class="panel hidden">
+      <div id="readiness-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Ready to go dark?</div>
         </div>
-        <button id="readiness-close" type="button" aria-label="Close">&times;</button>
+        <button id="readiness-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="readiness-content"></div>
     </div>
 
     <!-- Printable map export — the paper backup -->
-    <div id="print-panel" class="hidden">
-      <div id="print-head">
+    <div id="print-panel" class="panel hidden">
+      <div id="print-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Print map</div>
         </div>
-        <button id="print-close" type="button" aria-label="Close">&times;</button>
+        <button id="print-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="print-hint">
         Exports the current view as a PDF with scale bars, grid coordinates and a
@@ -301,13 +370,13 @@
       <div id="print-fine">Prints in day colors, north-up, centered on the current view.</div>
     </div>
 
-    <div id="marks-panel" class="hidden">
-      <div id="marks-head">
+    <div id="marks-panel" class="panel hidden">
+      <div id="marks-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Marks &amp; tracks</div>
         </div>
-        <button id="marks-close" type="button" aria-label="Close">&times;</button>
+        <button id="marks-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="marks-actions">
         <button id="marks-drop" type="button">&#9678; Drop pin at crosshair</button>
@@ -322,13 +391,13 @@
     </div>
 
     <!-- Slide-out state library -->
-    <div id="states-panel" class="hidden">
-      <div id="states-head">
+    <div id="states-panel" class="panel hidden">
+      <div id="states-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>
           <div class="panel-title">Map packs</div>
         </div>
-        <button id="states-close" type="button" aria-label="Close">&times;</button>
+        <button id="states-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="states-hint">
         Download a state while you have internet &mdash; then it works forever

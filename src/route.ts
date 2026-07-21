@@ -15,6 +15,7 @@ import { getFix } from "./geoloc";
 import { esc as escapeHtml } from "./esc";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
+import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -350,7 +351,7 @@ export function initRoute(deps: {
         type: "line",
         source: SRC,
         layout: { "line-cap": "round", "line-join": "round" },
-        paint: { "line-color": "#06121e", "line-width": 8, "line-opacity": 0.85 },
+        paint: { "line-color": OVERPRINT_CASING, "line-width": 8, "line-opacity": 0.85 },
       },
       firstSymbol
     );
@@ -361,7 +362,7 @@ export function initRoute(deps: {
         source: SRC,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#4fc3ff",
+          "line-color": OVERPRINT,
           "line-width": 4,
           ...(simplified ? { "line-dasharray": [2.5, 1.5] as [number, number] } : {}),
         },

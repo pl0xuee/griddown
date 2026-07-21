@@ -6,6 +6,43 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.3
+
+**A new look, and public land you can tap.**
+
+The interface has been redesigned around the thing it actually is — a map sheet.
+A USGS topographic quad puts its instruments in the printed margin, so that is
+where GridDown puts them now: a **collar** along the bottom edge carrying your
+grid reference, your elevation, and a live **declination diagram** showing the
+angle between true north and where a compass needle actually points here. You
+cannot take a bearing off a map without that number, and it is computed offline
+like everything else.
+
+The old green console colouring is gone. The map is full of meaningful colour —
+brown forest roads, cyan water, green public land — and chrome that was also
+green competed with it. Everything around the map is now neutral, so the map
+reads first. One colour is reserved: **magenta marks what you added to the
+sheet** — your pins, your recorded tracks, your route. It is the overprint colour
+a real quad uses for exactly that, and no terrain feature ever uses it.
+
+- **Public land — tap to identify.** Turn on Public land and tap any area to see
+  which unit you are standing in, what kind of public land it is, who runs it,
+  and whether you may camp, hunt, or light a fire there. Wilderness areas are
+  called out as wilderness — no vehicles, no bicycles — and military land is
+  reported before anything else, whatever you tapped it for. Where the map has no
+  name for a patch of forest, it says the ownership is unknown rather than
+  guessing.
+- **A command bar on phones.** Find, Get there, and Mark are now permanently
+  under your thumb, with everything else behind **More**. The menu starts out of
+  the way instead of covering the map.
+- **Real typefaces, bundled.** The app asked for fonts it never shipped, so on
+  Windows and Linux it silently fell back to Arial. It now carries its own.
+
+Fixes: the blur behind the legend and dialogs never worked on iPhone; five of the
+nine slide-out panels ignored the notch, putting their close button under the
+status bar; six panels had long lists push their own content off-screen instead
+of scrolling; and the legend could sit on top of the map attribution.
+
 ## v1.1.2
 
 **Saving files works on iPhone and iPad again.** Back up everything, Export GPX,
