@@ -19,6 +19,9 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
   { btn: "sky-open", panel: "sky-panel" },
   { btn: "readiness-open", panel: "readiness-panel" },
   { btn: "print-open", panel: "print-panel" },
+  { btn: "camp-open", panel: "camp-box" },
+  { btn: "season-open", panel: "season-box" },
+  { btn: "lakes-open", panel: "lakes-box" },
 ];
 
 export function initPanels() {

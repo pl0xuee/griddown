@@ -25,11 +25,22 @@ const KIND_ZOOM: Record<string, number> = {
   region: 7,
   county: 9,
   locality: 12,
+  water: 12,
 };
+
+// Named water worth putting in Find. Streams/creeks live only in high-zoom
+// tiles the index never reads, so this catches the lakes, reservoirs and rivers
+// big enough to have a name by the zooms we do read — which is what you search
+// for. Small creeks are found by tapping the Fishing layer, not by name.
+const WATER_FIND_KINDS = new Set(["lake", "reservoir", "water", "river"]);
 
 let index: Place[] | null = null;
 let indexedUrl = "";
 let building = false;
+
+/** Drop the cached place index — call after a pack is re-downloaded, since the
+ *  URL is unchanged but the bytes (and place set) may have changed. */
+export function resetPlaceIndex() { index = null; indexedUrl = ""; }
 
 function tile2lng(x: number, z: number): number {
   return (x / 2 ** z) * 360 - 180;
@@ -109,6 +120,39 @@ async function buildIndex(
                 });
               }
             }
+
+            // Named water bodies, from the same tiles — so lakes and rivers are
+            // findable by name alongside towns. A water feature is a polygon or
+            // line, so its point is the mean of its vertices (centre of a lake,
+            // a point along a river). Deduped to ~1° so a lake split across
+            // tiles collapses to one entry while two distant same-named lakes
+            // stay apart.
+            const wlayer = vt.layers["water"];
+            for (let f = 0; wlayer && f < wlayer.length; f++) {
+              const feat = wlayer.feature(f);
+              const props: any = feat.properties;
+              const name = props["name:en"] || props.name;
+              const wkind = String(props.kind ?? "");
+              if (!name || !WATER_FIND_KINDS.has(wkind)) continue;
+              let sx = 0, sy = 0, n = 0;
+              for (const ring of feat.loadGeometry())
+                for (const pt of ring) { sx += pt.x; sy += pt.y; n++; }
+              if (!n) continue;
+              const lng = tile2lng(x + sx / n / feat.extent, z);
+              const lat = tile2lat(y + sy / n / feat.extent, z);
+              if (!inPack(lng, lat)) continue;
+              const key = `w|${name}|${wkind}|${Math.round(lng)}|${Math.round(lat)}`;
+              if (!seen.has(key)) {
+                seen.set(key, {
+                  name: String(name),
+                  kind: "water",
+                  detail: wkind,
+                  pop: 0,
+                  lng,
+                  lat,
+                });
+              }
+            }
           }
         } catch {
           /* a missing tile is fine — sparse areas */
@@ -140,6 +184,12 @@ export async function ensurePlaceIndex(
     if (index && indexedUrl === url) return index;
   }
   building = true;
+  // Drop the previous pack's index now, before the (async) rebuild, so nothing
+  // reads the old state's place names or counts while this runs — otherwise a
+  // Find opened right after a pack switch shows the previous state's towns and
+  // flies to coordinates outside the new pack.
+  index = null;
+  indexedUrl = "";
   try {
     const built = await buildIndex(url, (d, t) => onProgress?.(d, t));
     index = built;
@@ -217,17 +267,21 @@ export function initSearch(deps: {
   async function ensureIndex() {
     const url = deps.sourceUrl();
     if (index && indexedUrl === url) return;
-    show(`<div class="search-empty">Reading place names from the map pack…</div>`);
+    // Don't paint "Reading…" over the pin list — pins load faster than the
+    // index and are what the user can act on meanwhile.
+    if (!pins.length) show(`<div class="search-empty">Reading place names from the map pack…</div>`);
     try {
       const built = await ensurePlaceIndex(url, (d, t) => {
         // Only while the results area has nothing better in it. Pins and
         // coordinates render before the index exists, and blatting progress
         // over them every 40 tiles took away results the user was mid-read of.
-        if (input?.value.trim()) return;
+        if (input?.value.trim() || pins.length) return;
         show(`<div class="search-empty">Reading place names… ${d}/${t} tiles</div>`);
       });
-      if (input?.value.trim()) render(input.value);
-      else show(`<div class="search-empty">${built.length} places known here. Type to search.</div>`);
+      void built;
+      // Re-render whatever's current (a query, or the empty state with pins),
+      // now that the place index exists.
+      render(input?.value || "");
     } catch (e) {
       show(`<div class="search-empty">Couldn't read this map pack: ${e}</div>`);
     }
@@ -236,6 +290,8 @@ export function initSearch(deps: {
   function label(p: Place): string {
     if (p.kind === "region") return "state";
     if (p.kind === "county") return "county";
+    if (p.kind === "water")
+      return p.detail === "river" ? "river" : p.detail === "reservoir" ? "reservoir" : "lake";
     return p.detail || "place";
   }
 
@@ -246,6 +302,23 @@ export function initSearch(deps: {
     panel?.classList.add("hidden");
     deps.onJump?.();
     toast(`Pin dropped at ${lat.toFixed(5)}, ${lng.toFixed(5)}`, "success");
+  }
+
+  /** Fly to one of the user's saved pins and re-drop its marker. Shared by the
+   *  typed-match results and the browsable pin list shown on an empty query. */
+  function jumpToPin(p: Waypoint) {
+    deps.map().flyTo({ center: [p.lng, p.lat], zoom: Math.max(deps.map().getZoom(), 14) });
+    deps.dropPin(p.lng, p.lat);
+    panel?.classList.add("hidden");
+    deps.onJump?.();
+    toast(p.note ? `${p.name} — ${p.note}` : p.name, "success");
+  }
+
+  function pinButton(p: Waypoint, attr: string, i: number): string {
+    return `<button class="search-hit" ${attr}="${i}">
+        <span class="sh-name">${esc(p.name)}</span>
+        <span class="sh-kind sh-pin">your pin</span>
+      </button>`;
   }
 
   function render(q: string) {
@@ -269,36 +342,28 @@ export function initSearch(deps: {
     // the places you cared enough to mark, so they outrank any town — and a
     // pack still building its index must not hide them.
     const pinHits = rankPins(pins, q);
-    const pinHtml = pinHits
-      .map(
-        (p, i) => `<button class="search-hit" data-pin="${i}">
-            <span class="sh-name">${esc(p.name)}</span>
-            <span class="sh-kind sh-pin">your pin</span>
-          </button>`
-      )
-      .join("");
+    const pinHtml = pinHits.map((p, i) => pinButton(p, "data-pin", i)).join("");
 
     const bindPins = () => {
       results?.querySelectorAll<HTMLElement>("[data-pin]").forEach((el) => {
-        el.addEventListener("click", () => {
-          const p = pinHits[Number(el.dataset.pin)];
-          deps.map().flyTo({ center: [p.lng, p.lat], zoom: Math.max(deps.map().getZoom(), 14) });
-          deps.dropPin(p.lng, p.lat);
-          panel?.classList.add("hidden");
-          deps.onJump?.();
-          toast(p.note ? `${p.name} — ${p.note}` : p.name, "success");
-        });
+        el.addEventListener("click", () => jumpToPin(pinHits[Number(el.dataset.pin)]));
       });
     };
 
     if (!q.trim()) {
-      show(
-        index
-          ? `<div class="search-empty">${index.length} places known here${
-              pins.length ? `, plus ${pins.length} of your pins` : ""
-            }. Type to search.</div>`
-          : `<div class="search-empty">Type to search.</div>`
-      );
+      // Nothing typed yet: list the user's pins so they're one tap away — the
+      // places you marked are the ones you're most likely reaching for. Most
+      // recent first, since a pin is usually dropped for something imminent.
+      const recent = [...pins].sort((a, b) => (b.t || 0) - (a.t || 0));
+      const hint = index
+        ? `<div class="search-empty">${index.length} places known here. Type a name${
+            recent.length ? ", or tap a pin below" : ""
+          }.</div>`
+        : `<div class="search-empty">Type to search${recent.length ? ", or tap a pin below" : ""}.</div>`;
+      show(hint + recent.map((p, i) => pinButton(p, "data-allpin", i)).join(""));
+      results?.querySelectorAll<HTMLElement>("[data-allpin]").forEach((el) => {
+        el.addEventListener("click", () => jumpToPin(recent[Number(el.dataset.allpin)]));
+      });
       return;
     }
     if (!index) {
@@ -346,7 +411,8 @@ export function initSearch(deps: {
     void loadMarks()
       .then((m) => {
         pins = m.waypoints ?? [];
-        if (input?.value) render(input.value);
+        // Render now so pins show immediately on open, even with an empty box.
+        render(input?.value || "");
       })
       .catch(() => {
         /* pins are a bonus here; the place index still works without them */

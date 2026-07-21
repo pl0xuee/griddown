@@ -6,6 +6,34 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.0
+
+**Finding food off-grid.** This release is about staying fed and watered when the
+map is all you have — and it all works with no signal, on your device.
+
+- **Water** — turn on the Water layer and every lake, river, and creek stands out.
+  Tap one to see what fish are likely there, how to catch them, and how to make
+  the water safe to drink. Springs and wells show on the map too.
+- **Wild food** — the land twin of Water: tap woods, meadows, or farmland for the
+  wild plants and game likely there this season, with a hard warning about
+  poisonous lookalikes and a link to the handbook.
+- **Camp check** — point the crosshair at a spot and get a verdict — good, fair,
+  poor, or avoid — from the slope, how far the nearest water is, tree cover, and
+  whether the land is public or off-limits.
+- **In season** — what's worth fishing, foraging, and hunting where you are this
+  month, plus the season's main hazard to watch.
+- **Nearby water** — a distance-sorted list of the named lakes, reservoirs,
+  rivers, and creeks closest to you; tap one to head there.
+- **Find** now searches lakes and rivers by name, and shows your saved pins the
+  moment you open it.
+
+**A cleaner, bigger survival handbook.** Rebuilt from a clean, born-digital
+edition of the U.S. Army Survival Manual (FM 3-05.70) — no more garbled scan
+text — and expanded with nine field appendices, including a large edible and
+medicinal plant guide, ropes and knots, venomous snakes, and dangerous fish.
+
+Your location still never leaves the device.
+
 ## v1.0.0
 
 **GridDown is 1.0.** A topographic map of every US state that keeps working with

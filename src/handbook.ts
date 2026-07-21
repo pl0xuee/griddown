@@ -1,5 +1,5 @@
 // Offline survival handbook: a curated quick-reference cheat sheet, plus the full
-// public-domain U.S. Army Survival Manual (FM 21-76), bundled and searchable.
+// public-domain U.S. Army Survival Manual (FM 3-05.70), bundled and searchable.
 
 interface Section {
   title: string;
@@ -71,6 +71,16 @@ interface Chapter {
 }
 let manual: { source: string; chapters: Chapter[] } | null = null;
 
+// Assigned by initHandbook; lets other panels open the handbook to a topic.
+let opener: ((q?: string) => void) | null = null;
+
+/** Open the survival handbook, optionally filtered to a search term (e.g.
+ *  "food procurement" to land on fishing and trapping). No-op until the
+ *  handbook has initialised. */
+export function openHandbook(query?: string) {
+  opener?.(query);
+}
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -126,7 +136,7 @@ export async function initHandbook() {
     content.innerHTML =
       `<div class="hb-group">Quick reference</div>${quick}` +
       (manual
-        ? `<div class="hb-group">Field manual — FM 21-76 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${q}".</div>`}`
+        ? `<div class="hb-group">Field manual — FM 3-05.70 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${q}".</div>`}`
         : "");
 
     content.querySelectorAll<HTMLElement>(".hb-title").forEach((t) => {
@@ -143,6 +153,18 @@ export async function initHandbook() {
       });
     });
   }
+
+  // Let other features open the handbook straight to a topic (the Fishing
+  // panel links here for how to catch and cook the catch). Setting the search
+  // box filters to the matching chapters and renders their bodies expanded,
+  // reusing the same path a typed search takes.
+  opener = (q?: string) => {
+    panel?.classList.remove("hidden");
+    if (q != null && search) {
+      search.value = q;
+      render();
+    }
+  };
 
   // Bind open/close + search and show the quick cards immediately, so the
   // button always responds even before the (larger) field manual loads.

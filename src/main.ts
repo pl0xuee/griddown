@@ -7,12 +7,18 @@ import { demTiles, demContourUrl, setDemRoot, sampleElevationM } from "./dem";
 import { initStateLibrary, setMvumListener, type SwitchTarget } from "./states";
 import { initMvum } from "./mvum";
 import { initMesh } from "./mesh";
-import { initHandbook } from "./handbook";
+import { initHandbook, openHandbook } from "./handbook";
+import { likelyFish, FISHABLE_KINDS } from "./fish";
+import { likelyForage } from "./forage";
+import { seasonReport } from "./season";
+import { scoreCamp, type CampInputs } from "./campsite";
+import { nearbyLakes, lakeNameNear, clearLakesCache, type Lake } from "./lakes";
+import { esc } from "./esc";
 import { initSky } from "./sky";
 import { initWaypoints } from "./waypoints";
 import { initMeasure } from "./measure";
 import { dropGotoPin } from "./goto";
-import { initSearch } from "./search";
+import { initSearch, resetPlaceIndex } from "./search";
 import { initRoute } from "./route";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
@@ -87,6 +93,9 @@ async function loadRegion(): Promise<Region & { configured: boolean }> {
 
 // Assigned once the region config is loaded (see start() at the bottom).
 let PMTILES_URL = "";
+/** The active pack's URL without the pmtiles:// prefix — for direct PMTiles
+ *  reads (place search, lakes), the same form initSearch/initRoute use. */
+const packUrl = () => PMTILES_URL.replace(/^pmtiles:\/\//, "");
 
 // Which downloaded pack is on screen (""=the bundled region). The Forest
 // Service overlay is stored per pack, so it has to follow this.
@@ -136,10 +145,6 @@ const TRAIL_KINDS = ["path", "footway", "bridleway", "steps"];
 
 // Survival-resource overlays, filtered from the POIs layer by OSM `kind`.
 const RESOURCE_CATS: Record<string, { color: string; kinds: string[] }> = {
-  water: {
-    color: "#3fa9f5",
-    kinds: ["drinking_water", "water_point", "spring", "water_well", "well", "water_tap"],
-  },
   shelter: {
     color: "#e0a33a",
     kinds: ["shelter", "wilderness_hut", "alpine_hut", "lean_to", "cabin", "hut",
@@ -181,6 +186,24 @@ let activeResources = new Set<string>(
 // Both come from the basemap's `landuse` polygons, so it works fully offline
 // in every downloaded pack.
 let publicLandOn = localStorage.getItem("griddown_publicland") === "1";
+// Fishing overlay: emphasise fishable water and let a tap identify the water
+// and its likely catch (see fish.ts). All from the basemap `water` layer, so it
+// works offline in every downloaded pack.
+let fishingOn = localStorage.getItem("griddown_fishing") === "1";
+// Still water worth tinting so lakes read as a surface, not just a shoreline.
+// Excludes the non-fishable kinds (ditch, drain, fountain, swimming_pool).
+const STILL_FISH = ["water", "lake", "reservoir", "pond", "basin", "lagoon"];
+// Drinking-water sources (springs, wells) — folded into the Fishing overlay so
+// it shows where to fish AND where to find drinkable water. (Was a separate
+// "Water" chip; the data is the same POI kinds.)
+const WATER_SOURCE_KINDS = ["drinking_water", "water_point", "spring", "water_well", "well", "water_tap"];
+
+// Wild-food overlay: land that might feed you (see forage.ts). Split into the
+// wild ground (woods, brush, meadow — forage + game) and cultivated ground
+// (farmland, orchard, vineyard — crops + fruit), tinted differently.
+let wildfoodOn = localStorage.getItem("griddown_wildfood") === "1";
+const FORAGE_WILD = ["forest", "wood", "scrub", "meadow", "grassland", "grass", "wetland"];
+const FORAGE_CROP = ["farmland", "farmyard", "orchard", "vineyard"];
 // Strongly protected: parks, designated protected areas, reserves. US national
 // forests are often tagged as plain landuse=forest in OSM (kind "forest"), so
 // they get their own, fainter class — shown, but ownership varies.
@@ -242,6 +265,79 @@ function publicLandLines(themeName: ThemeName): any[] {
         "line-dasharray": [1.5, 1.2],
         "line-opacity": 0.85,
       },
+    },
+  ];
+}
+
+/** Fishing overlay fills — tint still water so lakes read as a fishable
+ *  surface. Inserted under roads, like the public-land fills. */
+function fishingFills(): any[] {
+  return [
+    {
+      id: "app-fish-fill", type: "fill", source: "protomaps", "source-layer": "water",
+      filter: ["in", ["get", "kind"], ["literal", STILL_FISH]],
+      paint: { "fill-color": "#38d6ff", "fill-opacity": 0.16 },
+    },
+  ];
+}
+
+/** Fishing overlay lines — a cyan outline on every fishable water body so
+ *  rivers and creeks stand out and read as tappable. */
+function fishingLines(): any[] {
+  return [
+    {
+      id: "app-fish-line", type: "line", source: "protomaps", "source-layer": "water",
+      filter: ["in", ["get", "kind"], ["literal", FISHABLE_KINDS]],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": "#38d6ff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.8, 12, 1.8, 15, 3.2],
+        "line-opacity": 0.9,
+      },
+    },
+  ];
+}
+
+/** Drinking-water source POIs (springs/wells), shown with the Fishing overlay.
+ *  Dots + labels, drawn on top like the resource POIs. */
+function fishingPois(t: (typeof THEME)[ThemeName]): any[] {
+  const filter: any = ["in", ["get", "kind"], ["literal", WATER_SOURCE_KINDS]];
+  return [
+    {
+      id: "app-fish-src-dot", type: "circle", source: "protomaps", "source-layer": "pois",
+      filter, minzoom: 11,
+      paint: {
+        "circle-radius": ["interpolate", ["linear"], ["zoom"], 11, 3, 14, 5.5, 16, 7.5],
+        "circle-color": "#3fa9f5",
+        "circle-stroke-color": "#0a0a0a",
+        "circle-stroke-width": 1.5,
+        "circle-opacity": 0.92,
+      },
+    },
+    {
+      id: "app-fish-src-label", type: "symbol", source: "protomaps", "source-layer": "pois",
+      filter: ["all", filter, ["has", "name"]], minzoom: 14,
+      layout: {
+        "text-field": ["get", "name"], "text-font": ["Noto Sans Regular"],
+        "text-size": 10, "text-offset": [0, 0.9], "text-anchor": "top", "text-optional": true,
+      },
+      paint: { "text-color": "#3fa9f5", "text-halo-color": t.halo, "text-halo-width": 1.4 },
+    },
+  ];
+}
+
+/** Wild-food overlay fills — green for wild ground, amber for cultivated. */
+function forageFills(): any[] {
+  return [
+    {
+      id: "app-forage-wild-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", FORAGE_WILD]],
+      paint: { "fill-color": "#5fd06a", "fill-opacity": 0.14 },
+    },
+    {
+      id: "app-forage-crop-fill", type: "fill", source: "protomaps", "source-layer": "landuse",
+      filter: ["in", ["get", "kind"], ["literal", FORAGE_CROP]],
+      paint: { "fill-color": "#ffbe5a", "fill-opacity": 0.16 },
     },
   ];
 }
@@ -408,6 +504,32 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
   const base = layers("protomaps", namedFlavor(t.flavor), { lang: "en" }) as any[];
   if (themeName === "dark") brightenDarkRoads(base);
 
+  // An always-present, fully transparent fill over every landuse polygon, so
+  // Camp check can read the land — forest, wetland, and especially military —
+  // from queryRenderedFeatures no matter which overlays are on. The base style
+  // only draws a few landuse kinds, so without this the "avoid military land"
+  // gate and tree-cover check silently miss most ground. A zero-opacity fill is
+  // invisible but still answers feature queries; visibility:none would not.
+  base.push({
+    id: "app-landuse-query",
+    type: "fill",
+    source: "protomaps",
+    "source-layer": "landuse",
+    paint: { "fill-color": "#000000", "fill-opacity": 0 },
+  });
+
+  // Lakes carry their name on a separate label POINT, not on the polygon you
+  // tap — so tapping a lake hits an unnamed shape. This invisible layer makes
+  // those name points queryable, so the Fishing identify can recover the name.
+  base.push({
+    id: "app-water-name",
+    type: "circle",
+    source: "protomaps",
+    "source-layer": "water",
+    filter: ["all", ["==", ["geometry-type"], "Point"], ["has", "name"]],
+    paint: { "circle-radius": 3, "circle-opacity": 0, "circle-stroke-width": 0 },
+  });
+
   const sources: any = {
     protomaps: {
       type: "vector",
@@ -482,6 +604,22 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     base.splice(firstRoad >= 0 ? firstRoad : base.length, 0, ...publicLandFills(themeName));
   }
 
+  if (fishingOn) {
+    // Water tint sits under the roads too, so a road crossing a river stays on
+    // top of the highlight rather than being washed out by it.
+    const firstRoad = base.findIndex(
+      (l) => typeof l.id === "string" && l.id.startsWith("roads")
+    );
+    base.splice(firstRoad >= 0 ? firstRoad : base.length, 0, ...fishingFills());
+  }
+
+  if (wildfoodOn) {
+    const firstRoad = base.findIndex(
+      (l) => typeof l.id === "string" && l.id.startsWith("roads")
+    );
+    base.splice(firstRoad >= 0 ? firstRoad : base.length, 0, ...forageFills());
+  }
+
   const contourLabels: any[] = terrainOn && terrainAvailable && !batteryOn
     ? [
         {
@@ -508,6 +646,7 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
   const emphLabels = emph.filter((l) => l.type === "symbol");
   const overlayLines = [
     ...(publicLandOn ? publicLandLines(themeName) : []),
+    ...(fishingOn ? fishingLines() : []),
     ...emphLines,
   ];
   const firstSymbol = base.findIndex((l) => l.type === "symbol");
@@ -519,7 +658,11 @@ function buildStyle(themeName: ThemeName): maplibregl.StyleSpecification {
     glyphs: `${origin}/fonts/{fontstack}/{range}.pbf`,
     sprite: `${origin}/sprites/${t.sprite}`,
     sources,
-    layers: [...base, ...emphLabels, ...resourceLayers(t), ...contourLabels],
+    layers: [
+      ...base, ...emphLabels, ...resourceLayers(t),
+      ...(fishingOn ? fishingPois(t) : []),
+      ...contourLabels,
+    ],
   } as maplibregl.StyleSpecification;
 }
 
@@ -946,12 +1089,451 @@ async function start() {
     map.setStyle(buildStyle(currentTheme));
     applyThemeUi();
   });
+  document.getElementById("fishing-toggle")?.addEventListener("click", () => {
+    fishingOn = !fishingOn;
+    localStorage.setItem("griddown_fishing", fishingOn ? "1" : "0");
+    map.setStyle(buildStyle(currentTheme));
+    applyThemeUi();
+    // The identify panel belongs to the overlay — close it when the layer goes.
+    if (!fishingOn) document.getElementById("fish-box")?.classList.add("hidden");
+  });
+  document.getElementById("wildfood-toggle")?.addEventListener("click", () => {
+    wildfoodOn = !wildfoodOn;
+    localStorage.setItem("griddown_wildfood", wildfoodOn ? "1" : "0");
+    map.setStyle(buildStyle(currentTheme));
+    applyThemeUi();
+    if (!wildfoodOn) document.getElementById("forage-box")?.classList.add("hidden");
+  });
   applyThemeUi();
 
   // Assigned further down, once the overlay is initialised — switchToSource is
   // declared before it but only ever runs after.
   let mvumCtl: { packChanged(): void } | null = null;
   let routeCtl: { routeTo(lng: number, lat: number, label: string): void } | null = null;
+
+  // --- Map info cards: tap water (Fishing) or land (Wild food) to identify it
+  // and its likely food, plus the Camp-check and In-season tools. Everything
+  // reads the pack's own data, so it all works offline. ---
+  const fishBox = document.getElementById("fish-box");
+  const forageBox = document.getElementById("forage-box");
+  const campBox = document.getElementById("camp-box");
+  const seasonBox = document.getElementById("season-box");
+  const lakesBox = document.getElementById("lakes-box");
+  // One generation counter across the tap-cards. ANY change to what should be on
+  // screen — a new tap, a close, an overlay toggled off, another card opened —
+  // bumps it, so a render still waiting on its elevation lookup sees `gen !==
+  // cardGen` and no-ops instead of painting a card the user has moved on from.
+  let cardGen = 0;
+  const closeFishBox = () => { cardGen++; fishBox?.classList.add("hidden"); };
+  // These cards all sit top-centre, so only one shows at a time — opening one
+  // closes the others rather than stacking them. Bumping the token here also
+  // cancels any pending render for a card we're hiding.
+  function hideCards(keep?: Element | null) {
+    cardGen++;
+    for (const b of [fishBox, forageBox, campBox, seasonBox, lakesBox]) {
+      if (b && b !== keep) b.classList.add("hidden");
+    }
+  }
+
+  // ---- Fishing card ----
+  function renderFishBox(
+    lng: number, lat: number, kind: string, title: string, elevFt: number | null
+  ) {
+    // fishingOn can flip off during the elevation await — don't paint a card
+    // for an overlay the user just turned off.
+    if (!fishBox || !fishingOn) return;
+    hideCards(fishBox);
+    const g = likelyFish({ kind, name: title, elevationFt: elevFt, lat, lng });
+    const regimeWord =
+      g.regime === "cold" ? "coldwater" : g.regime === "warm" ? "warmwater" : "coolwater";
+    const elevLabel = elevFt != null ? `${Math.round(elevFt).toLocaleString()} ft` : "elevation n/a";
+    const chips = g.species.map((s) => `<span class="fish-sp">${esc(s)}</span>`).join("");
+    fishBox.innerHTML = `
+      <div id="fish-head">
+        <span class="goto-title">&#127907; ${esc(title)}</span>
+        <button id="fish-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="fish-sub">${esc(g.waterType)} &middot; ${elevLabel} &middot; ${regimeWord}</div>
+      <div class="fish-label">Likely here</div>
+      <div class="fish-species">${chips}</div>
+      ${elevFt == null && !terrainAvailable
+        ? `<div class="fish-note">Add terrain to this pack for a sharper guess.</div>`
+        : ""}
+      <div class="fish-method">${esc(g.method)}</div>
+      <div class="fish-drink">Before you drink it: purify first &mdash; boil 1 min, filter, or treat.
+        <button id="fish-water" type="button" class="fish-link">Water how-to &rarr;</button></div>
+      <div class="fish-caveat">${esc(g.caveat)}</div>
+      <div class="fish-actions">
+        <button id="fish-route" type="button">&#10148; Get there</button>
+        <button id="fish-book" type="button">&#128214; Catch &amp; cook</button>
+      </div>`;
+    fishBox.classList.remove("hidden");
+    document.getElementById("fish-close")?.addEventListener("click", closeFishBox);
+    document.getElementById("fish-route")?.addEventListener("click", () => {
+      closeFishBox();
+      routeCtl?.routeTo(lng, lat, title);
+    });
+    document.getElementById("fish-book")?.addEventListener("click", () =>
+      openHandbook("food procurement")
+    );
+    document.getElementById("fish-water")?.addEventListener("click", () =>
+      openHandbook("water procurement")
+    );
+  }
+
+  async function showFishBox(lng: number, lat: number, kind: string, name: string) {
+    if (!fishBox) return;
+    const gen = ++cardGen;
+    // When zoomed out, the lake's on-map label isn't rendered, so the tap
+    // couldn't read a name from it. Fall back to reading the name straight from
+    // the tiles — but only for still water (rivers already named on the line).
+    const needName = !name && STILL_FISH.includes(kind);
+    const [elevM, found] = await Promise.all([
+      terrainAvailable ? sampleElevationM(lng, lat) : Promise.resolve(null),
+      needName ? lakeNameNear({ url: packUrl(), lng, lat }).catch(() => "") : Promise.resolve(name),
+    ]);
+    if (gen !== cardGen) return;
+    const title = found || `Unnamed ${
+      kind === "river" ? "river" : kind === "stream" ? "creek"
+      : kind === "reservoir" ? "reservoir" : "water"}`;
+    renderFishBox(lng, lat, kind, title, elevM == null ? null : elevM * 3.28084);
+  }
+
+  // ---- Wild-food card ----
+  function renderForageBox(lng: number, lat: number, landuseKind: string, elevFt: number | null) {
+    if (!forageBox || !wildfoodOn) return;
+    hideCards(forageBox);
+    const g = likelyForage({ landuseKind, elevationFt: elevFt, lat, lng, month: new Date().getMonth() });
+    const elevLabel = elevFt != null ? `${Math.round(elevFt).toLocaleString()} ft · ` : "";
+    const plants = g.plants.map((s) => `<span class="card-chip">${esc(s)}</span>`).join("");
+    const game = g.game.map((s) => `<span class="card-chip">${esc(s)}</span>`).join("");
+    forageBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#127807; ${esc(g.habitat)}</span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="card-sub">${elevLabel}${esc(g.seasonNote)}</div>
+      <div class="card-label">Wild plants</div>
+      <div class="card-chips">${plants}</div>
+      <div class="card-label">Game</div>
+      <div class="card-chips">${game}</div>
+      <div class="card-caveat">${esc(g.caution)}</div>
+      <div class="card-actions">
+        <button id="forage-route" type="button">&#10148; Get there</button>
+        <button id="forage-book" type="button">&#128214; Plants guide</button>
+      </div>`;
+    forageBox.classList.remove("hidden");
+    forageBox.querySelector(".card-close")?.addEventListener("click", () => {
+      cardGen++;
+      forageBox.classList.add("hidden");
+    });
+    document.getElementById("forage-route")?.addEventListener("click", () => {
+      forageBox.classList.add("hidden");
+      routeCtl?.routeTo(lng, lat, g.habitat);
+    });
+    document.getElementById("forage-book")?.addEventListener("click", () =>
+      openHandbook("survival use of plants")
+    );
+  }
+
+  async function showForageBox(lng: number, lat: number, landuseKind: string) {
+    if (!forageBox) return;
+    const gen = ++cardGen;
+    const elevM = terrainAvailable ? await sampleElevationM(lng, lat) : null;
+    if (gen !== cardGen) return;
+    renderForageBox(lng, lat, landuseKind, elevM == null ? null : elevM * 3.28084);
+  }
+
+  // Standard ray-cast point-in-ring.
+  function inRing(pt: [number, number], ring: number[][]): boolean {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > pt[1]) !== (yj > pt[1]) &&
+          pt[0] < ((xj - xi) * (pt[1] - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+  function inGeom(pt: [number, number], geom: any): boolean {
+    const inPoly = (rings: number[][][]) =>
+      rings.length > 0 && inRing(pt, rings[0]) && !rings.slice(1).some((h) => inRing(pt, h));
+    if (geom?.type === "Polygon") return inPoly(geom.coordinates);
+    if (geom?.type === "MultiPolygon") return geom.coordinates.some(inPoly);
+    return false;
+  }
+
+  // The name of a tapped lake — recovered from the separate label POINT, since
+  // the polygon itself is unnamed. Returns ONLY a label that lies inside the
+  // tapped polygon (unambiguous), over a bounded query; if none is rendered
+  // (zoomed out, or clipped across tiles) it returns "" and the caller falls
+  // back to the tile-scan lookup. Guessing the nearest on-screen label could
+  // name a neighbouring lake, so it no longer does.
+  function waterName(tapPt: { x: number; y: number }, polyGeom: any): string {
+    if (!polyGeom) return "";
+    const R = 500;
+    let labels: maplibregl.MapGeoJSONFeature[] = [];
+    try {
+      labels = map.queryRenderedFeatures(
+        [[tapPt.x - R, tapPt.y - R], [tapPt.x + R, tapPt.y + R]],
+        { layers: ["app-water-name"] }
+      );
+    } catch { return ""; }
+    for (const lf of labels) {
+      const nm = lf.properties?.name;
+      if (!nm || lf.geometry.type !== "Point") continue;
+      if (inGeom(lf.geometry.coordinates as [number, number], polyGeom)) return String(nm);
+    }
+    return "";
+  }
+
+  // ---- Combined tap handler: water first (Fishing), then land (Wild food) ----
+  map.on("click", (e) => {
+    if (!fishingOn && !wildfoodOn) return;
+    // Don't steal the tap from the measure tool while it's placing points.
+    if (!document.getElementById("measure-readout")?.classList.contains("hidden")) return;
+    const pad = 6;
+    const box: [maplibregl.PointLike, maplibregl.PointLike] = [
+      [e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad],
+    ];
+    if (fishingOn) {
+      let water: maplibregl.MapGeoJSONFeature[] = [];
+      try { water = map.queryRenderedFeatures(box, { layers: ["app-fish-fill", "app-fish-line"] }); }
+      catch { /* layers mid-rebuild */ }
+      if (water.length) {
+        const f = water.find((ff) => ff.properties && ff.properties.name) || water[0];
+        const kind = String(f.properties?.kind || "water");
+        let name = f.properties?.name ? String(f.properties.name) : "";
+        // Rivers/streams carry their name on the line we just hit; lakes don't
+        // — their name is a separate label point. Recover it from the label
+        // that lies inside the lake polygon we tapped.
+        if (!name) {
+          const poly = water.find(
+            (ff) => ff.geometry?.type === "Polygon" || ff.geometry?.type === "MultiPolygon"
+          );
+          name = waterName(e.point, poly?.geometry);
+        }
+        void showFishBox(e.lngLat.lng, e.lngLat.lat, kind, name);
+        return; // a tapped lake is a lake, not the woods behind it
+      }
+    }
+    if (wildfoodOn) {
+      let land: maplibregl.MapGeoJSONFeature[] = [];
+      try { land = map.queryRenderedFeatures(box, { layers: ["app-forage-wild-fill", "app-forage-crop-fill"] }); }
+      catch { /* layers mid-rebuild */ }
+      if (land.length) {
+        void showForageBox(e.lngLat.lng, e.lngLat.lat, String(land[0].properties?.kind || "forest"));
+      }
+    }
+  });
+
+  // ---- Camp check: score the ground under the crosshair ----
+  function haversineM(aLat: number, aLng: number, bLat: number, bLng: number): number {
+    const R = 6371000;
+    const dLat = ((bLat - aLat) * Math.PI) / 180;
+    const dLng = ((bLng - aLng) * Math.PI) / 180;
+    const la1 = (aLat * Math.PI) / 180, la2 = (bLat * Math.PI) / 180;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(h));
+  }
+  function eachCoord(geom: any, cb: (c: [number, number]) => void) {
+    if (!geom) return;
+    if (geom.type === "Point") { cb(geom.coordinates); return; }
+    const walk = (arr: any) => {
+      if (typeof arr[0] === "number") cb(arr as [number, number]);
+      else for (const x of arr) walk(x);
+    };
+    walk(geom.coordinates);
+  }
+  async function groundSlopeDeg(lng: number, lat: number): Promise<number | null> {
+    if (!terrainAvailable) return null;
+    const d = 0.0005; // ~55 m each way
+    const dLng = d / Math.max(0.2, Math.cos((lat * Math.PI) / 180));
+    const els = await Promise.all([
+      sampleElevationM(lng, lat + d), sampleElevationM(lng, lat - d),
+      sampleElevationM(lng + dLng, lat), sampleElevationM(lng - dLng, lat),
+    ]);
+    if (els.some((x) => x == null)) return null;
+    const [n, s, east, west] = els as number[];
+    const distY = 2 * d * 111320;
+    const distX = 2 * dLng * 111320 * Math.cos((lat * Math.PI) / 180);
+    const grad = Math.hypot((n - s) / distY, (east - west) / distX);
+    return (Math.atan(grad) * 180) / Math.PI;
+  }
+  const closeCampBox = () => { cardGen++; campBox?.classList.add("hidden"); };
+  async function runCampCheck() {
+    if (!campBox) return;
+    // Claim the slot up front; the slope lookup awaits, and a tap or another
+    // tool opened meanwhile must win over this result landing late.
+    const gen = ++cardGen;
+    const c = map.getCenter();
+    const centerPt = map.project(c);
+    // Read land use from the always-on transparent query layer, so this works
+    // regardless of which overlays are drawn.
+    let atCenter: maplibregl.MapGeoJSONFeature[] = [];
+    try { atCenter = map.queryRenderedFeatures(centerPt, { layers: ["app-landuse-query"] }); }
+    catch { /* layer mid-rebuild */ }
+    let land: CampInputs["land"] = "unknown";
+    let tree = false, wet = false;
+    for (const f of atCenter) {
+      const k = String(f.properties?.kind || "");
+      if (MILITARY_KINDS.includes(k)) land = "military";
+      else if (land !== "military" && PUBLIC_KINDS.includes(k)) land = "public";
+      if (FOREST_KINDS.includes(k)) tree = true;
+      if (k === "wetland") wet = true;
+    }
+    let waterMeters: number | null = null;
+    try {
+      // Size the query box to ~3 km of ground (not a fixed pixel count), so the
+      // metric thresholds in scoreCamp mean the same thing at every zoom.
+      // Clamp: at least a small box, at most the viewport.
+      const off = map.project([c.lng, c.lat + 3000 / 111320]);
+      const cv = map.getCanvas();
+      // Clamp to the viewport in CSS pixels (clientWidth/Height), matching the
+      // units map.project returns — the raw canvas .width/.height are DPR-scaled.
+      const pad = Math.min(
+        Math.max(Math.abs(off.y - centerPt.y), 60),
+        Math.max(cv.clientWidth, cv.clientHeight)
+      );
+      const near = map.queryRenderedFeatures(
+        [[centerPt.x - pad, centerPt.y - pad], [centerPt.x + pad, centerPt.y + pad]]
+      );
+      let min = Infinity;
+      for (const f of near) {
+        if ((f as any).sourceLayer !== "water") continue;
+        if (!FISHABLE_KINDS.includes(String(f.properties?.kind || ""))) continue;
+        eachCoord(f.geometry, ([lng, lat]) => {
+          const dd = haversineM(c.lat, c.lng, lat, lng);
+          if (dd < min) min = dd;
+        });
+      }
+      if (isFinite(min)) waterMeters = min;
+    } catch { /* leave null */ }
+    const slopeDeg = await groundSlopeDeg(c.lng, c.lat);
+    // Superseded by a tap or another card while the slope resolved — drop it.
+    if (gen !== cardGen) return;
+    hideCards(campBox);
+    const res = scoreCamp({ slopeDeg, waterMeters, treeCover: tree, land, wetland: wet });
+    const reasons = res.reasons.map((r) => `<li>${esc(r)}</li>`).join("");
+    campBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#9978; Camp check &mdash; <span class="camp-verdict ${res.verdict}">${res.verdict}</span></span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <ul class="card-reasons">${reasons}</ul>
+      <div class="card-caveat">Judged at the crosshair, from terrain and map data. Move the map to check another spot &mdash; and always trust your own eyes on the ground.</div>`;
+    campBox.classList.remove("hidden");
+    campBox.querySelector(".card-close")?.addEventListener("click", closeCampBox);
+  }
+  document.getElementById("camp-open")?.addEventListener("click", () => { void runCampCheck(); });
+
+  // ---- In season: what this month offers where the map is centred ----
+  const closeSeasonBox = () => { cardGen++; seasonBox?.classList.add("hidden"); };
+  document.getElementById("season-open")?.addEventListener("click", () => {
+    if (!seasonBox) return;
+    hideCards(seasonBox);
+    const c = map.getCenter();
+    const r = seasonReport(new Date().getMonth(), c.lat, c.lng);
+    const items = r.items
+      .map((it) =>
+        `<div class="season-item"><span class="si-icon">${it.icon}</span>` +
+        `<span class="si-body"><span class="si-label">${esc(it.label)}</span> — ${esc(it.note)}</span></div>`
+      )
+      .join("");
+    seasonBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#128197; ${esc(r.monthName)} &middot; ${esc(r.season)}</span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      ${items}
+      <div class="card-caveat">A seasonal generalisation for your area — local timing, seasons, and licences vary. Confirm the rules before you hunt or fish.</div>`;
+    seasonBox.classList.remove("hidden");
+    seasonBox.querySelector(".card-close")?.addEventListener("click", closeSeasonBox);
+  });
+
+  // ---- Nearby water: named lakes, reservoirs, rivers & creeks, nearest first ----
+  const closeLakesBox = () => { cardGen++; lakesBox?.classList.add("hidden"); };
+  let lakesGen = 0;
+  function renderLakesList(fromYou: boolean, lakes: Lake[]) {
+    if (!lakesBox) return;
+    const where = fromYou ? "from your location" : "from the map centre";
+    const rows = lakes.length
+      ? lakes.slice(0, 50).map((l, i) =>
+          `<button class="lake-row" data-lake="${i}">
+             <span class="lake-name">${esc(l.name)}</span>
+             <span class="lake-meta">${esc(l.label || "water")} &middot; ${l.distMi!.toFixed(1)} mi</span>
+           </button>`
+        ).join("")
+      : `<div class="lake-empty">No named water found nearby in this pack.</div>`;
+    lakesBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#128167; Nearby water</span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="card-sub">${lakes.length} within reach, ${where}</div>
+      <div class="lake-list">${rows}</div>`;
+    lakesBox.classList.remove("hidden");
+    lakesBox.querySelector(".card-close")?.addEventListener("click", closeLakesBox);
+    lakesBox.querySelectorAll<HTMLElement>("[data-lake]").forEach((el) => {
+      el.addEventListener("click", () => {
+        const l = lakes[Number(el.dataset.lake)];
+        closeLakesBox();
+        map.flyTo({ center: [l.lng, l.lat], zoom: Math.max(map.getZoom(), 12) });
+        dropGotoPin(map, l.lng, l.lat);
+        peekSheet();
+      });
+    });
+  }
+  document.getElementById("lakes-open")?.addEventListener("click", async () => {
+    if (!lakesBox) return;
+    const gen = ++lakesGen;
+    hideCards(lakesBox); // supersede any tap card, keep this one
+    // Alive = still the current open AND not dismissed. Covers the X button,
+    // another card opening, and the panel-manager toggle-close (which just
+    // hides the box) — any of them stops the in-flight scan from re-showing it.
+    const alive = () => gen === lakesGen && !lakesBox.classList.contains("hidden");
+    const setSub = (text: string) => {
+      if (!alive()) return;
+      const sub = lakesBox.querySelector(".card-sub");
+      if (sub) sub.textContent = text;
+    };
+    lakesBox.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">&#128167; Nearby water</span>
+        <button class="card-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div class="card-sub">Finding your location…</div>`;
+    lakesBox.classList.remove("hidden");
+    lakesBox.querySelector(".card-close")?.addEventListener("click", closeLakesBox);
+
+    // Prefer a known fix; else try for one; else fall back to the map centre.
+    let center = lastFix;
+    let fromYou = !!lastFix;
+    if (!center) {
+      try {
+        const f = await getFix();
+        center = { lng: f.lng, lat: f.lat };
+        lastFix = center;
+        fromYou = true;
+      } catch {
+        center = { lng: map.getCenter().lng, lat: map.getCenter().lat };
+        fromYou = false;
+      }
+    }
+    if (!alive()) return;
+    setSub("Reading water from the map pack…");
+    try {
+      const lakes = await nearbyLakes({
+        url: packUrl(),
+        center: center!,
+        maxMi: 80,
+        onProgress: (d, t) => { if (t) setSub(`Reading water… ${d}/${t} tiles`); },
+      });
+      if (!alive()) return;
+      renderLakesList(fromYou, lakes);
+    } catch (e) {
+      if (alive()) setSub(`Couldn't read water: ${e}`);
+    }
+  });
 
   // Switch the active map source (called when a downloaded state is selected).
   function switchToSource(t: SwitchTarget) {
@@ -964,6 +1546,10 @@ async function start() {
     // the bytes on disk changed but the URL didn't, and a stale cached header/
     // directory would point at the wrong tile offsets.
     protocol.tiles.delete(t.pmtilesUrl.replace(/^pmtiles:\/\//, ""));
+    // The lakes scanner and the place index both cache per URL; drop them too,
+    // or after a same-URL refresh they'd serve the old pack's data.
+    clearLakesCache();
+    resetPlaceIndex();
     PMTILES_URL = t.pmtilesUrl;
     activePackAbbr = t.abbr;
     terrainAvailable = t.hasDem;
@@ -979,7 +1565,8 @@ async function start() {
     // The overlay belongs to the old pack — reload it for the new one.
     mvumCtl?.packChanged();
   }
-  // Resource overlay chips (water / shelter / medical / supply / help).
+  // Resource overlay chips (shelter / medical / supply / help; water folded
+  // into the Water/Fishing overlay).
   //
   // Scoped to [data-res], NOT to .res-chip: the terrain, public-land and forest
   // -road toggles now share the chip row and the chip class, but they are not
@@ -1015,21 +1602,35 @@ async function start() {
   let lastGrid = "";
   let lastLL = "";
   let lastElev = "";
-  function renderCoords() {
-    if (!coordsEl) return;
-    coordsEl.innerHTML = `<span class="c-grid">${lastGrid}</span><span class="c-ll">${lastLL}${
-      lastElev ? " · " + lastElev : ""
-    }</span>`;
+  // Build the two spans once and update textContent thereafter — rewriting
+  // innerHTML every frame reparsed and recreated the nodes on the pan hot path.
+  let gridSpan: HTMLElement | null = null;
+  let llSpan: HTMLElement | null = null;
+  if (coordsEl) {
+    coordsEl.innerHTML = `<span class="c-grid"></span><span class="c-ll"></span>`;
+    gridSpan = coordsEl.querySelector(".c-grid");
+    llSpan = coordsEl.querySelector(".c-ll");
   }
+  function renderCoords() {
+    if (gridSpan) gridSpan.textContent = lastGrid;
+    if (llSpan) llSpan.textContent = lastLL + (lastElev ? " · " + lastElev : "");
+  }
+  // Coalesce a burst of `move` events into one update per animation frame — the
+  // MGRS projection and DOM write then run once per frame, not once per event.
+  let coordsRaf = 0;
   function updateCoords() {
-    const c = map.getCenter();
-    lastLL = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
-    try {
-      lastGrid = fmtMgrs(mgrsForward([c.lng, c.lat]));
-    } catch {
-      lastGrid = "—";
-    }
-    renderCoords();
+    if (coordsRaf) return;
+    coordsRaf = requestAnimationFrame(() => {
+      coordsRaf = 0;
+      const c = map.getCenter();
+      lastLL = `${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`;
+      try {
+        lastGrid = fmtMgrs(mgrsForward([c.lng, c.lat]));
+      } catch {
+        lastGrid = "—";
+      }
+      renderCoords();
+    });
   }
 
   // Sample the local DEM at the crosshair for an elevation readout.
@@ -1161,6 +1762,16 @@ function applyThemeUi() {
     plBtn.title = publicLandOn ? "Public land: on" : "Public land: off";
     plBtn.classList.toggle("off", !publicLandOn);
   }
+  const fishBtn = document.getElementById("fishing-toggle");
+  if (fishBtn) {
+    fishBtn.title = fishingOn ? "Water: on — tap water to identify" : "Water: off";
+    fishBtn.classList.toggle("off", !fishingOn);
+  }
+  const wildBtn = document.getElementById("wildfood-toggle");
+  if (wildBtn) {
+    wildBtn.title = wildfoodOn ? "Wild food: on — tap land to identify" : "Wild food: off";
+    wildBtn.classList.toggle("off", !wildfoodOn);
+  }
   const batBtn = document.getElementById("battery-toggle");
   if (batBtn) {
     batBtn.title = batteryOn
@@ -1172,6 +1783,12 @@ function applyThemeUi() {
   // Legend rows for the overlay only make sense while it's on.
   document.querySelectorAll<HTMLElement>(".legend-row.publicland").forEach((el) => {
     el.classList.toggle("hidden", !publicLandOn);
+  });
+  document.querySelectorAll<HTMLElement>(".legend-row.fishing").forEach((el) => {
+    el.classList.toggle("hidden", !fishingOn);
+  });
+  document.querySelectorAll<HTMLElement>(".legend-row.wildfood").forEach((el) => {
+    el.classList.toggle("hidden", !wildfoodOn);
   });
   const fs = document.querySelector<HTMLElement>(".swatch.forest");
   const ts = document.querySelector<HTMLElement>(".swatch.trail");

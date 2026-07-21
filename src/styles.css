@@ -289,6 +289,35 @@ body {
   background: rgba(255, 69, 69, 0.35);
   border: 1px dashed #ff5555;
 }
+.swatch.fishing {
+  height: 9px;
+  border-top: none;
+  border-radius: 2px;
+  background: rgba(56, 214, 255, 0.3);
+  border: 1px solid #38d6ff;
+}
+.swatch.watersrc {
+  height: 9px;
+  width: 9px;
+  border-top: none;
+  border-radius: 50%;
+  background: #3fa9f5;
+  border: 1px solid #0a0a0a;
+}
+.swatch.wildfood-wild,
+.swatch.wildfood-crop {
+  height: 9px;
+  border-top: none;
+  border-radius: 2px;
+}
+.swatch.wildfood-wild {
+  background: rgba(95, 208, 106, 0.3);
+  border: 1px solid #5fd06a;
+}
+.swatch.wildfood-crop {
+  background: rgba(255, 190, 90, 0.32);
+  border: 1px solid #ffbe5a;
+}
 
 /* Tidy 2-column button grid for VIEW + TOOLS sections */
 .hud-grid {
@@ -1860,6 +1889,307 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 
 /* --- Compass --- */
+/* Shared map info cards: wild food, camp check, in season. (The fishing card
+   predates this and keeps its own #fish-box block below.) */
+.card-box {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 13;
+  width: min(300px, calc(100vw - 24px));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(150, 170, 150, 0.5);
+  background: rgba(14, 18, 16, 0.96);
+  color: #e6f0e0;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+#forage-box { border-color: rgba(95, 208, 106, 0.55); }
+#camp-box { border-color: rgba(255, 190, 90, 0.55); }
+#season-box { border-color: rgba(120, 200, 230, 0.5); }
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.card-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+#forage-box .card-title { color: #8fe08f; }
+#camp-box .card-title { color: #ffce7a; }
+#season-box .card-title { color: #8fd4ea; }
+.card-close {
+  background: none;
+  border: none;
+  color: #cde7cd;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex: 0 0 auto;
+}
+.card-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #9fb6a6;
+}
+.card-label {
+  margin-top: 9px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #7f958a;
+}
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.card-chip {
+  font-size: 11.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(150, 190, 150, 0.14);
+  border: 1px solid rgba(150, 190, 150, 0.4);
+  color: #e2efe2;
+}
+#forage-box .card-chip {
+  background: rgba(95, 208, 106, 0.13);
+  border-color: rgba(95, 208, 106, 0.4);
+}
+.card-caveat {
+  margin-top: 9px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #8a9a8a;
+}
+.card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}
+.card-actions button {
+  flex: 1 1 0;
+  padding: 8px 6px;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(150, 190, 150, 0.45);
+  background: rgba(150, 190, 150, 0.12);
+  color: #e6f0e0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.card-actions button:hover { background: rgba(150, 190, 150, 0.22); }
+.camp-verdict {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.camp-verdict.good { color: #5fd06a; }
+.camp-verdict.fair { color: #ffd54a; }
+.camp-verdict.poor { color: #ff9a4a; }
+.camp-verdict.avoid { color: #ff5a5a; }
+.card-reasons {
+  margin: 8px 0 0;
+  padding-left: 16px;
+}
+.card-reasons li {
+  margin-bottom: 5px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #d6e2d6;
+}
+.season-item {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+.season-item .si-icon {
+  font-size: 15px;
+  flex: 0 0 auto;
+  line-height: 1.4;
+}
+.season-item .si-body {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #d6e2e6;
+}
+.season-item .si-label {
+  color: #8fd4ea;
+  font-weight: 600;
+}
+
+#lakes-box { border-color: rgba(56, 214, 255, 0.5); }
+#lakes-box .card-title { color: #7fe3ff; }
+.lake-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lake-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 7px 9px;
+  border-radius: 7px;
+  border: 1px solid rgba(56, 214, 255, 0.22);
+  background: rgba(56, 214, 255, 0.07);
+  color: #e6f0f4;
+  cursor: pointer;
+  font-family: inherit;
+}
+.lake-row:hover { background: rgba(56, 214, 255, 0.16); }
+.lake-name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lake-meta {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: #9fc4d2;
+  font-variant-numeric: tabular-nums;
+}
+.lake-empty {
+  margin-top: 10px;
+  font-size: 11.5px;
+  color: #9fb6a6;
+}
+
+/* Fishing identify panel — cyan sibling of the compass box */
+#fish-box {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 13;
+  width: min(280px, calc(100vw - 24px));
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(56, 214, 255, 0.55);
+  background: rgba(14, 20, 24, 0.95);
+  color: #e6f0f4;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+}
+#fish-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+#fish-head .goto-title {
+  color: #7fe3ff;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#fish-close {
+  background: none;
+  border: none;
+  color: #cdeefa;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  flex: 0 0 auto;
+}
+.fish-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #9fc4d2;
+  text-transform: capitalize;
+}
+.fish-label {
+  margin-top: 9px;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #6f93a2;
+}
+.fish-species {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+.fish-sp {
+  font-size: 11.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(56, 214, 255, 0.14);
+  border: 1px solid rgba(56, 214, 255, 0.4);
+  color: #d6f2fb;
+}
+.fish-note {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: #ffd54a;
+}
+.fish-method {
+  margin-top: 9px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: #cfe6ee;
+}
+.fish-drink {
+  margin-top: 8px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #9fc4d2;
+}
+.fish-link {
+  background: none;
+  border: none;
+  color: #7fe3ff;
+  font: inherit;
+  font-size: 10.5px;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.fish-caveat {
+  margin-top: 8px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: #7f9aa6;
+}
+.fish-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+}
+.fish-actions button {
+  flex: 1 1 0;
+  padding: 8px 6px;
+  font-size: 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(56, 214, 255, 0.45);
+  background: rgba(56, 214, 255, 0.12);
+  color: #dff4fb;
+  cursor: pointer;
+  font-family: inherit;
+}
+.fish-actions button:hover {
+  background: rgba(56, 214, 255, 0.22);
+}
+
 #compass-box {
   position: absolute;
   top: calc(12px + env(safe-area-inset-top));

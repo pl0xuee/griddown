@@ -53,7 +53,8 @@
           <button id="terrain-toggle" class="res-chip" type="button">&#9651; Terrain</button>
           <button id="publicland-toggle" class="res-chip" type="button" title="Public land">&#9634; Public land</button>
           <button id="mvum-toggle" class="res-chip off" type="button" title="Forest Service motor vehicle use map">&#9679; Forest roads</button>
-          <button class="res-chip" data-res="water" type="button">💧 Water</button>
+          <button id="fishing-toggle" class="res-chip off" type="button" title="Water — lakes, rivers, springs &amp; wells; tap water for fish and drinking info">&#128167; Water</button>
+          <button id="wildfood-toggle" class="res-chip off" type="button" title="Wild food — tap woods or fields for what to forage and hunt">&#127807; Wild food</button>
           <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
           <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
           <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
@@ -87,6 +88,13 @@
           <button id="compass-open" type="button">&#10686; Compass</button>
         </div>
 
+        <div class="hud-sub">LIVING OFF THE LAND</div>
+        <div class="hud-grid">
+          <button id="camp-open" type="button" title="Is the spot under the crosshair good to camp?">&#9978; Camp check</button>
+          <button id="season-open" type="button" title="What's in season here right now">&#128197; In season</button>
+          <button id="lakes-open" type="button" title="Named lakes, reservoirs, rivers and creeks, nearest to you first">&#128167; Nearby water</button>
+        </div>
+
         <div class="hud-sub">LIBRARY &amp; SETUP</div>
         <div class="hud-grid">
           <button id="handbook-open" type="button">&#9873; Handbook</button>
@@ -113,6 +121,10 @@
         <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
         <div class="legend-row"><span class="swatch trail"></span>Trail</div>
         <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
+        <div class="legend-row fishing hidden"><span class="swatch fishing"></span>Fishing water &mdash; tap to identify</div>
+        <div class="legend-row fishing hidden"><span class="swatch watersrc"></span>Spring / well &mdash; drinking water</div>
+        <div class="legend-row wildfood hidden"><span class="swatch wildfood-wild"></span>Wild ground &mdash; forage &amp; game</div>
+        <div class="legend-row wildfood hidden"><span class="swatch wildfood-crop"></span>Farmland &amp; orchards</div>
         <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land</div>
         <div class="legend-row publicland hidden"><span class="swatch forestland"></span>Forest (ownership varies)</div>
         <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
@@ -182,6 +194,16 @@
       <div id="compass-dec"></div>
       <div id="compass-note">Listening for the compass&hellip;</div>
     </div>
+
+    <!-- Fishing identify (tap a lake/river with the Fishing layer on) -->
+    <div id="fish-box" class="hidden"></div>
+    <!-- Wild-food identify (tap woods/fields with the Wild food layer on) -->
+    <div id="forage-box" class="card-box hidden"></div>
+    <!-- Camp check + In season tool cards -->
+    <div id="camp-box" class="card-box hidden"></div>
+    <div id="season-box" class="card-box hidden"></div>
+    <!-- Nearby lakes list -->
+    <div id="lakes-box" class="card-box hidden"></div>
 
     <!-- Floating measure readout -->
     <div id="measure-readout" class="hidden">
