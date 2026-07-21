@@ -6,6 +6,20 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.0.0
+
+**GridDown is 1.0.** A topographic map of every US state that keeps working with
+no signal, no Wi-Fi, no internet at all — for the backcountry and for when the
+grid is down. This is the public release; the app you have been testing, now on
+the App Store and downloadable for desktop.
+
+Everything runs on your device once a state is downloaded: streets, Forest
+Service roads, trails, terrain with hillshade and contours, a true-north
+compass, an offline route overview, waypoints and tracks, a survival handbook,
+and more — with your location never leaving the phone.
+
+No new features over v0.1.12; this is the same build, versioned for launch.
+
 ## v0.1.12
 
 **The compass goes to your location first.** Opening the Compass panel now finds
