@@ -468,8 +468,8 @@ async function activate(abbr: string, fly: boolean) {
 async function sharePack(s: StateEntry) {
   try {
     toast(`Copying ${s.name} pack…`);
-    const path = await invoke<string>("export_pack", { abbr: s.abbr });
-    toast(`Saved to ${path} — copy it to a USB stick to share.`, "success", 7000);
+    const where = await invoke<string>("export_pack", { abbr: s.abbr });
+    toast(`Saved to ${where} — copy it to a USB stick to share.`, "success", 7000);
     // A pack file is the basemap only; terrain lives in a separate tile tree.
     // Whoever receives this gets no hillshade, contours, elevation, profile or
     // viewshed until they download terrain themselves — say so at the point of

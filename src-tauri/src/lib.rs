@@ -117,13 +117,61 @@ fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Save an exported file (PDF, GPX, backup JSON) to the user's Downloads
-/// folder and return the full path, so the UI can say where it went.
+/// Where user-visible exports land: Downloads on desktop, the app's own
+/// Documents folder on iOS.
+///
+/// iOS has no Downloads folder. `download_dir()` there resolves to
+/// `$HOME/Downloads`, and `$HOME` inside an app sandbox is the container root,
+/// which iOS makes read-only — so `create_dir_all` fails with EPERM and every
+/// export died with "Couldn't save griddown-backup.json: Operation not
+/// permitted (os error 1)". Backup, GPX export and the PDF map all went through
+/// here, so all three were broken on the phone.
+///
+/// Documents is the one directory the app may write to that the user can also
+/// reach: paired with `UIFileSharingEnabled` in Info.ios.plist it shows up in
+/// the Files app as "On My iPhone → GridDown".
+fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = if cfg!(target_os = "ios") {
+        app.path().document_dir()
+    } else {
+        app.path().download_dir().or_else(|_| app.path().home_dir())
+    }
+    .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// How to describe a saved file's location to the user.
+///
+/// On iOS the real path is a container UUID —
+/// `/var/mobile/Containers/Data/Application/8F3C…/Documents/x.json` — which
+/// tells someone nothing and looks like a fault. The route through the Files
+/// app is the part they can actually follow.
+fn export_location(path: &std::path::Path) -> String {
+    if cfg!(target_os = "ios") {
+        "Files → On My iPhone → GridDown".to_string()
+    } else {
+        path.to_string_lossy().to_string()
+    }
+}
+
+/// A file written by `save_file`.
+#[derive(serde::Serialize)]
+struct SavedFile {
+    /// The real path on disk.
+    path: String,
+    /// Where to tell the user it went — not always the path; see
+    /// [`export_location`].
+    location: String,
+}
+
+/// Save an exported file (PDF, GPX, backup JSON) where the user can find it,
+/// and report where that was.
 ///
 /// The webview's own `<a download>` is a dead end in WebKitGTK — nothing
 /// handles the download, so files silently vanish. Exports go through here.
 #[tauri::command]
-fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String> {
+fn save_file(app: AppHandle, name: String, b64: String) -> Result<SavedFile, String> {
     use base64::Engine;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64.as_bytes())
@@ -146,12 +194,7 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
     } else {
         name
     };
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let dir = export_dir(&app)?;
 
     // Don't clobber an earlier export: name.pdf, name-2.pdf, name-3.pdf…
     let (stem, ext) = match name.rsplit_once('.') {
@@ -166,10 +209,13 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<String, String
     }
 
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    Ok(path.to_string_lossy().to_string())
+    Ok(SavedFile {
+        location: export_location(&path),
+        path: path.to_string_lossy().to_string(),
+    })
 }
 
-/// Copy an installed pack out to the Downloads folder, so it can be moved to
+/// Copy an installed pack out to the exports folder, so it can be moved to
 /// another device on a USB stick / SD card — no internet needed on either end.
 #[tauri::command]
 fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
@@ -178,11 +224,7 @@ fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
     if !src.exists() {
         return Err("that state isn't downloaded".into());
     }
-    let dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().home_dir())
-        .map_err(|e| e.to_string())?;
+    let dir = export_dir(&app)?;
     let name = format!("griddown-{}.pmtiles", abbr);
     let mut dest = dir.join(&name);
     let mut n = 2;
@@ -191,7 +233,7 @@ fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
         n += 1;
     }
     std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    Ok(dest.to_string_lossy().to_string())
+    Ok(export_location(&dest))
 }
 
 /// Import a .pmtiles file from disk as a state pack (the other half of

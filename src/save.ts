@@ -3,9 +3,10 @@ import { toast } from "./toast";
 
 // Saving exported files (PDF, GPX, backups).
 //
-// In the desktop app this goes through the `save_file` Rust command, which
-// writes to the Downloads folder and returns the real path — WebKitGTK never
-// handles `<a download>`, so the old anchor trick silently dropped files.
+// In the app this goes through the `save_file` Rust command, which writes to
+// Downloads on desktop and to the app's Documents folder on iOS (which has no
+// Downloads, and refuses the write) — WebKitGTK never handles `<a download>`,
+// so the old anchor trick silently dropped files.
 // In a plain browser (dev) the anchor still works, so it stays as fallback.
 
 const inTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
@@ -33,12 +34,16 @@ export async function saveFile(
 
   if (inTauri) {
     try {
-      const path = await invoke<string>("save_file", {
-        name,
-        b64: toBase64(bytes),
-      });
-      toast(`Saved to ${path}`, "success", 6000);
-      return path;
+      // `location` is what to show a human and `path` is the real file: on iOS
+      // they differ, because the path there is a container UUID nobody can act
+      // on. The backend decides which is which — the user agent can't be asked,
+      // since iPadOS reports itself as desktop Safari (see updater.ts).
+      const saved = await invoke<{ path: string; location: string }>(
+        "save_file",
+        { name, b64: toBase64(bytes) }
+      );
+      toast(`Saved to ${saved.location}`, "success", 6000);
+      return saved.path;
     } catch (e) {
       toast(`Couldn't save ${name}: ${e}`, "error");
       return null;

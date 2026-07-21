@@ -6,6 +6,18 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.2
+
+**Saving files works on iPhone and iPad again.** Back up everything, Export GPX,
+and the PDF map export all failed with "Operation not permitted" — they were
+saving to a Downloads folder, which iPhones don't have. They now save into
+GridDown's own folder, which you can open in the Files app under **On My iPhone
+→ GridDown**, and the app tells you to look there rather than printing a long
+internal path. Sharing a map pack was broken the same way and is fixed too.
+
+Your pins and tracks were never affected — they live elsewhere on the device and
+are included in the normal iCloud backup.
+
 ## v1.1.1
 
 A small fix: every overlay chip now shows the same green highlight when it's on.
