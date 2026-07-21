@@ -117,28 +117,42 @@ fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Where user-visible exports land: Downloads on desktop, the app's own
-/// Documents folder on iOS.
+/// Whether this build targets iOS.
 ///
-/// iOS has no Downloads folder. `download_dir()` there resolves to
+/// A constant threaded into the two functions below as an argument, rather than
+/// `cfg!` inside them, so both platforms' behaviour can be exercised from any
+/// host. That is not a style preference: the iOS branch is dead code on a Linux
+/// or Windows build, so a `cfg!` written inline is never compiled here and the
+/// choice it makes cannot be tested until it reaches a phone — which is exactly
+/// how the Downloads bug shipped.
+const IS_IOS: bool = cfg!(target_os = "ios");
+
+/// Pick which OS directory an export belongs in, given what the platform offers.
+///
+/// Desktop wants Downloads, falling back to the home directory. iOS wants
+/// Documents and **must not** fall back: `download_dir()` there resolves to
 /// `$HOME/Downloads`, and `$HOME` inside an app sandbox is the container root,
-/// which iOS makes read-only — so `create_dir_all` fails with EPERM and every
+/// which iOS makes read-only — so `create_dir_all` failed with EPERM and every
 /// export died with "Couldn't save griddown-backup.json: Operation not
-/// permitted (os error 1)". Backup, GPX export and the PDF map all went through
-/// here, so all three were broken on the phone.
+/// permitted (os error 1)". Backup, GPX export and the PDF map all route
+/// through here, so all three were broken on the phone.
 ///
 /// Documents is the one directory the app may write to that the user can also
 /// reach: paired with `UIFileSharingEnabled` in Info.ios.plist it shows up in
-/// the Files app as "On My iPhone → GridDown".
-fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = if cfg!(target_os = "ios") {
-        app.path().document_dir()
+/// the Files app as "On My iPhone → GridDown". Returning `None` when it is
+/// unavailable is deliberate — an error the user sees beats a silent write into
+/// a folder they can never open.
+fn pick_export_dir(
+    is_ios: bool,
+    document: Option<PathBuf>,
+    download: Option<PathBuf>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    if is_ios {
+        document
     } else {
-        app.path().download_dir().or_else(|_| app.path().home_dir())
+        download.or(home)
     }
-    .map_err(|e| e.to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir)
 }
 
 /// How to describe a saved file's location to the user.
@@ -147,12 +161,26 @@ fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
 /// `/var/mobile/Containers/Data/Application/8F3C…/Documents/x.json` — which
 /// tells someone nothing and looks like a fault. The route through the Files
 /// app is the part they can actually follow.
-fn export_location(path: &std::path::Path) -> String {
-    if cfg!(target_os = "ios") {
+fn export_location(is_ios: bool, path: &std::path::Path) -> String {
+    if is_ios {
         "Files → On My iPhone → GridDown".to_string()
     } else {
         path.to_string_lossy().to_string()
     }
+}
+
+/// The export directory for this platform, created if it isn't there yet.
+fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let p = app.path();
+    let dir = pick_export_dir(
+        IS_IOS,
+        p.document_dir().ok(),
+        p.download_dir().ok(),
+        p.home_dir().ok(),
+    )
+    .ok_or_else(|| "couldn't find a folder to save into".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
 }
 
 /// A file written by `save_file`.
@@ -210,7 +238,7 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<SavedFile, Str
 
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(SavedFile {
-        location: export_location(&path),
+        location: export_location(IS_IOS, &path),
         path: path.to_string_lossy().to_string(),
     })
 }
@@ -233,7 +261,7 @@ fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
         n += 1;
     }
     std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    Ok(export_location(&dest))
+    Ok(export_location(IS_IOS, &dest))
 }
 
 /// Import a .pmtiles file from disk as a state pack (the other half of
@@ -1041,6 +1069,61 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn p(s: &str) -> Option<PathBuf> {
+        Some(PathBuf::from(s))
+    }
+
+    /// The bug this whole pair of functions exists to prevent. iOS has no
+    /// Downloads folder, and the fallback chain desktop uses is actively
+    /// harmful there: `$HOME/Downloads` is the app container root, which the
+    /// sandbox makes read-only, so the write fails with EPERM.
+    #[test]
+    fn ios_exports_go_to_documents_and_never_to_downloads_or_home() {
+        let got = pick_export_dir(
+            true,
+            p("/container/Documents"),
+            p("/container/Downloads"),
+            p("/container"),
+        );
+        assert_eq!(got, p("/container/Documents"));
+    }
+
+    /// Falling back on iOS is worse than failing: the fallbacks are precisely
+    /// the unwritable paths. An error the user can see beats a silent EPERM.
+    #[test]
+    fn ios_refuses_to_fall_back_when_documents_is_missing() {
+        let got = pick_export_dir(true, None, p("/container/Downloads"), p("/container"));
+        assert_eq!(got, None, "no Documents means no export, not a bad guess");
+    }
+
+    /// Desktop is unchanged by the iOS fix — Downloads still wins.
+    #[test]
+    fn desktop_exports_go_to_downloads() {
+        let got = pick_export_dir(false, p("/home/u/Documents"), p("/home/u/Downloads"), p("/home/u"));
+        assert_eq!(got, p("/home/u/Downloads"));
+    }
+
+    /// Some Linux setups have no XDG Downloads directory at all.
+    #[test]
+    fn desktop_falls_back_to_home_without_a_downloads_folder() {
+        let got = pick_export_dir(false, p("/home/u/Documents"), None, p("/home/u"));
+        assert_eq!(got, p("/home/u"));
+    }
+
+    /// The toast text. An iOS container path is a UUID the user can neither
+    /// read nor act on, so it must never be what they are shown; on desktop the
+    /// real path is exactly what they want.
+    #[test]
+    fn the_user_is_told_a_place_they_can_actually_find() {
+        let container = "/var/mobile/Containers/Data/Application/8F3C-DEAD-BEEF/Documents/b.json";
+        let ios = export_location(true, std::path::Path::new(container));
+        assert!(!ios.contains('/'), "showed a raw container path: {ios}");
+        assert!(ios.contains("Files"), "should name the Files app: {ios}");
+
+        let desktop = export_location(false, std::path::Path::new("/home/u/Downloads/x.json"));
+        assert_eq!(desktop, "/home/u/Downloads/x.json");
+    }
 
     /// `with_extension` on a path that already ends in `.pmtiles` replaces that
     /// extension rather than appending to it, so these names are easy to get
