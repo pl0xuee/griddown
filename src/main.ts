@@ -1749,27 +1749,33 @@ function applyThemeUi() {
       currentTheme === "dark" ? "☀" : "☾";
     themeBtn.title = currentTheme === "dark" ? "Switch to day colours" : "Switch to night colours";
   }
+  // Overlay chips show enabled with the green `.on` fill and disabled dimmed via
+  // `.off` — the same convention as the resource chips and Forest roads, so an
+  // enabled Terrain looks like an enabled Shelter.
   const terrBtn = document.getElementById("terrain-toggle");
   if (terrBtn) {
-    // Label stays short ("Terrain"); on/off is shown by the dimmed .off state.
     terrBtn.textContent = "△ Terrain";
     terrBtn.title = terrainOn ? "Terrain: on" : "Terrain: off";
+    terrBtn.classList.toggle("on", terrainOn);
     terrBtn.classList.toggle("off", !terrainOn);
     terrBtn.classList.toggle("hidden", !terrainAvailable);
   }
   const plBtn = document.getElementById("publicland-toggle");
   if (plBtn) {
     plBtn.title = publicLandOn ? "Public land: on" : "Public land: off";
+    plBtn.classList.toggle("on", publicLandOn);
     plBtn.classList.toggle("off", !publicLandOn);
   }
   const fishBtn = document.getElementById("fishing-toggle");
   if (fishBtn) {
     fishBtn.title = fishingOn ? "Water: on — tap water to identify" : "Water: off";
+    fishBtn.classList.toggle("on", fishingOn);
     fishBtn.classList.toggle("off", !fishingOn);
   }
   const wildBtn = document.getElementById("wildfood-toggle");
   if (wildBtn) {
     wildBtn.title = wildfoodOn ? "Wild food: on — tap land to identify" : "Wild food: off";
+    wildBtn.classList.toggle("on", wildfoodOn);
     wildBtn.classList.toggle("off", !wildfoodOn);
   }
   const batBtn = document.getElementById("battery-toggle");

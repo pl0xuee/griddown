@@ -6,6 +6,13 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.1
+
+A small fix: every overlay chip now shows the same green highlight when it's on.
+Terrain, Public land, Water, and Wild food previously only dimmed when off and
+had no "enabled" fill, so an active Water chip looked different from an active
+Shelter or Forest roads chip. Now the whole Overlays row is consistent.
+
 ## v1.1.0
 
 **Finding food off-grid.** This release is about staying fed and watered when the
