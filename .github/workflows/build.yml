@@ -19,7 +19,15 @@ permissions:
   contents: write
 
 jobs:
+  # Both suites must pass before anything is built, and — because a tag run
+  # publishes — before anything is released. Previously test.yml ran alongside
+  # this workflow rather than ahead of it, so a tagged push with a failing test
+  # produced a red X next to a release that had already gone out.
+  tests:
+    uses: ./.github/workflows/test.yml
+
   build:
+    needs: tests
     strategy:
       fail-fast: false
       matrix:

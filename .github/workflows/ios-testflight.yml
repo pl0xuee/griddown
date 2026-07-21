@@ -8,7 +8,7 @@ name: iOS TestFlight
 # ios.yml is what guards ordinary pushes: it compiles the same code for the
 # simulator, needs no account and no secrets, and runs on everything.
 #
-# Requires seven repo secrets. The first step checks for them by name rather
+# Requires seven repo secrets. A separate job checks for them by name rather
 # than letting the build discover a blank one ten minutes in.
 
 on:
@@ -17,13 +17,20 @@ on:
     tags: ["v*"]
 
 jobs:
-  testflight:
-    runs-on: macos-latest
+  # An upload is the least reversible thing here: it burns a build number and
+  # pings every tester. Both suites must pass first.
+  tests:
+    uses: ./.github/workflows/test.yml
 
+  # Its own job, deliberately not a step inside testflight and deliberately not
+  # behind `tests`. A missing secret surfaces at signing time as an opaque
+  # toolchain error, so it is checked before anything expensive — and gating it
+  # on the test suite would put it behind a cold Rust build, which is exactly
+  # the wait this check exists to avoid. Runs in parallel with tests, on Linux:
+  # reading seven environment variables needs no Mac.
+  secrets-present:
+    runs-on: ubuntu-24.04
     steps:
-      # Before anything expensive. A missing secret surfaces at signing time as
-      # an opaque toolchain error, which reads like a broken build rather than
-      # an empty text box in the repo settings.
       - name: Check the signing secrets are present
         env:
           IOS_CERTIFICATE_P12: ${{ secrets.IOS_CERTIFICATE_P12 }}
@@ -48,6 +55,11 @@ jobs:
           fi
           echo "all seven secrets present"
 
+  testflight:
+    needs: [tests, secrets-present]
+    runs-on: macos-latest
+
+    steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7

@@ -12,6 +12,11 @@ name: Tests
 # it apart means the answer arrives early rather than behind a bundling step.
 
 on:
+  # Called by build.yml and ios-testflight.yml, which gate their releases on
+  # this passing. Defined once and reused rather than copied into each: three
+  # copies of a test job drift, and the copy that drifts is the one guarding
+  # the release.
+  workflow_call:
   workflow_dispatch:
   push:
     branches: ["**"]
