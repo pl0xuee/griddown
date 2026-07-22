@@ -199,3 +199,46 @@ jobs:
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/**/*.sig
             src-tauri/target/release/bundle/**/latest.json
+
+  # Publishing is deliberately the LAST thing that happens, and only once every
+  # platform has finished.
+  #
+  # tauri-action creates the release as a draft on purpose: the Linux job
+  # repackages and re-signs the AppImage *after* the release exists, and rewrites
+  # latest.json to match. A release published up front would expose the broken
+  # AppImage — the one that cannot initialise EGL on a current distro — and an
+  # updater manifest whose signature no longer matched the file.
+  #
+  # This job keeps that guarantee while removing the manual step it used to cost:
+  # `needs: build` waits for the whole matrix, so by the time it runs, every
+  # installer is uploaded and the AppImage swap is done.
+  publish:
+    needs: build
+    # Only tag runs create a release at all; a manual run has nothing to publish.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish the release
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+
+          # v0.1.5 shipped a release page that was a list of files and an empty
+          # body, and nothing noticed. The same reasoning applies here: refuse to
+          # flip the draft on a release that has no installers attached, because
+          # an empty "Latest" is worse than a draft somebody has to publish.
+          assets=$(gh release view "$tag" --json assets --jq '.assets | length')
+          if [ "$assets" -lt 2 ]; then
+            echo "::error::$tag has $assets assets — refusing to publish an empty release"
+            exit 1
+          fi
+
+          # The updater reads latest.json from the release marked Latest, so both
+          # flags matter: --draft=false makes it visible, --latest points the
+          # updater and the download page at it.
+          gh release edit "$tag" --draft=false --latest
+          gh release view "$tag" --json isDraft,assets \
+            --jq '"published \(.name): draft=\(.isDraft), \(.assets | length) assets"'
