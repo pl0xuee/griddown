@@ -217,6 +217,11 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<SavedFile, Str
             }
         })
         .collect();
+    // A leading dot makes a dotfile, and on a desktop with no XDG Downloads
+    // directory `export_dir` falls back to $HOME — so a name like ".bashrc"
+    // would drop a login shell rc file straight into the user's home. Nothing
+    // legitimate exported from here starts with a dot.
+    let name = name.trim_start_matches('.').to_string();
     let name = if name.trim().is_empty() {
         "export".to_string()
     } else {
@@ -245,8 +250,12 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<SavedFile, Str
 
 /// Copy an installed pack out to the exports folder, so it can be moved to
 /// another device on a USB stick / SD card — no internet needed on either end.
+///
+/// `async` so Tauri runs it off the UI thread: a pack is 237 MB to 1.5 GB, and
+/// a synchronous command body is executed inline in the IPC handler, freezing
+/// the window for the whole copy (a watchdog kill on iOS).
 #[tauri::command]
-fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
+async fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
     let abbr = safe_abbr(&abbr);
     let src = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
     if !src.exists() {
@@ -260,17 +269,33 @@ fn export_pack(app: AppHandle, abbr: String) -> Result<String, String> {
         dest = dir.join(format!("griddown-{}-{}.pmtiles", abbr, n));
         n += 1;
     }
-    std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    Ok(export_location(IS_IOS, &dest))
+    tauri::async_runtime::spawn_blocking(move || -> Result<String, String> {
+        std::fs::copy(&src, &dest).map_err(|e| e.to_string())?;
+        Ok(export_location(IS_IOS, &dest))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Import a .pmtiles file from disk as a state pack (the other half of
 /// export_pack). Copies into app-data under the given abbreviation.
+/// `async` for the same reason as `export_pack`: this copies a multi-gigabyte
+/// file and must not run on the UI thread.
 #[tauri::command]
-fn import_pack(app: AppHandle, abbr: String, path: String) -> Result<(), String> {
+async fn import_pack(app: AppHandle, abbr: String, path: String) -> Result<(), String> {
     let src = PathBuf::from(&path);
     if !src.exists() {
         return Err("file not found".into());
+    }
+    // The only caller is the file dialog, but the command itself would take any
+    // absolute path — so require the extension as well as the magic below,
+    // rather than copying an arbitrary file into a directory the asset protocol
+    // serves back out.
+    if !src
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("pmtiles"))
+    {
+        return Err("that file isn't a PMTiles map pack".into());
     }
     // Cheap sanity check: PMTiles archives start with the magic "PMTiles".
     let mut head = [0u8; 7];
@@ -284,10 +309,23 @@ fn import_pack(app: AppHandle, abbr: String, path: String) -> Result<(), String>
     }
     let abbr = safe_abbr(&abbr);
     let dest = states_dir(&app)?.join(format!("{}.pmtiles", abbr));
-    let tmp = dest.with_extension("part");
-    std::fs::copy(&src, &tmp).map_err(|e| e.to_string())?;
-    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
-    Ok(())
+    // `with_extension("part")` *replaces* .pmtiles, giving "OR.part" — which
+    // sweep_scratch (which looks for "OR.pmtiles.part") never cleaned up, so an
+    // interrupted import orphaned a full-size copy forever.
+    let tmp = dest.with_extension("pmtiles.part");
+    tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+        if let Err(e) = std::fs::copy(&src, &tmp) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
+        if let Err(e) = std::fs::rename(&tmp, &dest) {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Size and age of each installed state pack, for the readiness check.
@@ -335,8 +373,12 @@ fn dir_size(dir: &PathBuf) -> u64 {
     total
 }
 
+/// `async` because `dir_size` stats a whole per-state DEM pyramid — tens of
+/// thousands of PNGs, ~1 GB — and this runs on every Map packs / Readiness
+/// open. Inline on the IPC handler that is a visible freeze.
 #[tauri::command]
-fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
+async fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || -> Result<Vec<PackInfo>, String> {
     let dir = states_dir(&app)?;
     let mut out = Vec::new();
     for e in std::fs::read_dir(&dir)
@@ -376,6 +418,9 @@ fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
     }
     out.sort_by(|a, b| a.abbr.cmp(&b.abbr));
     Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// List installed state abbreviations (one .pmtiles file each).
@@ -621,7 +666,10 @@ fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
 /// is the whole bug this replaces.
 #[tauri::command]
 fn updates_supported() -> bool {
-    cfg!(desktop)
+    // Must match the plugin registration below exactly. Reporting plain
+    // `desktop` unhid the button in dev builds, where the updater and process
+    // plugins are never registered, so pressing it fired IPC at nothing.
+    cfg!(all(desktop, not(debug_assertions)))
 }
 
 /// Whether this is a mobile build (iOS/Android). The frontend uses it to pick
@@ -688,7 +736,21 @@ fn mvum_count(
     // enabled here and would pull in serde machinery this crate already has.
     let body = res.text().map_err(|e| e.to_string())?;
     let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
-    Ok(v.get("count").and_then(|c| c.as_u64()).unwrap_or(0) as usize)
+    // ArcGIS reports faults as HTTP 200 with an `error` member, so
+    // `error_for_status` above lets them through. Defaulting a fault to 0 made
+    // the caller announce "No Forest Service roads or trails in this area." —
+    // presenting a service outage as a legal fact about where you may drive.
+    if let Some(err) = v.get("error") {
+        let msg = err
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("Forest Service map service error: {msg}"));
+    }
+    match v.get("count").and_then(|c| c.as_u64()) {
+        Some(n) => Ok(n as usize),
+        None => Err("Forest Service map service returned no count.".into()),
+    }
 }
 
 /// Drop null and blank attributes.

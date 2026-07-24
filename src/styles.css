@@ -116,11 +116,16 @@
      nothing that depends on layout having settled. */
   --collar-h: 30px;
   /* MapLibre's attribution strip sits on the dock at bottom-right and the
-     legend stacks on top of it. 26px is the clearance the legend carried as a
-     bare `bottom: 26px` before the dock existed — losing it is exactly how the
-     two came to overlap. Named once here so the three rules that need it cannot
-     drift apart again. */
-  --attrib-h: 26px;
+     legend stacks on top of it. Named once here so the three rules that need it
+     cannot drift apart again.
+
+     Measured, not guessed: the strip is 24px tall and MapLibre gives every
+     .maplibregl-ctrl a 10px margin, so it reserves 34px above the dock. The old
+     26px was the clearance the legend carried as a bare `bottom: 26px` before
+     the dock existed, and it left the legend 8px INTO the strip — its rounded
+     bottom-right corner covered the ⓘ attribution button, which is the one
+     control there you have to be able to hit. 34 + 4px of daylight. */
+  --attrib-h: 38px;
   --cmdbar-h: 0px;
   --dock-h: calc(var(--collar-h) + var(--cmdbar-h) + env(safe-area-inset-bottom));
 
@@ -162,8 +167,10 @@
   gap: 10px;
   padding: 14px;
   padding-top: calc(14px + env(safe-area-inset-top));
+  /* Both side insets, not just the right one: a panel goes full-width on a
+     phone, so in landscape the notch can land on either edge of it. */
   padding-right: calc(14px + env(safe-area-inset-right));
-  padding-bottom: 14px;
+  padding-left: calc(14px + env(safe-area-inset-left));
   background: var(--surface);
   color: var(--type);
   border-left: 1px solid var(--rule);
@@ -210,6 +217,29 @@ body {
   overflow: hidden;
 }
 
+/* Bold is 600, because 600 is the heaviest weight this app actually ships.
+ *
+ * main.ts loads Public Sans 400/600, Archivo Narrow 500/600 and IBM Plex Mono
+ * 400/500 — there is no 700 anywhere, and `<b>`/`<strong>`/`<h1>` all default
+ * to it. This changes nothing about how the page renders: `font-synthesis:
+ * none` is set on :root above, and CSS font matching already resolves a 700
+ * request to the 600 face. It is here so the stylesheet asks for a weight that
+ * exists, rather than one that silently becomes something else.
+ *
+ * Keep it in step with the @fontsource imports in main.ts: if a 700 face is
+ * ever added, this rule starts having an effect and should be revisited.
+ */
+b,
+strong,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+}
+
 #map {
   position: absolute;
   inset: 0;
@@ -227,8 +257,13 @@ body {
   /* Wide enough that the longest tool label ("Public land", "Forest roads")
      fits its half of the 2-column grid without ellipsis. */
   width: 252px;
-  /* Never taller than the screen — the body scrolls instead of overflowing. */
-  max-height: calc(100vh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  /* Never taller than the screen — the body scrolls instead of overflowing.
+     Measured against the DOCK, not the viewport: capping at `100vh - 24px` put
+     the menu's last 12px underneath the collar, which was invisible only while
+     the two shared a z-index and the menu won on source order. Now that the
+     dock paints above it, that overlap ate taps on the bottom button row. */
+  max-height: calc(100vh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  max-height: calc(100dvh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
   display: flex;
   flex-direction: column;
   padding: 8px;
@@ -281,7 +316,7 @@ body {
   font-size: 10px;
   letter-spacing: 3px;
   color: var(--label);
-  font-weight: 700;
+  font-weight: 600;
 }
 #hud-state {
   font-size: 16px;
@@ -338,9 +373,51 @@ body {
 /* Legend, now a collapsible card ON the map rather than a block in the menu.
    Bottom-right so it clears the top zoom controls and the bottom-left scale
    bar; lifted above the attribution on desktop and the sheet peek on phones. */
+/* On-map route recompute.
+   Right-hand side, stacked directly above the legend. Bottom-left looked like
+   the free corner and is not: on the desktop layout the menu is anchored top
+   -left and reaches most of the way down, so on a 1280x720 window — or ANY
+   phone in landscape, which takes the desktop layout — the button sat entirely
+   behind an opaque panel and could not be clicked. The right edge is already
+   the legend's, and the legend is the one thing here that yields. */
+#route-recalc {
+  position: absolute;
+  right: calc(8px + env(safe-area-inset-right));
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 110px);
+  /* Above the legend (8), so neither can swallow the other's edge. */
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  /* Fixed width so swapping to "Recomputing…" cannot grow the button into its
+     neighbours mid-press. */
+  min-width: 150px;
+  border: 1px solid var(--rule-hotter);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hud);
+  color: var(--type-loud);
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.04em;
+  box-shadow: var(--shadow-soft);
+  cursor: pointer;
+}
+#route-recalc:hover {
+  background: var(--wash-firm);
+}
+/* Mid-recompute: say so, and stop a second tap queueing another one. */
+#route-recalc[disabled] {
+  opacity: 0.6;
+  cursor: default;
+}
+
 #map-legend {
   position: absolute;
-  right: 8px;
+  /* Landscape iPhone puts the sensor housing on a side edge, and this card is
+     pinned to the right one. The bottom already clears the dock. */
+  right: calc(8px + env(safe-area-inset-right));
   bottom: calc(var(--dock-h) + var(--attrib-h));
   /* Below the bottom sheet (#hud is z-index 10), so raising the menu on a phone
      covers the legend instead of the legend punching through on top of it.
@@ -635,7 +712,7 @@ body {
 .goto-title {
   font-size: 11px;
   letter-spacing: 1.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--label-lift);
 }
 
@@ -683,7 +760,7 @@ body {
 #measure-head .ms-title {
   font-size: 11px;
   letter-spacing: 1.5px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--warn);
 }
 .ms-actions {
@@ -716,7 +793,8 @@ body {
 .ms-big {
   font-family: var(--font-data);
   font-size: 22px;
-  font-weight: 700;
+  /* IBM Plex Mono ships 400/500 here — see the imports in main.ts. */
+  font-weight: 500;
   color: var(--warn);
   line-height: 1.1;
 }
@@ -790,15 +868,12 @@ body {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin: 10px 0;
   /* #marks-panel is a flex column — without this the action row shrinks as
      buttons are added, squashing them instead of scrolling the list below. */
   flex: none;
 }
 #marks-actions button {
   flex: none;
-}
-#marks-actions button {
   padding: 9px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--rule-firm);
@@ -829,7 +904,7 @@ body {
   margin: 10px 2px 6px;
   font-size: 10px;
   letter-spacing: 2px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--label);
   text-transform: uppercase;
 }
@@ -964,7 +1039,7 @@ body.nightvis {
   font-size: 10px;
   letter-spacing: 3px;
   color: var(--label);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .panel-title {
@@ -976,20 +1051,7 @@ body.nightvis {
 #states-hint {
   font-size: 11px;
   opacity: 0.75;
-  margin: 8px 0 10px;
   line-height: 1.5;
-}
-
-#states-search {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule);
-  background: rgba(0, 0, 0, 0.35);
-  color: var(--type);
-  font-family: inherit;
-  font-size: 12px;
-  margin-bottom: 10px;
 }
 
 #states-list {
@@ -1190,7 +1252,7 @@ body.nightvis {
 }
 
 /* --- Ask (confirm / prompt) ---
-   Above the welcome overlay at z-index 40 and the panels at 50: this is always
+   Above the welcome overlay at z-index 40 and the panels at 20: this is always
    a direct answer to something the user just did, so nothing may cover it. */
 .ask {
   position: fixed;
@@ -1199,7 +1261,10 @@ body.nightvis {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  /* The card is centred but can grow to the full height of the overlay, so the
+     overlay is what has to hold it clear of the Dynamic Island and the home
+     indicator. Zero on devices with no insets. */
+  padding: calc(20px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));
   background: var(--surface-sunk);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
@@ -1207,6 +1272,12 @@ body.nightvis {
 .ask-card {
   width: 100%;
   max-width: 400px;
+  /* A prompt can carry a long file name or a raw network error, which used to
+     push the OK/Cancel row off the bottom with no way to reach it. Same cap and
+     scroll the welcome card has. */
+  max-height: calc(100vh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
   background: var(--surface);
   border: 1px solid var(--rule-firm);
   border-radius: var(--radius-lg);
@@ -1222,17 +1293,6 @@ body.nightvis {
   margin: 0;
   font-size: 13px;
   line-height: 1.6;
-}
-.ask-input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule-firm);
-  background: var(--surface-sunk);
-  color: var(--type);
-  font-family: inherit;
-  font-size: 14px;
 }
 .ask-row {
   display: flex;
@@ -1271,7 +1331,9 @@ body.nightvis {
   background: var(--surface-sunk);
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
-  padding: 20px;
+  /* The card fills this overlay on a phone, so the overlay is what keeps it out
+     from under the Dynamic Island and off the home indicator. */
+  padding: calc(20px + env(safe-area-inset-top)) 20px calc(20px + env(safe-area-inset-bottom));
 }
 
 #welcome-card {
@@ -1306,7 +1368,13 @@ body.nightvis {
   text-transform: uppercase;
 }
 
-#welcome-card p {
+/* The body prose only. The card centres everything by default, and this rule
+   used to catch every <p> in it — including the kicker under the title and the
+   attribution line, both of which are meant to stay centred. The kicker sat
+   flush left under a centred "GridDown", and .welcome-fine had to fight its way
+   back with `text-align: center !important`. Excluding them here is what that
+   !important was standing in for. */
+#welcome-card p:not(.welcome-tag):not(.welcome-fine) {
   font-size: 13px;
   line-height: 1.6;
   opacity: 0.9;
@@ -1322,9 +1390,8 @@ body.nightvis {
 }
 
 .welcome-fine {
-  font-size: 10.5px !important;
-  opacity: 0.55 !important;
-  text-align: center !important;
+  font-size: 10.5px;
+  opacity: 0.55;
   margin-top: 16px;
 }
 
@@ -1347,18 +1414,6 @@ body.nightvis {
 
 
 
-
-#handbook-search {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule);
-  background: rgba(0, 0, 0, 0.35);
-  color: var(--type);
-  font-family: inherit;
-  font-size: 12px;
-  margin: 10px 0;
-}
 
 #handbook-content {
   overflow-y: auto;
@@ -1386,7 +1441,7 @@ body.nightvis {
 .hb-title {
   padding: 10px 12px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--label-lift);
   cursor: pointer;
   display: flex;
@@ -1427,7 +1482,7 @@ body.nightvis {
   margin: 12px 2px 2px;
   font-size: 10px;
   letter-spacing: 2px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--label);
   text-transform: uppercase;
 }
@@ -1456,7 +1511,7 @@ body.nightvis {
 }
 
 #handbook-disclaimer {
-  margin-top: 10px;
+  flex: none;
   font-size: 10px;
   opacity: 0.55;
   line-height: 1.5;
@@ -1465,9 +1520,20 @@ body.nightvis {
 }
 
 #sky-sub {
+  flex: none;
   font-size: 11px;
   opacity: 0.7;
-  margin: 6px 0 12px;
+}
+
+/* The sun/moon table is the panel's long child, so it is the thing that
+   scrolls — .panel is a flex column and deliberately is not scrollable itself
+   (see the note on .panel--scroll). Without this the bottom of the table sat
+   several hundred pixels below the dock with nothing to reach it. */
+#sky-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .sky-block {
   margin-bottom: 14px;
@@ -1509,40 +1575,137 @@ button {
 }
 
 
-/* Keep the welcome card usable on short screens */
+/* Keep the welcome card usable on short screens. vh first, dvh second: dvh is
+   Safari 15.4 and this targets iOS 14, where an unrecognised unit throws out the
+   whole declaration — so the vh line has to be there to fall back to. */
 #welcome-card {
-  max-height: calc(100vh - 32px);
+  max-height: calc(100vh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(100dvh - 40px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   overflow-y: auto;
 }
 
-/* Coarse pointers (touchscreens): bigger tap targets */
+/* Coarse pointers (touchscreens): bigger tap targets.
+   ---------------------------------------------------------------------------
+   44 CSS px in BOTH dimensions, everywhere, which is Apple's published minimum
+   and the number this file already states twice (.ask-btn, .cmd). It was being
+   honoured in three places; everything else was whatever its padding happened
+   to add up to, so the same close glyph was 15.7×20 in a card and 40×40 in a
+   panel head.
+
+   Density is preserved by raising the BOX, not the padding: min-height plus
+   inline-flex centring leaves the type and the fill exactly where they were and
+   just gives the finger somewhere to land. Inflating padding instead would have
+   turned the nine layer chips into slabs. */
 @media (pointer: coarse) {
-  #hud-controls button,
-  #states-open,
-  #handbook-open {
-    min-height: 42px;
-    font-size: 13px;
+  /* The collar is a tap target — #coords copies the grid reference — and its
+     height is pinned by this token, so the floor has to be applied here rather
+     than on the cell. --dock-h is derived from it, so everything anchored to the
+     dock moves down with it in the same pass.
+     45, not 44: the strip is border-box and its top hairline is drawn inside
+     that height, so a cell stretched to fill it gets one pixel less. */
+  :root {
+    --collar-h: 45px;
   }
+
   /* The icon row is one control and gets one height. #nightvis-toggle used to
-     be listed above, which made it the only icon in the row 42px tall while its
-     three neighbours stayed at 34 — the reason the row looked ragged. Height,
-     not min-height: these hold glyphs of wildly different metrics (one is a
-     colour emoji for the real moon phase) and none of them may set the size. */
+     be sized on its own, which made it the only icon in the row 42px tall while
+     its three neighbours stayed at 34 — the reason the row looked ragged. */
   .hud-icon {
     min-height: 52px;
   }
   .state-action {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 14px;
   }
   .state-delete,
   .state-refresh,
-  .panel-close {
-    min-width: 40px;
-    min-height: 40px;
+  .panel-close,
+  .card-close,
+  #fish-close,
+  #compass-close,
+  .mk-del,
+  .mesh-route,
+  .rt-back {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* Already flex rows with their own internal arrangement — height is all they
+     were missing. */
+  .legend-head,
+  .hb-title,
+  .lake-row,
+  .search-hit,
+  .rt-hit,
+  .rt-slot,
+  .mesh-node,
+  .pl-row,
+  .pl-look {
+    min-height: 44px;
   }
   .hb-title {
+    align-items: center;
     padding: 13px 12px;
+  }
+
+  /* Everything else was sized by its padding alone. inline-flex + centring
+     rather than more padding, so the label stays optically where it was inside
+     the taller box — and because WebKit does not reliably centre a plain
+     button's own text once a min-height forces the box open. */
+  /* The menu tiles belong here, not only in the ≤700px block. The rule this
+     sweep replaced was an ID selector with no width bound, so it held the floor
+     on every touch device; listing them only under ≤700px left an iPad — and an
+     iPhone in LANDSCAPE, which is 844px wide and takes the desktop layout —
+     with 26px tiles. "Handbook" was a 26px target. */
+  .hud-grid button,
+  .res-chip,
+  .mk-btn,
+  .rt-swap,
+  .rt-go,
+  .rt-quick-btn,
+  .ms-actions button,
+  .rt-btns button,
+  .card-actions button,
+  .fish-actions button,
+  .search-alt,
+  .pl-back,
+  .mesh-go,
+  .mesh-alt,
+  .state-dem-btn,
+  .state-mvum-btn,
+  #marks-actions button,
+  #states-import,
+  #print-export,
+  #welcome-start,
+  #hud-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+  }
+  .mk-btn,
+  .ms-actions button,
+  #hud-toggle {
+    min-width: 44px;
+  }
+  /* Four action buttons at a 44px floor no longer fit beside the title on a
+     narrow readout, so let them drop to their own line instead of overflowing. */
+  #measure-head {
+    flex-wrap: wrap;
+  }
+  /* Left-aligned button faces stay left-aligned — only the height changes. */
+  .rt-btns button,
+  .state-dem-btn,
+  .state-mvum-btn,
+  #states-import {
+    justify-content: flex-start;
+  }
+
+  /* A text field is a tap target too, and 9px of padding around a 16px line
+     lands at 39. */
+  input[type="text"],
+  .hud-grid select,
+  .print-field select {
+    min-height: 44px;
   }
 }
 
@@ -1618,6 +1781,17 @@ body .maplibregl-ctrl-group button:hover {
 }
 body .maplibregl-ctrl-group button:focus:not(:focus-visible) {
   box-shadow: none;
+}
+/* The map's own controls get the same 44px floor as everything else we own.
+   Zoom, compass and Locate are vendor chrome, but they are still the controls
+   most likely to be hit with a gloved thumb on a moving vehicle, and 32px was
+   the last thing on screen still under Apple's minimum. Coarse pointers only,
+   so the desktop stack keeps its compact size. */
+@media (pointer: coarse) {
+  body .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
 }
 /* MapLibre's icons are dark SVGs baked for a white control; tint them to the
    app's light green so they read on the dark background. */
@@ -1763,7 +1937,10 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 10;
+  /* One above #hud. Both sat at 10 and the sheet is later in the DOM, so it won
+     on source order and painted over the bar this comment calls permanent —
+     with nothing but a JS side-effect standing in the way. */
+  z-index: 11;
   display: flex;
   flex-direction: column;
   /* The dock owns the home-indicator inset for whatever it contains, so the
@@ -2002,7 +2179,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.5;
   margin-bottom: 10px;
 }
@@ -2031,7 +2208,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   height: 18px;
   border-radius: 50%;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 18px;
   text-align: center;
 }
@@ -2052,7 +2229,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .rd-label {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--type-2);
 }
 .rd-detail {
@@ -2099,20 +2276,21 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   letter-spacing: 0.08em;
   opacity: 0.6;
 }
-.print-field input,
+/* Shares the caret and appearance reset above; only the fit differs here.
+   (The text field beside it takes the shared input shape further down.) */
 .print-field select {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid var(--rule);
+  /* Same shape as the Title field directly above it — it was left behind when
+     the text fields were unified, ending up a third smaller and differently
+     ruled than the control it sits under. `background-color`, not the
+     `background` shorthand: the shorthand resets background-image and wipes the
+     caret drawn above, leaving the 26px gutter reserved for nothing. */
+  background-color: var(--surface-sunk);
+  border: 1px solid var(--rule-firm);
   border-radius: var(--radius-sm);
   color: var(--type);
   font-family: inherit;
-  font-size: 12px;
-  padding: 8px 9px;
-}
-/* Shares the caret and appearance reset above; only the fit differs here. */
-.print-field select {
-  color: var(--type);
-  padding-right: 26px;
+  font-size: 16px;
+  padding: 9px 26px 9px 10px;
 }
 .print-field select option {
   background: var(--surface-solid);
@@ -2151,7 +2329,14 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   transform: translateX(-50%);
   z-index: 13;
   width: min(300px, calc(100vw - 24px));
-  max-height: calc(100vh - 120px);
+  /* Top offset + this cap has to land on the dock, not 73px underneath it. The
+     old flat 120px predates the dock and was never re-derived, so the last rows
+     of a long card sat behind the command bar while the card's own scrollbar
+     reported that it had shown everything. Read the same numbers the box is
+     positioned by: 12px above, the status-bar inset, the dock, 12px below.
+     vh first, dvh second — see the note on #welcome-card. */
+  max-height: calc(100vh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  max-height: calc(100dvh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
   overflow-y: auto;
   padding: 10px 12px 12px;
   border-radius: var(--radius);
@@ -2180,7 +2365,15 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 #forage-box .card-title { color: var(--layer-forage); }
 #camp-box .card-title { color: var(--layer-camp); }
 #season-box .card-title { color: var(--layer-season); }
-.card-close {
+/* One close button. These were three near-byte-identical copies — .card-close,
+   #fish-close, #compass-close — which is how they came to be three sizes. The
+   markup still names them separately; only the styling is shared. */
+.card-close,
+#fish-close,
+#compass-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: none;
   border: none;
   color: var(--type-2);
@@ -2245,7 +2438,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .card-actions button:hover { background: var(--wash-firm); }
 .camp-verdict {
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -2393,6 +2586,14 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   transform: translateX(-50%);
   z-index: 13;
   width: min(280px, calc(100vw - 24px));
+  /* Hand-copied from .card-box before that class existed, and the copy left the
+     cap and the scroller behind: the fishing card is the tallest of the lot —
+     species, method, drinking note, two actions — and ran ~1900px past the
+     bottom of a phone with `body { overflow: hidden }` and no way to reach it.
+     Same arithmetic as .card-box; see the note there. */
+  max-height: calc(100vh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  max-height: calc(100dvh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  overflow-y: auto;
   padding: 10px 12px 12px;
   border-radius: var(--radius);
   border: 1px solid rgba(56, 214, 255, 0.55);
@@ -2407,22 +2608,13 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   justify-content: space-between;
   gap: 8px;
 }
+/* Colour and truncation only. The size is .goto-title's — this used to override
+   it to 13px while the identical heading on the compass card stayed at 11. */
 #fish-head .goto-title {
   color: var(--layer-water);
-  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-#fish-close {
-  background: none;
-  border: none;
-  color: var(--type-2);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-  flex: 0 0 auto;
 }
 .fish-sub {
   margin-top: 2px;
@@ -2512,6 +2704,12 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   transform: translateX(-50%);
   z-index: 13;
   width: min(240px, calc(100vw - 24px));
+  /* Latent rather than broken — the rose is a fixed 140px — but this is the
+     third copy of the same card and the only reason it fits is that nothing in
+     it grows. Capped with its siblings so it cannot become the next #fish-box. */
+  max-height: calc(100vh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  max-height: calc(100dvh - 12px - env(safe-area-inset-top) - var(--dock-h) - 12px);
+  overflow-y: auto;
   padding: 10px 12px;
   border-radius: var(--radius);
   border: 1px solid var(--rule-hot);
@@ -2525,15 +2723,6 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-#compass-close {
-  background: none;
-  border: none;
-  color: var(--type-2);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
 }
 #compass-rose {
   position: relative;
@@ -2554,7 +2743,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   left: 50%;
   transform: translateX(-50%);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--bad-lift);
 }
 .cn-arrow {
@@ -2575,7 +2764,9 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   align-items: center;
   justify-content: center;
   font-size: 22px;
-  font-weight: 700;
+  /* 500, not 600: this is set in IBM Plex Mono, which ships 400/500 only. At
+     600 the heading you steer by was being faked from the 400 face. */
+  font-weight: 500;
   color: var(--type-loud);
 }
 #compass-note {
@@ -2600,7 +2791,25 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   display: none;
 }
 
-#search-input {
+/* --- Text fields --------------------------------------------------------
+   Every editable field in the app, in one shape. There were eight of them in
+   five treatments — three paddings, three border colours, three backgrounds and
+   four type sizes — so "search a place" and "search the handbook", which are the
+   same gesture in two panels, were visibly different boxes.
+
+   16px is not a taste choice. iOS zooms the page whenever a field smaller than
+   that takes focus, and the standard workaround is to lock the viewport with
+   `maximum-scale=1` — which takes pinch-zoom away from the whole app to fix one
+   control. Sizing the field correctly removes the need for the lock. */
+#search-input,
+#plants-search,
+#states-search,
+#handbook-search,
+#print-title,
+.rt-search,
+.ask-input,
+.mesh-label input {
+  flex: none;
   width: 100%;
   box-sizing: border-box;
   padding: 9px 10px;
@@ -2609,9 +2818,16 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   background: var(--surface-sunk);
   color: var(--type-loud);
   font-family: inherit;
-  font-size: 14px;
+  font-size: 16px;
 }
-#search-input:focus {
+#search-input:focus,
+#plants-search:focus,
+#states-search:focus,
+#handbook-search:focus,
+#print-title:focus,
+.rt-search:focus,
+.ask-input:focus,
+.mesh-label input:focus {
   outline: none;
   border-color: var(--rule-hotter);
 }
@@ -2663,7 +2879,6 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 
 #states-import {
-  margin-top: 8px;
   padding: 9px;
   border-radius: var(--radius-sm);
   border: 1px dashed var(--rule-firm);
@@ -2706,20 +2921,6 @@ body.battery.nightvis .maplibregl-ctrl {
   gap: 9px;
   font-size: 11px;
 }
-.rt-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  border-bottom: 1px dotted var(--rule);
-  padding-bottom: 4px;
-}
-.rt-k {
-  color: var(--type-quiet);
-}
-.rt-v {
-  text-align: right;
-  word-break: break-word;
-}
 .rt-btns {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2756,7 +2957,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .rt-dist {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--layer-water);
 }
 .rt-sub {
@@ -2889,21 +3090,6 @@ body.battery.nightvis .maplibregl-ctrl {
 .rt-back:hover {
   background: var(--control-hover);
 }
-.rt-search {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 9px 11px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule-firm);
-  background: var(--surface-sunk);
-  color: var(--type);
-  font-family: inherit;
-  font-size: 14px;
-}
-.rt-search:focus {
-  outline: none;
-  border-color: var(--rule-hotter);
-}
 .rt-quick {
   display: flex;
   flex-wrap: wrap;
@@ -2911,7 +3097,6 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .rt-quick-btn {
   flex: 1;
-  min-width: 130px;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px dashed var(--rule-firm);
@@ -3038,7 +3223,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .mv-title {
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.3px;
 }
 .mv-class {
@@ -3199,17 +3384,10 @@ body.battery.nightvis .maplibregl-ctrl {
   color: var(--type-quiet);
   letter-spacing: 0.5px;
 }
+/* Shape comes from the shared text-field rule; only the offset from its label
+   is local. */
 .mesh-label input {
-  width: 100%;
-  box-sizing: border-box;
   margin-top: 4px;
-  padding: 8px 9px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule-firm);
-  background: var(--surface-sunk);
-  color: var(--type-loud);
-  font-family: inherit;
-  font-size: 12px;
 }
 
 /* Forest-road legality block inside the route result. */
@@ -3303,18 +3481,18 @@ body.battery.nightvis .maplibregl-ctrl {
 .hud-icon.off {
   opacity: 0.5;
 }
+/* Same three moves as .res-chip.on — fill, border AND type. The colour lift was
+   missing here, so enabling Terrain brightened its label while enabling Night
+   vis did not: two strengths of "on" in one menu. */
 .hud-icon.on {
   background: var(--control-on);
   border-color: var(--rule-hotter);
+  color: var(--type-loud);
 }
 
 /* An overlay that's off reads as available-but-inactive, not missing. */
 .res-chip.off {
   opacity: 0.5;
-}
-/* Terrain hides itself entirely when a pack has no elevation downloaded. */
-.res-chip.hidden {
-  display: none;
 }
 .search-alt {
   padding: 8px 10px;
@@ -3355,14 +3533,6 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 
 @media (max-width: 700px) {
-  /* One source of truth for the resting height. The sheet uses it, and so does
-     everything that has to sit above the sheet — otherwise they drift apart the
-     first time the padding changes. */
-  :root {
-    /* Grip strip (30) + bar (34) + bottom padding (8), plus the home
-       indicator. Everything that has to clear the resting sheet reads this. */
-  }
-
   #hud {
     top: auto;
     right: 0;
@@ -3464,8 +3634,7 @@ body.battery.nightvis .maplibregl-ctrl {
     grid-template-columns: 1fr 1fr;
     gap: 6px;
   }
-  .hud-grid button,
-  .hud-grid select {
+  .hud-grid button {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3475,18 +3644,28 @@ body.battery.nightvis .maplibregl-ctrl {
     font-size: 11.5px;
     border-radius: var(--radius-sm);
   }
+  /* The range picker takes the tile height and nothing else. Centring it and
+     resetting its padding put "Range 15 mi" underneath the caret we draw at
+     `right 9px` — a select has to keep the room reserved for it. */
+  .hud-grid select {
+    min-height: 44px;
+    font-size: 11.5px;
+    border-radius: var(--radius-sm);
+  }
+  /* An author `display` here beats the UA sheet's `[hidden] { display: none }`,
+     so the Updates button — hidden in the markup, and removed outright by
+     updater.ts once its async check resolves — painted a full-size tile in the
+     Library grid first. Restore what `hidden` is supposed to mean. */
+  .hud-grid button[hidden],
+  .hud-grid select[hidden] {
+    display: none;
+  }
 
   /* Tighten the space between groups. With the items themselves compact, the
      headings were doing most of the scrolling. */
   .hud-sub {
     margin-top: 10px;
     margin-bottom: 2px;
-  }
-  #hud-resources {
-    gap: 5px;
-  }
-  .hud-icons {
-    gap: 7px;
   }
 
   /* The body takes whatever is left. At the peek that is nothing, which is what
@@ -3512,19 +3691,6 @@ body.battery.nightvis .maplibregl-ctrl {
      hide the sheet. JS also strips the class outright (see setupSheet). */
   #hud-toggle {
     display: none;
-  }
-  #hud.collapsed {
-    top: auto;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: auto;
-  }
-  #hud.collapsed #hud-grip {
-    display: block;
-  }
-  #hud.collapsed #hud-body {
-    display: block;
   }
 
   /* Bottom-anchored map furniture lifts to sit above the resting sheet. Raising
@@ -3561,17 +3727,6 @@ body.battery.nightvis .maplibregl-ctrl {
    this list is deciding what NOT to eat, and that has to read before the name
    does. Deadly is the same red as the military keep-out card, deliberately —
    both mean "this will hurt you", and one vocabulary is easier to learn. */
-#plants-search {
-  flex: none;
-  width: 100%;
-  padding: 9px 10px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--rule-firm);
-  background: var(--surface-sunk);
-  color: var(--type-loud);
-  font-family: inherit;
-  font-size: 14px;
-}
 #plants-body {
   flex: 1;
   min-height: 0;

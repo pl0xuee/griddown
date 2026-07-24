@@ -199,8 +199,17 @@ function render() {
   const q = (
     document.getElementById("states-search") as HTMLInputElement | null
   )?.value?.toLowerCase() || "";
+  // What you already have comes first, most recently downloaded at the very
+  // top — so the pack you just waited minutes for is the row you are looking
+  // at, rather than something to go hunting for in a 50-state alphabet. Packs
+  // you don't have keep the catalogue's alphabetical order: `sort` is stable,
+  // so returning 0 for that group leaves it untouched.
+  const have = (s: StateEntry) => (installed.has(s.abbr) ? 0 : 1);
+  const got = (s: StateEntry) => packInfo.get(s.abbr)?.modified ?? 0;
   const rows = catalog
     .filter((s) => s.name.toLowerCase().includes(q) || s.abbr.toLowerCase().includes(q))
+    .slice()
+    .sort((a, b) => have(a) - have(b) || (have(a) === 0 ? got(b) - got(a) : 0))
     .map((s) => rowHtml(s))
     .join("");
   list.innerHTML =
@@ -354,8 +363,9 @@ async function downloadDem(s: StateEntry) {
     await refreshInstalled();
     updateRow(s.abbr);
     toast(`${s.name} terrain ready — hillshade, contours and elevation now work offline.`, "success");
-    // If it's on screen, reload so terrain appears right away.
-    if (activeAbbr === s.abbr) void activate(s.abbr, false);
+    // If it's on screen, reload so terrain appears right away — without closing
+    // the list, since forest roads may still be wanted from the same row.
+    if (activeAbbr === s.abbr) void activate(s.abbr, false, false);
   } catch (err) {
     demDownloading.delete(s.abbr);
     updateRow(s.abbr);
@@ -411,15 +421,29 @@ async function download(s: StateEntry, refresh = false) {
     downloading.delete(s.abbr);
     downloadStatus.delete(s.abbr);
     await refreshInstalled();
-    updateRow(s.abbr);
+    // Full re-render, not updateRow: this pack has just become installed, which
+    // moves it to the top of the list. Repainting one row in place would leave
+    // it where it was.
+    render();
     if (refresh) {
       toast(`${s.name} updated to the latest map data`, "success");
       // Reload it only if it's what's on screen — don't yank the view otherwise.
-      if (activeAbbr === s.abbr) void activate(s.abbr, false);
+      if (activeAbbr === s.abbr) void activate(s.abbr, false, false);
     } else {
-      toast(`${s.name} downloaded — ready offline`, "success");
-      // Auto-view the freshly downloaded state.
-      void activate(s.abbr, true);
+      // Stay on the list. Terrain and forest roads are separate downloads on
+      // this same row, and this is the moment to offer them: still online,
+      // already waiting. Say so, because the map switching behind the panel is
+      // otherwise the only sign the download worked.
+      //
+      // "above", not "below": a just-downloaded pack sorts to the top of the
+      // list, and the toast comes up from the bottom of the screen — so its
+      // buttons are always above this message.
+      toast(
+        `${s.name} downloaded — ready offline. Add terrain or forest roads above while you still have a connection.`,
+        "success",
+        9000
+      );
+      void activate(s.abbr, true, false);
     }
   } catch (err) {
     downloading.delete(s.abbr);
@@ -433,7 +457,18 @@ async function download(s: StateEntry, refresh = false) {
   }
 }
 
-async function activate(abbr: string, fly: boolean) {
+/**
+ * Make `abbr` the pack the map is reading from.
+ *
+ * `closePanel` is the caller's decision, not this function's. Tapping a state
+ * to view it means "take me to the map", so the panel gets out of the way. But
+ * finishing a *download* does not: terrain and forest roads are separate,
+ * optional downloads that live on the same row, and closing the panel the
+ * moment the basemap landed hid them at the one moment the user was most likely
+ * to want them — while they were still online and already waiting. The map
+ * still switches underneath either way, so it is ready when they do leave.
+ */
+async function activate(abbr: string, fly: boolean, closePanel = true) {
   const s = catalog.find((c) => c.abbr === abbr);
   if (!s || !inTauri) return;
   try {
@@ -459,7 +494,7 @@ async function activate(abbr: string, fly: boolean) {
       keepView: !fly,
     });
     render();
-    document.getElementById("states-panel")?.classList.add("hidden");
+    if (closePanel) document.getElementById("states-panel")?.classList.add("hidden");
   } catch (err) {
     toast(`Couldn't open ${s.name}: ${err}`, "error");
   }
@@ -530,7 +565,9 @@ async function importPack() {
         9000
       );
     }
-    void activate(abbr, true);
+    // Same reasoning as a fresh download, and doubly so here: the toast above
+    // tells them to use "△ Add terrain", which is on this list.
+    void activate(abbr, true, false);
   } catch (err) {
     toast(`Import failed: ${err}`, "error");
   }

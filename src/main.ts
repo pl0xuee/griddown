@@ -42,19 +42,34 @@ import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
 import { initPlantPanel, openPlant, findPlant } from "./plantpanel";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
+import { fmtMgrs } from "./paper";
 import { initCompass, headingFrom, shortestTurn } from "./compass";
 import { declination, magneticToTrue, formatDeclination } from "./geomag";
-import { getFix, type GeoFix } from "./geoloc";
+import { getFix, getFixFast, type GeoFix } from "./geoloc";
+import { haversine } from "./geo";
 import { initViewshed } from "./viewshed";
 import { forward as mgrsForward } from "mgrs";
 import { toast } from "./toast";
 
 // A silent failure must never look like a blank map: surface any uncaught
 // error on the HUD status line, where it can actually be reported.
+// The status line does double duty: normally it reports connectivity, but it is
+// also the only place an uncaught error or the overview-pack notice can be seen.
+// Those outrank connectivity and must survive an `online`/`offline` event —
+// which on a phone in the field fires routinely — so they are held here and
+// re-rendered rather than being overwritten the next time the radio flaps.
+let stickyStatus: string | null = null;
+
+function setStickyStatus(msg: string | null) {
+  stickyStatus = msg;
+  refreshNetStatus();
+}
+
 function surfaceError(msg: string) {
-  const label = document.getElementById("net-label");
   const dot = document.getElementById("net-dot");
-  if (label) label.textContent = `ERROR: ${msg}`.slice(0, 120);
+  stickyStatus = `ERROR: ${msg}`.slice(0, 120);
+  const label = document.getElementById("net-label");
+  if (label) label.textContent = stickyStatus;
   if (dot) dot.className = "dot";
   console.error("[griddown]", msg);
 }
@@ -452,7 +467,9 @@ function emphasisLayers(t: (typeof THEME)[ThemeName]): any[] {
 }
 
 let currentTheme: ThemeName = "dark";
-let terrainOn = true;
+// Persisted like every sibling overlay: turning terrain off is a deliberate
+// choice to save GPU and battery, and it did not survive a relaunch.
+let terrainOn = localStorage.getItem("griddown_terrain") !== "0";
 // Battery saver: dim the screen and drop the GPU-heavy layers (hillshade/
 // contours). Off-grid, screen brightness and GPU are most of the battery.
 let batteryOn = localStorage.getItem("griddown_battery") === "1";
@@ -916,6 +933,13 @@ async function start() {
   let locBusy = false; // true while a fix is being fetched
   let locBtn: HTMLButtonElement | null = null;
   let lastFix: { lng: number; lat: number } | null = null;
+  /** Where the camera was last put ON PURPOSE, so "has the user panned away?"
+   *  is asked against the map's own history rather than the moving fix. */
+  let followAnchor: { lng: number; lat: number } | null = null;
+  /** Tears down the in-flight locate watch. See locateUser. */
+  let locateAbort: AbortController | null = null;
+  /** The live locate, so a second caller joins it instead of starting another. */
+  let locateInFlight: Promise<GeoFix> | null = null;
   let headingBusy = false; // true while the iOS permission prompt is pending
   let headingDec = 0; // magnetic→true correction for the area, degrees
   let smoothBearing = 0; // continuous, low-pass filtered to damp sensor jitter
@@ -1004,11 +1028,72 @@ async function start() {
   /** Fetch a fix, centre on it, and mark it. Throws on failure. Shared by the
    *  locate button and the compass panel ("go to my location first"). */
   async function locateUser(): Promise<GeoFix> {
-    const f = await getFix();
+    // One locate at a time, SHARED rather than restarted. The watch outlives
+    // the promise by up to REFINE_MS, so a second caller arriving inside that
+    // window used to stack another high-accuracy watch — N concurrent watches,
+    // the battery cost this path exists to avoid.
+    //
+    // Sharing beats cancelling the old one: the locate button and the compass
+    // panel both ask for a fix, and cancelling made whichever asked first
+    // report "couldn't get a location fix" to a user who was at that moment
+    // being located perfectly well by the request that replaced it.
+    if (locateInFlight) return locateInFlight;
+    const ctl = new AbortController();
+    locateAbort = ctl;
+    const run = locateOnce(ctl);
+    locateInFlight = run;
+    try {
+      return await run;
+    } finally {
+      if (locateInFlight === run) locateInFlight = null;
+    }
+  }
+
+  async function locateOnce(ctl: AbortController): Promise<GeoFix> {
+
+    // Show the first position the phone can give, then sharpen it in place.
+    // Waiting for a full-accuracy GPS fix before drawing anything left the
+    // button spinning for up to fifteen seconds on iOS.
+    const f = await getFixFast((better, _final) => {
+      // Stale callbacks must not steer the map: this watch can still be
+      // refining after the user has turned locate off or started a new one.
+      if (ctl.signal.aborted || locState === "off") return;
+      lastFix = { lng: better.lng, lat: better.lat };
+      shownFix = better;
+      drawUserLoc(better);
+
+      // Keep the dot ON the crosshair. The crosshair is the map's centre and
+      // everything else reads the ground under it — the coordinate collar,
+      // elevation, camp check — so a dot beside it means those readouts
+      // describe somewhere you are not.
+      //
+      // Measured against `followAnchor`, which only moves when WE move the
+      // camera. Testing against shownFix instead was self-defeating: one
+      // skipped ease left the anchor at the sharpened fix while the map sat on
+      // the coarse one, and every later comparison then failed too — the map
+      // stayed parked while the dot walked away.
+      const c = map.getCenter();
+      const following =
+        !!followAnchor && haversine([c.lng, c.lat], [followAnchor.lng, followAnchor.lat]) < 200;
+      if (!following) return;
+      const apply = () => {
+        if (ctl.signal.aborted || locState === "off") return;
+        map.easeTo({ center: [better.lng, better.lat], duration: 400 });
+        followAnchor = { lng: better.lng, lat: better.lat };
+      };
+      // DEFERRED, not dropped, while the camera is animating. The thing usually
+      // moving is our own flyTo to the first (cached, coarse) fix, and the
+      // sharpened GPS fix routinely lands during it — discarding it there left
+      // the dot on the accurate position and the map on the coarse one, which
+      // is exactly the mismatch this block exists to prevent.
+      if (map.isMoving()) map.once("moveend", apply);
+      else apply();
+    }, ctl.signal);
     lastFix = { lng: f.lng, lat: f.lat };
     shownFix = f;
     drawUserLoc(f);
     map.flyTo({ center: [f.lng, f.lat], zoom: Math.max(map.getZoom(), 14) });
+    followAnchor = { lng: f.lng, lat: f.lat };
     return f;
   }
 
@@ -1021,6 +1106,9 @@ async function start() {
         await locateUser();
         locState = "located";
       } catch (err) {
+        // Superseded by a newer locate (the compass panel asks for one too) —
+        // that request is still running and will report for itself.
+        if ((err as { cancelled?: boolean })?.cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
         toast(
           /denied/i.test(msg)
@@ -1034,12 +1122,27 @@ async function start() {
         renderLoc();
       }
     } else if (locState === "located") {
+      // A tap landing while the iOS compass prompt is still up is not an
+      // answer about whether this device HAS a compass — it is the same tap
+      // arriving twice. Falling through to the north-up reset on it yanked the
+      // map round and reported the button off, moments before the prompt
+      // resolved and set it to heading.
+      if (headingBusy) return;
+      // No compass (desktop, or a denied iOS prompt that will never be asked
+      // again) must not trap the button here: without this the third tap has
+      // nowhere to go and every further tap replays the same error.
       if (await startHeading()) {
         locState = "heading";
-        renderLoc();
+      } else {
+        stopHeadingSensor();
+        locateAbort?.abort(); // stop refining — we are leaving locate entirely
+        map.easeTo({ bearing: 0, duration: 400 }); // north up
+        locState = "off";
       }
+      renderLoc();
     } else {
       stopHeadingSensor();
+      locateAbort?.abort(); // release the GPS: locate is off from here
       map.easeTo({ bearing: 0, duration: 400 }); // north up
       locState = "off";
       renderLoc();
@@ -1078,6 +1181,15 @@ async function start() {
   const hasActivePack = !!localStorage.getItem("griddown_active_state");
 
   void basemapCheck.then((problem) => {
+    // Report a broken basemap before anything else. A released build ships no
+    // region.json, so `configured` is always false there — checking the notice
+    // first would swallow every real failure behind a cheerful hint and leave a
+    // grey map with nothing explaining it.
+    if (problem) {
+      surfaceError(problem);
+      toast(problem, "error");
+      return;
+    }
     if (!region.configured && !hasActivePack) {
       // Running on the bundled starter pack — a real map, but the whole country
       // at low zoom. Say what it is and point at the fix, rather than letting
@@ -1089,8 +1201,7 @@ async function start() {
       // moment later — so the notice has to clear itself when that happens,
       // rather than sitting there over a fully detailed map.
       noMapNotice = true;
-      const el = document.getElementById("net-label");
-      if (el) el.textContent = "Overview only — open Map packs";
+      setStickyStatus("Overview only — open Map packs");
       toast(
         "This is the whole-US overview. Open ▤ Map packs and download your state for detail.",
         "info",
@@ -1110,6 +1221,7 @@ async function start() {
   });
   document.getElementById("terrain-toggle")?.addEventListener("click", () => {
     terrainOn = !terrainOn;
+    localStorage.setItem("griddown_terrain", terrainOn ? "1" : "0");
     map.setStyle(buildStyle(currentTheme));
     applyThemeUi();
   });
@@ -1453,6 +1565,10 @@ async function start() {
     if (!fishingOn && !wildfoodOn && !publicLandOn) return;
     // Don't steal the tap from the measure tool while it's placing points.
     if (!document.getElementById("measure-readout")?.classList.contains("hidden")) return;
+    // Clear panels HERE, on the tap, not inside hideCards. A card render awaits
+    // elevation and lake lookups first, and closing panels after that await
+    // slammed shut whatever the user had opened in the meantime.
+    closeAllPanels();
     const pad = 6;
     const box: [maplibregl.PointLike, maplibregl.PointLike] = [
       [e.point.x - pad, e.point.y - pad], [e.point.x + pad, e.point.y + pad],
@@ -1714,7 +1830,7 @@ async function start() {
     // A map is now loaded, so retract any "no map yet" notice.
     if (noMapNotice) {
       noMapNotice = false;
-      refreshNetStatus();
+      setStickyStatus(null);
     }
     // Drop the protocol's cached instance for this file — after a pack refresh
     // the bytes on disk changed but the URL didn't, and a stale cached header/
@@ -1736,6 +1852,12 @@ async function start() {
     map.setStyle(buildStyle(currentTheme), { diff: !t.keepView });
     if (!t.keepView) map.jumpTo({ center: t.center, zoom: t.zoom });
     applyThemeUi();
+    // Refresh the collar explicitly. `terrainAvailable` just changed, but with
+    // keepView there is no jumpTo and so no moveend to trigger it — leaving the
+    // elevation cell blank after downloading terrain for the state you are
+    // already looking at, or still showing the previous pack's elevation beside
+    // the new pack's coordinates.
+    updateSlowReadouts();
     // The overlay belongs to the old pack — reload it for the new one.
     mvumCtl?.packChanged();
   }
@@ -1750,7 +1872,7 @@ async function start() {
   const resChips = () => document.querySelectorAll<HTMLElement>(".res-chip[data-res]");
   function applyResourceUi() {
     resChips().forEach((chip) => {
-      chip.classList.toggle("on", activeResources.has(chip.dataset.res || ""));
+      setToggle(chip, activeResources.has(chip.dataset.res || ""));
     });
   }
   resChips().forEach((chip) => {
@@ -1767,12 +1889,6 @@ async function start() {
 
   // Live coordinate readout (MGRS + lat/long) for the center crosshair.
   const coordsEl = document.getElementById("coords");
-  function fmtMgrs(s: string): string {
-    const m = s.match(/^(\d{1,2}[C-X])([A-Z]{2})(\d+)$/);
-    if (!m) return s;
-    const h = m[3].length / 2;
-    return `${m[1]} ${m[2]} ${m[3].slice(0, h)} ${m[3].slice(h)}`;
-  }
   let lastGrid = "";
   let lastLL = "";
   let lastElev = "";
@@ -1955,6 +2071,21 @@ async function start() {
   void initStateLibrary(switchToSource);
 }
 
+/**
+ * Set a toggle button's visual state and its announced state together.
+ *
+ * The `.on`/`.off` classes are the only cue these buttons had, and the
+ * difference between them is a fill and 0.5 opacity — which a screen reader
+ * cannot see and increased-contrast mode flattens. Keeping `aria-pressed`
+ * beside the class means the two can never drift apart.
+ */
+function setToggle(el: Element | null | undefined, on: boolean) {
+  if (!el) return;
+  el.classList.toggle("on", on);
+  el.classList.toggle("off", !on);
+  el.setAttribute("aria-pressed", String(on));
+}
+
 // --- HUD wiring: day/night + terrain toggles ---
 function applyThemeUi() {
   const t = THEME[currentTheme];
@@ -1974,34 +2105,32 @@ function applyThemeUi() {
   if (terrBtn) {
     terrBtn.textContent = "△ Terrain";
     terrBtn.title = terrainOn ? "Terrain: on" : "Terrain: off";
-    terrBtn.classList.toggle("on", terrainOn);
-    terrBtn.classList.toggle("off", !terrainOn);
+    setToggle(terrBtn, terrainOn);
     terrBtn.classList.toggle("hidden", !terrainAvailable);
   }
   const plBtn = document.getElementById("publicland-toggle");
   if (plBtn) {
     plBtn.title = publicLandOn ? "Public land: on" : "Public land: off";
-    plBtn.classList.toggle("on", publicLandOn);
-    plBtn.classList.toggle("off", !publicLandOn);
+    setToggle(plBtn, publicLandOn);
   }
   const fishBtn = document.getElementById("fishing-toggle");
   if (fishBtn) {
     fishBtn.title = fishingOn ? "Water: on — tap water to identify" : "Water: off";
-    fishBtn.classList.toggle("on", fishingOn);
-    fishBtn.classList.toggle("off", !fishingOn);
+    setToggle(fishBtn, fishingOn);
   }
   const wildBtn = document.getElementById("wildfood-toggle");
   if (wildBtn) {
     wildBtn.title = wildfoodOn ? "Wild food: on — tap land to identify" : "Wild food: off";
-    wildBtn.classList.toggle("on", wildfoodOn);
-    wildBtn.classList.toggle("off", !wildfoodOn);
+    setToggle(wildBtn, wildfoodOn);
   }
   const batBtn = document.getElementById("battery-toggle");
   if (batBtn) {
     batBtn.title = batteryOn
       ? "Battery saver: on (dimmed, terrain off)"
       : "Battery saver: off";
-    batBtn.classList.toggle("off", !batteryOn);
+    // `.on` as well as `.off`, like every sibling toggle: without it an enabled
+    // Battery saver rendered in the neutral state, indistinguishable from off.
+    setToggle(batBtn, batteryOn);
   }
   document.body.classList.toggle("battery", batteryOn);
   // Legend rows for the overlay only make sense while it's on.
@@ -2027,6 +2156,10 @@ function refreshNetStatus() {
   const dot = document.getElementById("net-dot");
   const label = document.getElementById("net-label");
   if (!dot || !label) return;
+  if (stickyStatus) {
+    label.textContent = stickyStatus;
+    return;
+  }
   if (navigator.onLine) {
     dot.className = "dot online";
     label.textContent = "online · map is local";
@@ -2065,7 +2198,11 @@ const SHEET_STATES: SheetState[] = ["sheet-peek", "sheet-full"];
  * this app still targets iOS 14.
  */
 function syncMenuHidden(hud: HTMLElement | null) {
-  document.body.classList.toggle("menu-hidden", !!hud?.classList.contains("collapsed"));
+  const collapsed = !!hud?.classList.contains("collapsed");
+  document.body.classList.toggle("menu-hidden", collapsed);
+  // The hamburger controls the menu body but never said so; the legend's
+  // collapsible and the command bar's More both keep aria-expanded honest.
+  document.getElementById("hud-toggle")?.setAttribute("aria-expanded", String(!collapsed));
 }
 
 function setSheet(hud: HTMLElement, state: SheetState) {
@@ -2073,6 +2210,13 @@ function setSheet(hud: HTMLElement, state: SheetState) {
   hud.classList.add(state);
   // Drop the transform a drag left behind, so the class governs again.
   hud.style.transform = "";
+  // The closed sheet is pushed off-screen by a transform alone, which hides it
+  // visually but leaves all ~25 of its controls focusable and announceable —
+  // so swiping through the map screen with VoiceOver walked the entire closed
+  // menu first, and a keyboard tab fell into it. Take it out of the tree too.
+  const parked = state === "sheet-peek";
+  hud.toggleAttribute("inert", parked);
+  hud.setAttribute("aria-hidden", String(parked));
   syncMoreButton(hud);
 }
 
@@ -2168,10 +2312,10 @@ function watchKeyboard() {
 function peekSheet() {
   const hud = document.getElementById("hud");
   if (!hud || !isPhone()) return;
-  hud.classList.remove(...SHEET_STATES);
-  hud.classList.add("sheet-peek");
-  hud.style.transform = "";
-  syncMoreButton(hud);
+  // Through setSheet, not by hand: it also sets `inert`/`aria-hidden`, and
+  // duplicating the class juggling here parked the sheet off-screen with all
+  // ~25 of its controls still focusable and in the accessibility tree.
+  setSheet(hud, "sheet-peek");
 }
 
 /**
@@ -2280,6 +2424,9 @@ function setupSheet(hud: HTMLElement) {
    * the still-held finger doing nothing.
    */
   let activeId: number | null = null;
+  /** How far down the sheet may be dragged. Snapshotted at pointer-down — see
+   *  the note there on why this is not re-read per frame. */
+  let dragLimit = 0;
 
   const down = (e: PointerEvent) => {
     if (!isPhone()) return;
@@ -2289,6 +2436,13 @@ function setupSheet(hud: HTMLElement) {
     startY = e.clientY;
     startShift = currentShift();
     startStop = stopAt(startShift);
+    // Measured once per gesture, not once per frame. `offsetHeight` read right
+    // after the previous move wrote `style.transform` forces WebKit to flush
+    // style and layout — on every pointermove of a drag, which is the one place
+    // this sheet is supposed to cost nothing but a composite. Both terms are
+    // fixed for the duration of a gesture, and `down` already snapshots
+    // `startShift`/`startStop` on the same assumption.
+    dragLimit = hud.offsetHeight + dockH();
     lastY = e.clientY;
     lastT = e.timeStamp;
     velocity = 0;
@@ -2312,8 +2466,7 @@ function setupSheet(hud: HTMLElement) {
     // At rest the sheet is entirely off-screen (More reopens it), so a drag
     // down has nothing it needs to leave showing — and it has to clear the dock
     // as well as its own height to get there.
-    const limit = hud.offsetHeight + dockH();
-    const shift = Math.max(0, Math.min(limit, startShift + dy));
+    const shift = Math.max(0, Math.min(dragLimit, startShift + dy));
     hud.style.transform = `translateY(${shift}px)`;
 
     // Sampled per move rather than averaged over the whole gesture: a drag that
@@ -2439,7 +2592,7 @@ function initChrome() {
   const nvBtn = document.getElementById("nightvis-toggle");
   function applyNightVis(on: boolean) {
     document.body.classList.toggle("nightvis", on);
-    nvBtn?.classList.toggle("on", on);
+    setToggle(nvBtn, on);
     if (nvBtn) {
       (nvBtn.querySelector(".hud-icon-glyph") ?? nvBtn).textContent = on ? "◉" : "◑";
       nvBtn.title = on ? "Night vision: on" : "Night vision (red)";

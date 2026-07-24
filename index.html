@@ -3,9 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="stylesheet" href="/src/styles.css" />
+    <!-- viewport-fit=cover is load-bearing: every safe-area-inset in styles.css
+         resolves to 0 without it, and the collar, the panels and the modals all
+         read those insets to stay clear of the Dynamic Island and the home
+         indicator.
+
+         No maximum-scale / user-scalable=no. That pair was here to stop iOS
+         zooming the page when a small text field took focus; every field is now
+         16px, which is the size iOS does not zoom, so the lock bought nothing
+         and cost pinch-zoom for the whole app (WCAG 1.4.4). -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>GridDown — offline maps</title>
     <script type="module" src="/src/main.ts" defer></script>
@@ -124,17 +133,23 @@
         <!-- Grouped by what the thing IS, in the language of the sheet. What is
              drawn on it; what reads it; what you do with it out there; and the
              library, which is the only group you use before you leave. -->
+        <!-- Icons are typographic glyphs, never emoji. Half this row used to be
+             full-colour emoji (💧 🌿 ⛺ ⛽ 🆘) beside monochrome geometry, which
+             put six saturated cartoons in the middle of a dark instrument panel
+             and made one row read as two designs. Text-presentation glyphs also
+             take the button's own colour, so they dim with `.off` and brighten
+             with `.on` like the rest of the label — emoji ignored both. -->
         <div class="hud-sub">On the sheet</div>
         <div id="hud-resources">
           <button id="terrain-toggle" class="res-chip" type="button">&#9651; Terrain</button>
           <button id="publicland-toggle" class="res-chip" type="button" title="Public land — tap an area for who owns it and what you may do there">&#9634; Public land</button>
           <button id="mvum-toggle" class="res-chip off" type="button" title="Forest Service motor vehicle use map">&#9679; Forest roads</button>
-          <button id="fishing-toggle" class="res-chip off" type="button" title="Water — lakes, rivers, springs &amp; wells; tap water for fish and drinking info">&#128167; Water</button>
-          <button id="wildfood-toggle" class="res-chip off" type="button" title="Wild food — tap woods or fields for what to forage and hunt">&#127807; Wild food</button>
-          <button class="res-chip" data-res="shelter" type="button">⛺ Shelter</button>
-          <button class="res-chip" data-res="medical" type="button">✚ Medical</button>
-          <button class="res-chip" data-res="fuel" type="button">⛽ Supply</button>
-          <button class="res-chip" data-res="emergency" type="button">🆘 Help</button>
+          <button id="fishing-toggle" class="res-chip off" type="button" title="Water — lakes, rivers, springs &amp; wells; tap water for fish and drinking info">&#8776; Water</button>
+          <button id="wildfood-toggle" class="res-chip off" type="button" title="Wild food — tap woods or fields for what to forage and hunt">&#10047; Wild food</button>
+          <button class="res-chip" data-res="shelter" type="button">&#8962; Shelter</button>
+          <button class="res-chip" data-res="medical" type="button">&#10010; Medical</button>
+          <button class="res-chip" data-res="fuel" type="button">&#9707; Supply</button>
+          <button class="res-chip" data-res="emergency" type="button">&#9888;&#65038; Help</button>
         </div>
 
         <div class="hud-sub">Instruments</div>
@@ -153,10 +168,10 @@
 
         <div class="hud-sub">Off the land</div>
         <div class="hud-grid">
-          <button id="camp-open" type="button" title="Is the spot under the crosshair good to camp?">&#9978; Camp check</button>
-          <button id="season-open" type="button" title="What's in season here right now">&#128197; In season</button>
-          <button id="lakes-open" type="button" title="Named lakes, reservoirs, rivers and creeks, nearest to you first">&#128167; Nearby water</button>
-          <button id="plants-open" type="button" title="Edible and dangerous plants — what grows here and what it is confused with">&#127807; Plants</button>
+          <button id="camp-open" type="button" title="Is the spot under the crosshair good to camp?">&#8962; Camp check</button>
+          <button id="season-open" type="button" title="What's in season here right now">&#9638; In season</button>
+          <button id="lakes-open" type="button" title="Named lakes, reservoirs, rivers and creeks, nearest to you first">&#8776; Nearby water</button>
+          <button id="plants-open" type="button" title="Edible and dangerous plants — what grows here and what it is confused with">&#10047; Plants</button>
         </div>
 
         <!-- Quietest group on purpose: none of it is any use once you are out
@@ -179,6 +194,15 @@
          publicland/mvum rows still show and hide with their overlays — the
          toggles target these rows by class, so moving them here changed
          nothing about that. -->
+    <!-- Recompute the drawn route without going back into the panel. A route is
+         a snapshot from where you were standing when you asked for it, so the
+         moment that matters is while you are walking it and looking at the map,
+         not while you have a panel open over it. Shown only when a route is on
+         the map and the panel is closed. -->
+    <button id="route-recalc" class="hidden" type="button" title="Recompute this route from where you are now">
+      &#8635; Recalculate
+    </button>
+
     <div id="map-legend">
       <button id="legend-toggle" type="button" class="legend-head" aria-expanded="true">
         <span class="legend-title">Legend</span>
@@ -353,7 +377,7 @@
     </div>
 
     <!-- Printable map export — the paper backup -->
-    <div id="print-panel" class="panel hidden">
+    <div id="print-panel" class="panel panel--scroll hidden">
       <div id="print-head" class="panel-head">
         <div>
           <div class="panel-kicker">GRIDDOWN</div>

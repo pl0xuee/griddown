@@ -2,7 +2,13 @@
 
 const EYE_M = 1.7; // observer eye height above ground
 export const R_EARTH = 6371000;
-const REFRACTION = 0.13; // standard atmospheric refraction coefficient
+/**
+ * Standard atmospheric refraction coefficient. Exported so the measure tool's
+ * line-of-sight reads the same constant: the two used to disagree by ~6 m of
+ * apparent bulge over a 30 mi shot, which is enough for a grazing sightline to
+ * read Visible on the viewshed and Blocked in the measure panel.
+ */
+export const REFRACTION = 0.13;
 
 export interface ViewshedResult {
   /** For each ray, for each step: was that sample visible? */

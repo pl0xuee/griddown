@@ -142,10 +142,20 @@ pub fn decompress(data: &[u8], how: Compression) -> Result<Vec<u8>, String> {
     match how {
         Compression::None => Ok(data.to_vec()),
         Compression::Gzip => {
+            // Bounded, because the compressed length comes from the archive's
+            // own header: an attacker-shaped directory block is a gzip bomb and
+            // `read_to_end` would allocate until the process dies. Directory
+            // blocks are tens of kilobytes in a planet-scale archive, so 64 MB
+            // is far past anything legitimate while still being a ceiling.
+            const MAX_DIR_BYTES: u64 = 64 << 20;
             let mut out = Vec::new();
-            flate2::read::GzDecoder::new(data)
+            let mut limited = flate2::read::GzDecoder::new(data).take(MAX_DIR_BYTES + 1);
+            limited
                 .read_to_end(&mut out)
                 .map_err(|e| format!("directory gunzip failed: {e}"))?;
+            if out.len() as u64 > MAX_DIR_BYTES {
+                return Err("directory block is implausibly large — refusing to read it".into());
+            }
             Ok(out)
         }
         // Protomaps' planet builds use gzip internally. Brotli and zstd are
@@ -210,7 +220,11 @@ impl Entry {
 
     /// Whether this entry covers `id` (accounting for run-length encoding).
     pub fn covers(&self, id: u64) -> bool {
-        !self.is_leaf() && id >= self.tile_id && id < self.tile_id + u64::from(self.run_length)
+        // saturating: tile_id and run_length are read straight from the
+        // archive, so their sum can wrap on a crafted entry.
+        !self.is_leaf()
+            && id >= self.tile_id
+            && id < self.tile_id.saturating_add(u64::from(self.run_length))
     }
 }
 
@@ -562,7 +576,12 @@ impl HttpSource {
         offset: u64,
         len: u64,
     ) -> Result<Vec<u8>, (String, bool)> {
-        let end = offset + len - 1;
+        // Header-derived values: refuse a range that would wrap rather than
+        // asking the server for a nonsense one.
+        let end = offset
+            .checked_add(len)
+            .and_then(|e| e.checked_sub(1))
+            .ok_or_else(|| ("tile range overflows — archive is corrupt".to_string(), false))?;
         let resp = client
             .get(&self.url)
             .header(reqwest::header::RANGE, format!("bytes={offset}-{end}"))
@@ -819,7 +838,7 @@ fn descend(
     for window in leaves.chunks(LEAF_WINDOW) {
         let ranges: Vec<(u64, u64)> = window
             .iter()
-            .map(|e| (h.leaf_offset + e.offset, u64::from(e.length)))
+            .map(|e| (h.leaf_offset.saturating_add(e.offset), u64::from(e.length)))
             .collect();
         let got = src.read_ranges(&ranges)?;
         if got.len() != window.len() {
@@ -949,7 +968,7 @@ pub fn coalesce(tiles: &[(u64, Entry)]) -> Vec<Batch> {
 
     for (i, (_, e)) in tiles.iter().enumerate() {
         let start = e.offset;
-        let end = e.offset + u64::from(e.length);
+        let end = e.offset.saturating_add(u64::from(e.length));
 
         if let Some(last) = batches.last_mut() {
             let cur_start = last.offset;

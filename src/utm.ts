@@ -31,7 +31,17 @@ export interface UtmPoint {
   north: boolean;
 }
 
-/** The UTM zone a longitude falls in (1-60). */
+/**
+ * The UTM zone a longitude falls in (1-60).
+ *
+ * The regular 6° rule only. MGRS also widens zone 32 over southwest Norway
+ * (56-64 N, 3-12 E) and reshapes 31/33/35/37 over Svalbard (72-84 N); this
+ * returns the unadjusted zone there, which disagrees with a conformant map by
+ * up to ~130 km. Deliberate: no US territory falls in either region — Alaska
+ * tops out at 71.4 N in the western hemisphere — and this app ships US packs
+ * only. Add the exceptions here, with the latitude passed in, before using this
+ * anywhere else.
+ */
 export function utmZone(lonDeg: number): number {
   const lon = ((((lonDeg + 180) % 360) + 360) % 360) - 180;
   return Math.floor((lon + 180) / 6) + 1;
@@ -260,7 +270,11 @@ export function gridLines(
  * square, which is how a grid reference is read aloud.
  */
 export function gridLabel(value: number, spacingM: number): string {
-  const within = Math.round(value) % 100000;
+  // Normalise the sign before taking the position within the square. A box
+  // straddling the equator is forced into one hemisphere, which gives genuinely
+  // negative northings; a raw `%` labelled those "-40", and `Math.floor` on a
+  // negative then put them one square out.
+  const within = ((Math.round(value) % 100000) + 100000) % 100000;
   if (spacingM >= 100000) return String(Math.round(value / 100000));
   if (spacingM >= 1000) return String(Math.floor(within / 1000)).padStart(2, "0");
   return String(Math.floor(within / 100)).padStart(3, "0");

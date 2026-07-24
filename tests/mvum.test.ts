@@ -69,6 +69,76 @@ describe("vehicleAccess", () => {
     const got = vehicleAccess({ motorcycle: "open", passengervehicle: "open" });
     expect(got.map((v) => v.label)).toEqual(["Passenger car", "Motorcycle"]);
   });
+
+  /**
+   * The three columns whose dates twin drops the width suffix. Deriving the
+   * name as `${field}_datesopen` looked up a key that is never present, and
+   * because the download strips blank properties there is no way to tell that
+   * from "no restriction" — so a road open only in high summer printed as open,
+   * full stop. Someone reads that in October and drives into a closure.
+   */
+  it("finds the dates column when it drops the width suffix", () => {
+    expect(
+      vehicleAccess({ fourwd_gt50inches: "open", fourwd_gt50_datesopen: "06/01-10/15" })
+    ).toEqual([{ label: '4WD over 50"', dates: "Jun 1 – Oct 15" }]);
+
+    expect(
+      vehicleAccess({ twowd_gt50inches: "open", twowd_gt50_datesopen: "05/15-11/30" })
+    ).toEqual([{ label: '2WD over 50"', dates: "May 15 – Nov 30" }]);
+
+    expect(
+      vehicleAccess({ other_ohv_lt50inches: "open", other_ohv_lt50_datesopen: "07/01-09/30" })
+    ).toEqual([{ label: 'OHV under 50"', dates: "Jul 1 – Sep 30" }]);
+  });
+
+  it("does not read the suffixed name that the data never uses", () => {
+    // The key the old derivation went looking for. If it is honoured, a road
+    // whose real column says "closed until June" reads as open year-round.
+    expect(
+      vehicleAccess({
+        fourwd_gt50inches: "open",
+        fourwd_gt50inches_datesopen: "01/01-12/31",
+        fourwd_gt50_datesopen: "06/01-10/15",
+      })
+    ).toEqual([{ label: '4WD over 50"', dates: "Jun 1 – Oct 15" }]);
+  });
+
+  it("reads every class's dates in one mixed row, as a real feature carries them", () => {
+    const got = vehicleAccess({
+      passengervehicle: "open",
+      passengervehicle_datesopen: "01/01-12/31",
+      highclearancevehicle: "open",
+      highclearancevehicle_datesopen: "04/15-11/15",
+      motorhome: "open",
+      motorhome_datesopen: "01/01-12/31",
+      fourwd_gt50inches: "open",
+      fourwd_gt50_datesopen: "06/01-10/15",
+      twowd_gt50inches: "open",
+      twowd_gt50_datesopen: "06/01-10/15",
+      atv: "open",
+      atv_datesopen: "05/01-10/31",
+      motorcycle: "open",
+      motorcycle_datesopen: "05/01-10/31",
+      otherwheeled_ohv: "open",
+      otherwheeled_ohv_datesopen: "05/01-10/31",
+      other_ohv_lt50inches: "open",
+      other_ohv_lt50_datesopen: "05/01-10/31",
+    });
+    expect(got).toEqual([
+      { label: "Passenger car", dates: "year-round" },
+      { label: "High-clearance", dates: "Apr 15 – Nov 15" },
+      { label: "Motorhome", dates: "year-round" },
+      { label: '4WD over 50"', dates: "Jun 1 – Oct 15" },
+      { label: '2WD over 50"', dates: "Jun 1 – Oct 15" },
+      { label: "ATV", dates: "May 1 – Oct 31" },
+      { label: "Motorcycle", dates: "May 1 – Oct 31" },
+      { label: "Other wheeled OHV", dates: "May 1 – Oct 31" },
+      { label: 'OHV under 50"', dates: "May 1 – Oct 31" },
+    ]);
+    // Not one of them may be blank: a blank here is exactly what the bug
+    // produced, and it renders as the word "open".
+    expect(got.filter((v) => v.dates === "")).toEqual([]);
+  });
 });
 
 describe("formatDates", () => {
@@ -131,5 +201,34 @@ describe("vehicle field names", () => {
       "otherwheeled_ohv",
       "other_ohv_lt50inches",
     ]);
+  });
+
+  /**
+   * Both halves of every column pair, spelled out.
+   *
+   * Transcribed from MVUM_FIELDS_COMMON in src-tauri/src/lib.rs, which is the
+   * `outFields` list actually sent to the USFS service — so it is the only
+   * source of truth for what keys arrive in the GeoJSON. Note the three that
+   * DROP the width suffix on the dates twin: fourwd_gt50inches pairs with
+   * fourwd_gt50_datesopen, not fourwd_gt50inches_datesopen. That asymmetry is
+   * theirs, not ours, and deriving the name instead of listing it is what broke.
+   */
+  it("pairs each column with the dates column the service actually returns", () => {
+    expect(VEHICLES.map((v) => [v.field, v.dates])).toEqual([
+      ["passengervehicle", "passengervehicle_datesopen"],
+      ["highclearancevehicle", "highclearancevehicle_datesopen"],
+      ["motorhome", "motorhome_datesopen"],
+      ["fourwd_gt50inches", "fourwd_gt50_datesopen"],
+      ["twowd_gt50inches", "twowd_gt50_datesopen"],
+      ["atv", "atv_datesopen"],
+      ["motorcycle", "motorcycle_datesopen"],
+      ["otherwheeled_ohv", "otherwheeled_ohv_datesopen"],
+      ["other_ohv_lt50inches", "other_ohv_lt50_datesopen"],
+    ]);
+  });
+
+  it("has three pairs that are NOT the naive field + _datesopen", () => {
+    const odd = VEHICLES.filter((v) => v.dates !== `${v.field}_datesopen`).map((v) => v.field);
+    expect(odd).toEqual(["fourwd_gt50inches", "twowd_gt50inches", "other_ohv_lt50inches"]);
   });
 });

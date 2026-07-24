@@ -97,6 +97,85 @@ describe("buildRouteGraph", () => {
     expect(findRoute(g, A, b)).not.toBeNull();
     expect(findRoute(g, b, A)).toBeNull(); // can't drive it backwards
   });
+
+  /**
+   * The stitch pass exists only to bridge pieces that are DISCONNECTED. It used
+   * to exclude nothing but an endpoint's direct neighbours, so an endpoint
+   * handed itself free bidirectional shortcuts to the other vertices of its own
+   * segment: corners cut off curves, distance under-reported, and — because a
+   * stitch edge is added in both directions — a oneway that could be driven
+   * backwards by hopping along the shortcuts.
+   *
+   * A single major road is the sharp case: two major roads may be bridged up to
+   * 250 m apart, and consecutive vertices of a real road are far closer than
+   * that, so every vertex of a curve was in range of every other.
+   */
+  const N = (i: number): [number, number] => [A[0], A[1] + 0.001 * i];
+
+  it("never stitches a lone road to itself", () => {
+    // Four vertices ~111 m apart: well inside the 250 m major-road reach, so
+    // they were all mutual stitch candidates.
+    const g = buildRouteGraph([
+      road([N(0), N(1), N(2), N(3)], { kind: "major_road", detail: "primary", oneway: true }),
+    ]);
+    expect(haversine(N(0), N(2))).toBeLessThan(250); // in reach, as intended
+    expect(g.nodeCount).toBe(4);
+
+    // seg === -1 marks a stitch edge. One road needs no bridging at all.
+    const stitched = g.adj.flat().filter((e) => e.seg === -1);
+    expect(stitched).toEqual([]);
+
+    // Exactly the three forward edges the geometry describes, and nothing else.
+    expect(g.adj.map((es) => es.map((e) => e.to))).toEqual([[1], [2], [3], []]);
+  });
+
+  it("cannot drive a lone oneway backwards via its own stitch edges", () => {
+    const g = buildRouteGraph([
+      road([N(0), N(1), N(2), N(3)], { kind: "major_road", detail: "primary", oneway: true }),
+    ]);
+    expect(findRoute(g, N(0), N(3))).not.toBeNull(); // forwards is fine
+    expect(findRoute(g, N(3), N(0))).toBeNull(); // backwards must not exist
+  });
+
+  it("does not cut the corner off a curve", () => {
+    // A right-angle dogleg. Its two ends are ~157 m apart — inside the major
+    // reach — so a self-stitch would offer a diagonal shortcut that is not a
+    // road, and the reported distance would come out short.
+    const corner: [number, number] = [A[0] + 0.001, A[1] + 0.001];
+    const end: [number, number] = [A[0] + 0.001, A[1]];
+    const g = buildRouteGraph([
+      road([A, corner, end], { kind: "major_road", detail: "primary" }),
+    ]);
+    expect(haversine(A, end)).toBeLessThan(250);
+    const r = findRoute(g, A, end)!;
+    expect(r).not.toBeNull();
+    // Both legs, not the hypotenuse: ~111 m + ~80 m, versus ~80 m direct.
+    expect(r.meters).toBeCloseTo(haversine(A, corner) + haversine(corner, end), 6);
+    expect(r.coords).toHaveLength(3);
+  });
+
+  it("still bridges two separate major-road pieces a couple of hundred metres apart", () => {
+    // The feature the fix must not have disabled: US-97 north of Bend arrives
+    // from the tiles with 219 m and 239 m holes in it, and while they remain the
+    // router weaves through side streets instead of taking the highway.
+    const major = { kind: "major_road", detail: "primary" };
+    const g = buildRouteGraph([
+      road([N(0), N(1)], major),
+      road([N(3), N(4)], major),
+    ]);
+    expect(haversine(N(1), N(3))).toBeGreaterThan(200);
+    expect(haversine(N(1), N(3))).toBeLessThan(250);
+
+    expect(g.adj.flat().filter((e) => e.seg === -1).length).toBeGreaterThan(0);
+    expect(findRoute(g, N(0), N(4))).not.toBeNull();
+  });
+
+  it("does not extend that allowance to minor roads", () => {
+    // 222 m between two residential streets is a real gap, not a tile seam.
+    const g = buildRouteGraph([road([N(0), N(1)]), road([N(3), N(4)])]);
+    expect(g.adj.flat().filter((e) => e.seg === -1)).toEqual([]);
+    expect(findRoute(g, N(0), N(4))).toBeNull();
+  });
 });
 
 describe("findRoute", () => {

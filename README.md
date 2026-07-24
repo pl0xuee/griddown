@@ -31,8 +31,7 @@ Desktop (Linux/Windows) is the current focus; iOS needs a macOS build host + sig
 ## Tech
 
 [Tauri 2](https://tauri.app) · [MapLibre GL JS](https://maplibre.org) ·
-[PMTiles](https://protomaps.com) · [maplibre-contour](https://github.com/onthegomap/maplibre-contour)
-· [go-pmtiles](https://github.com/protomaps/go-pmtiles).
+[PMTiles](https://protomaps.com) · [maplibre-contour](https://github.com/onthegomap/maplibre-contour).
 
 ## Develop
 
@@ -42,9 +41,15 @@ npm run tauri dev        # runs the desktop app (Linux/Windows)
 ```
 
 The app downloads state map data itself (via the Map library) into your app-data
-folder — nothing large is bundled or committed. A go-pmtiles binary is needed for
-downloads: drop one from [go-pmtiles releases](https://github.com/protomaps/go-pmtiles/releases)
-at `src-tauri/binaries/pmtiles-<target-triple>` (e.g. `pmtiles-x86_64-unknown-linux-gnu`).
+folder — nothing large is bundled or committed. No extra binaries are needed:
+extracting a state from the Protomaps planet archive happens in-process (iOS
+forbids spawning subprocesses, so the `go-pmtiles` sidecar this used to require
+was replaced by `src-tauri/src/pmtiles_extract.rs`).
+
+```bash
+npm test                 # the TypeScript suites
+cargo test --manifest-path src-tauri/Cargo.toml   # the Rust suites
+```
 
 ## Data & licensing
 

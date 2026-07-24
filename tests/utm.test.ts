@@ -163,6 +163,38 @@ describe("gridLabel", () => {
   it("switches to whole 100 km squares at the coarsest spacing", () => {
     expect(gridLabel(500000, 100000)).toBe("5");
   });
+
+  /**
+   * A view straddling the equator is projected into ONE hemisphere, so the
+   * other side's northings come out genuinely negative. A raw `%` left the sign
+   * on ("-40"), and `Math.floor` on a negative rounded away from zero, putting
+   * the line one whole square out — a label that is wrong rather than missing.
+   *
+   * Hand-worked: -33205 sits 33205 m below a 100 km boundary, so it is 66795 m
+   * ABOVE the one below that; 66795 / 1000 floors to 66. Exactly -10000 is
+   * 90000 m into its square, so 90. The northern equivalents agree: labelling
+   * -33205 and 66795 must give the same digits, because they are the same line.
+   */
+  it("labels a negative northing by its position within the square", () => {
+    expect(gridLabel(-33205, 10000)).toBe("66");
+    expect(gridLabel(-10000, 1000)).toBe("90");
+    expect(gridLabel(-1, 1000)).toBe("99");
+    expect(gridLabel(-100000, 1000)).toBe("00");
+    expect(gridLabel(-33205, 100)).toBe("667");
+  });
+
+  it("gives a negative northing the same digits as its positive twin", () => {
+    // -33205 and 66795 are 100 km apart, so they carry the same two digits.
+    expect(gridLabel(-33205, 1000)).toBe(gridLabel(66795, 1000));
+    expect(gridLabel(-450000, 1000)).toBe(gridLabel(550000, 1000));
+  });
+
+  it("never prints a minus sign inside a 100 km square", () => {
+    for (let v = -250000; v <= 250000; v += 1234) {
+      expect(gridLabel(v, 1000)).toMatch(/^\d{2}$/);
+      expect(gridLabel(v, 100)).toMatch(/^\d{3}$/);
+    }
+  });
 });
 
 describe("refusing to draw a grid that would lie", () => {

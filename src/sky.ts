@@ -22,6 +22,27 @@ export function moonUpDown(mt: { rise?: Date; set?: Date; alwaysUp?: boolean; al
   return row("Moonrise", fmtTime(mt.rise)) + row("Moonset", fmtTime(mt.set));
 }
 
+/**
+ * How far the map centre's timezone is from this device's, in whole hours.
+ *
+ * The times below are computed for the crosshair but rendered with
+ * `toLocaleTimeString`, i.e. in the *device's* zone. That is right in the normal
+ * case — you are standing where you are looking — and wrong the moment you pan
+ * to another zone to plan, which the panel gave no hint about.
+ *
+ * Converting instead would be worse: a longitude-derived zone is standard time,
+ * so it would shift a user at home by an hour all summer. Comparing against the
+ * device's *standard* offset (the larger of its January and July offsets, north
+ * of the equator) keeps DST from reading as a mismatch.
+ */
+export function zoneOffsetHours(lng: number, now: Date): number {
+  const y = now.getFullYear();
+  const jan = new Date(y, 0, 1).getTimezoneOffset();
+  const jul = new Date(y, 6, 1).getTimezoneOffset();
+  const deviceStdHours = -Math.max(jan, jul) / 60;
+  return Math.round(lng / 15) - deviceStdHours;
+}
+
 export function moonPhaseName(phase: number): string {
   if (phase < 0.03 || phase > 0.97) return "New moon";
   if (phase < 0.22) return "Waxing crescent";
@@ -57,10 +78,15 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
     const mt = SunCalc.getMoonTimes(now, lat, lng);
 
     if (sub) {
+      // Say whose clock these times are on whenever it isn't the obvious one.
+      const dh = zoneOffsetHours(lng, now);
+      const zone = dh === 0
+        ? ""
+        : ` · times in YOUR clock — this point is ${Math.abs(dh)}h ${dh < 0 ? "behind" : "ahead"}`;
       sub.textContent = `${lat.toFixed(3)}, ${lng.toFixed(3)} · ${now.toLocaleDateString(
         [],
         { weekday: "short", month: "short", day: "numeric" }
-      )} · computed offline`;
+      )} · computed offline${zone}`;
     }
 
     const sunRows: [string, Date | null | undefined][] = [

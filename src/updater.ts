@@ -71,6 +71,11 @@ function wireUpdateButton(btn: HTMLElement) {
 
       let total = 0;
       let got = 0;
+      // Report each 20% band once. Testing `pct % 20 === 0` fired per *chunk*,
+      // and a percent of a 20 MB installer spans several 8-64 KB chunks — so
+      // each milestone stacked up a handful of identical toasts, each of which
+      // sits on screen for 3.4 s, over the install.
+      let lastBand = -1;
       await update.downloadAndInstall((e) => {
         if (e.event === "Started") {
           total = e.data.contentLength ?? 0;
@@ -78,8 +83,11 @@ function wireUpdateButton(btn: HTMLElement) {
         } else if (e.event === "Progress") {
           got += e.data.chunkLength;
           if (total) {
-            const pct = Math.round((got / total) * 100);
-            if (pct % 20 === 0) toast(`Downloading update… ${pct}%`);
+            const band = Math.min(5, Math.floor((got / total) * 5));
+            if (band > lastBand) {
+              lastBand = band;
+              if (band > 0) toast(`Downloading update… ${band * 20}%`);
+            }
           }
         }
       });

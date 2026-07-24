@@ -3,6 +3,7 @@ import { toast } from "./toast";
 import { assessGaps, fillGaps } from "./profile";
 import { sampleElevationM } from "./dem";
 import { haversine, bearing, cardinal, toRad, EARTH_R as R, type LL } from "./geo";
+import { REFRACTION } from "./sweep";
 
 // Measure tool: tap the map to lay down points, get running distance along the
 // path, the bearing of the last leg, and — with 3+ points — the enclosed area.
@@ -207,7 +208,8 @@ export function initMeasure(map: maplibregl.Map) {
     for (let i = 1; i < elevM.length - 1; i++) {
       const di = samples[i].d;
       const los = Ho + (Ht - Ho) * (di / D);
-      const bulge = (di * (D - di)) / (2 * EARTH_M); // earth curvature
+      // Curvature less refraction — the same physics the viewshed sweep uses.
+      const bulge = ((1 - REFRACTION) * di * (D - di)) / (2 * EARTH_M);
       if (los - (elevM[i] + bulge) < 0 && blockAt == null) blockAt = di;
     }
     return { visible: blockAt == null, blockAtMi: blockAt == null ? null : blockAt / 1609.344 };

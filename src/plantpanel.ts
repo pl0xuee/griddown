@@ -24,6 +24,8 @@ import {
 } from "./plants";
 
 let data: PlantData | null = null;
+/** The in-flight fetch, so concurrent callers share one request. */
+let loading: Promise<void> | null = null;
 let currentState = "";
 /** Symbol of the plant being shown in detail, or null for the list. */
 let openSymbol: string | null = null;
@@ -63,9 +65,23 @@ function imgHtml(p: Plant, max = 1): string {
 }
 
 function thumbHtml(p: Plant): string {
-  return p.images.length
-    ? `<img class="pl-thumb" loading="lazy" src="/plantimg/${esc(p.images[0].path)}" alt="" />`
-    : `<span class="pl-thumb pl-thumb--none" aria-hidden="true">${isDangerous(p) ? "&#9760;" : "&#127807;"}</span>`;
+  if (!p.images.length) {
+    return `<span class="pl-thumb pl-thumb--none" aria-hidden="true">${isDangerous(p) ? "&#9760;" : "&#127807;"}</span>`;
+  }
+  // Same rule as imgHtml, and it matters more here: this thumbnail sits under
+  // the "Confused with" heading, where the picture IS the comparison. Prefer a
+  // photo of the entry itself, and when only a relative's exists — genus entries
+  // like death camas borrow one, and Staghorn sumac's is poison ivy — say whose
+  // it is rather than showing an unlabelled picture of the wrong species.
+  const im = p.images.find((i) => !i.of) ?? p.images[0];
+  if (!im.of) {
+    return `<img class="pl-thumb" loading="lazy" src="/plantimg/${esc(im.path)}" alt="${esc(p.common)}" />`;
+  }
+  const of = `Pictured: ${im.of}`;
+  return (
+    `<img class="pl-thumb" loading="lazy" src="/plantimg/${esc(im.path)}" alt="${esc(of)}" title="${esc(of)}" />` +
+    `<b class="pl-of" title="${esc(of)}" aria-hidden="true">&#9432;</b>`
+  );
 }
 
 /** One row in the list. */
@@ -214,6 +230,64 @@ function render() {
 }
 
 /**
+ * Fetch the reference, once.
+ *
+ * Started at init rather than on first open, because findPlant() is synchronous
+ * and main.ts calls it while building the Wild food card: before this ran, a tap
+ * on a meadow made every chip inert, silently dropping the link from Wild onion
+ * to death camas until the user had opened the panel by hand at least once.
+ *
+ * Idempotent both ways — a resolved fetch is never repeated, and a second caller
+ * arriving mid-flight waits on the same promise. A failure clears the latch so
+ * opening the panel retries.
+ */
+function load(): Promise<void> {
+  if (data) return Promise.resolve();
+  if (!loading) {
+    loading = (async () => {
+      try {
+        data = await (await fetch(`${location.origin}/plants.json`)).json();
+      } catch {
+        loading = null;
+        const body = document.getElementById("plants-body");
+        if (body) {
+          body.innerHTML =
+            `<div class="pl-empty">The plant reference didn't load. It ships with the app, so this ` +
+            `is a problem with the install rather than with your connection.</div>`;
+        }
+      }
+    })();
+  }
+  return loading;
+}
+
+/**
+ * Re-link the Wild food card's plant chips.
+ *
+ * main.ts builds that card from a synchronous findPlant(), so one rendered
+ * during the initial load is stuck with inert chips and no route to the
+ * lookalikes. Rather than leave it that way, upgrade the chips in place once the
+ * data lands. Only the first chip row is touched: the second is game, not plants.
+ */
+function linkForageChips() {
+  if (!data) return;
+  const row = document.querySelector("#forage-box .card-chips");
+  if (!row) return;
+  for (const chip of [...row.querySelectorAll("span.card-chip")]) {
+    const name = chip.textContent ?? "";
+    const symbol = matchCommonName(data, name);
+    if (!symbol) continue;
+    const link = document.createElement("button");
+    link.className = "card-chip card-chip--link";
+    link.type = "button";
+    link.dataset.plant = symbol;
+    link.innerHTML = `${esc(name)} &#8250;`;
+    link.addEventListener("click", () => openPlant(symbol));
+    chip.replaceWith(link);
+  }
+}
+
+/**
  * @param getState returns the two-letter abbreviation of the active map pack,
  *                 so the list can mark what is recorded where you actually are.
  */
@@ -222,18 +296,7 @@ export function initPlantPanel(getState: () => string) {
   const body = document.getElementById("plants-body");
   const search = document.getElementById("plants-search") as HTMLInputElement | null;
 
-  async function load() {
-    if (data) return;
-    try {
-      data = await (await fetch(`${location.origin}/plants.json`)).json();
-    } catch {
-      if (body) {
-        body.innerHTML =
-          `<div class="pl-empty">The plant reference didn't load. It ships with the app, so this ` +
-          `is a problem with the install rather than with your connection.</div>`;
-      }
-    }
-  }
+  void load().then(linkForageChips);
 
   openPanel = async (symbol?: string) => {
     openSymbol = symbol ?? null;

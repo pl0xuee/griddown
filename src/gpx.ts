@@ -16,17 +16,25 @@ export function buildGPX(wps: Waypoint[], trks: Track[]): string {
   let s = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   s += `<gpx version="1.1" creator="GridDown" xmlns="http://www.topografix.com/GPX/1/1">\n`;
   for (const w of wps) {
-    s += `  <wpt lat="${w.lat}" lon="${w.lng}"><name>${esc(w.name)}</name>`;
+    // <time> precedes <name> in GPX 1.1's wptType sequence. Without it a
+    // round-trip through this format reset every pin's age to "just now".
+    s += `  <wpt lat="${w.lat}" lon="${w.lng}">`;
+    if (Number.isFinite(w.t)) s += `<time>${new Date(w.t).toISOString()}</time>`;
+    s += `<name>${esc(w.name)}</name>`;
     if (w.note) s += `<desc>${esc(w.note)}</desc>`;
     s += `</wpt>\n`;
   }
   for (const t of trks) {
     s += `  <trk><name>${esc(t.name)}</name><trkseg>\n`;
-    for (const p of t.pts) {
+    t.pts.forEach((p, i) => {
       s += `    <trkpt lat="${p[1]}" lon="${p[0]}">`;
+      // trkType has no <time> of its own, so the track's single timestamp rides
+      // on its first point — the only schema-valid place to put it, and where
+      // parseGPX looks for it. We hold no per-point times to write.
+      if (i === 0 && Number.isFinite(t.t)) s += `<time>${new Date(t.t).toISOString()}</time>`;
       if (p[2] != null) s += `<ele>${p[2]}</ele>`;
       s += `</trkpt>\n`;
-    }
+    });
     s += `  </trkseg></trk>\n`;
   }
   s += `</gpx>\n`;
@@ -37,8 +45,20 @@ function rid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/**
+ * Text of `parent`'s own `<tag>` child.
+ *
+ * Direct children only, deliberately. GPX 1.1 has every tag read here as an
+ * immediate child, and a descendant search made an unnamed `<trk>`/`<rte>` pick
+ * up the first `<name>` *inside* it — so a Garmin route with named points but no
+ * route name imported as "Trailhead" rather than "Imported route".
+ */
 function text(parent: Element, tag: string): string {
-  return parent.getElementsByTagName(tag)[0]?.textContent?.trim() || "";
+  for (const c of Array.from(parent.children)) {
+    // localName ignores any namespace prefix the writer used.
+    if (c.localName === tag) return c.textContent?.trim() || "";
+  }
+  return "";
 }
 
 function coord(el: Element): [number, number] | null {
@@ -84,21 +104,29 @@ export function parseGPX(xml: string): Marks {
   }
 
   const tracks: Track[] = [];
-  const collect = (container: Element, ptTag: string, fallback: string) => {
+  /** Points of `container`, plus the first point time found (0 if none). */
+  const readPts = (container: Element, ptTag: string): { pts: Pt[]; t: number } => {
     const pts: Pt[] = [];
+    let t = 0;
     for (const p of Array.from(container.getElementsByTagName(ptTag))) {
       const c = coord(p);
       if (!c) continue;
       const ele = parseFloat(text(p, "ele"));
+      if (!t) t = Date.parse(text(p, "time")) || 0;
       pts.push([c[1], c[0], Number.isFinite(ele) ? ele : undefined]);
     }
+    return { pts, t };
+  };
+
+  const collect = (container: Element, ptTag: string, fallback: string) => {
+    const { pts, t } = readPts(container, ptTag);
     // A single point isn't a line — the track layer needs at least two.
     if (pts.length > 1) {
       tracks.push({
         id: rid(),
         name: text(container, "name") || fallback,
         pts,
-        t: Date.now(),
+        t: t || Date.now(),
       });
     }
   };
@@ -112,15 +140,9 @@ export function parseGPX(xml: string): Marks {
       collect(trk, "trkpt", name);
     } else {
       segs.forEach((seg, i) => {
-        const pts: Pt[] = [];
-        for (const p of Array.from(seg.getElementsByTagName("trkpt"))) {
-          const c = coord(p);
-          if (!c) continue;
-          const ele = parseFloat(text(p, "ele"));
-          pts.push([c[1], c[0], Number.isFinite(ele) ? ele : undefined]);
-        }
+        const { pts, t } = readPts(seg, "trkpt");
         if (pts.length > 1) {
-          tracks.push({ id: rid(), name: `${name} (${i + 1})`, pts, t: Date.now() });
+          tracks.push({ id: rid(), name: `${name} (${i + 1})`, pts, t: t || Date.now() });
         }
       });
     }

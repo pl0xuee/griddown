@@ -80,31 +80,49 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
         .join(", ")}`,
     });
 
-    // Pack freshness — the oldest one sets the verdict.
-    const oldest = packs.reduce((a, b) => (a.modified < b.modified ? a : b));
-    const age = oldest.modified ? now - oldest.modified : 0;
-    if (!oldest.modified) {
+    // Pack freshness — the oldest one sets the verdict. modified is 0 when the
+    // backend couldn't read the file's date, and a 0 wins any "which is oldest"
+    // comparison outright: one undatable pack used to report the whole check as
+    // Unknown, hiding a genuinely three-year-old pack behind it. Judge the packs
+    // we do have dates for, and say separately which ones we don't.
+    const dated = packs.filter((p) => p.modified);
+    const undated = packs.filter((p) => !p.modified);
+    if (!dated.length) {
       checks.push({ label: "Pack freshness", level: "warn", detail: "Unknown." });
-    } else if (age > 730 * DAY) {
-      checks.push({
-        label: "Pack freshness",
-        level: "bad",
-        detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
-        fix: "Roads and trails change. Update it (↻ in Map packs) while you have a connection.",
-      });
-    } else if (age > 365 * DAY) {
-      checks.push({
-        label: "Pack freshness",
-        level: "warn",
-        detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
-        fix: "Consider updating it (↻ in Map packs) while you can.",
-      });
     } else {
-      checks.push({
-        label: "Pack freshness",
-        level: "ok",
-        detail: `Oldest pack downloaded ${fmtAge(age)}.`,
-      });
+      const oldest = dated.reduce((a, b) => (a.modified < b.modified ? a : b));
+      const age = now - oldest.modified;
+      if (age > 730 * DAY) {
+        checks.push({
+          label: "Pack freshness",
+          level: "bad",
+          detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
+          fix: "Roads and trails change. Update it (↻ in Map packs) while you have a connection.",
+        });
+      } else if (age > 365 * DAY) {
+        checks.push({
+          label: "Pack freshness",
+          level: "warn",
+          detail: `Oldest pack (${oldest.abbr.toUpperCase()}) downloaded ${fmtAge(age)}.`,
+          fix: "Consider updating it (↻ in Map packs) while you can.",
+        });
+      } else {
+        checks.push({
+          label: "Pack freshness",
+          level: "ok",
+          detail: `Oldest pack downloaded ${fmtAge(age)}.`,
+        });
+      }
+      if (undated.length) {
+        checks.push({
+          label: "Pack age unknown",
+          level: "warn",
+          detail: `Couldn't read the download date of ${undated
+            .map((p) => p.abbr.toUpperCase())
+            .join(", ")} — ${undated.length === 1 ? "it may be" : "they may be"} older than the above.`,
+          fix: "Re-download from Map packs if you can't remember when you last did.",
+        });
+      }
     }
   }
 

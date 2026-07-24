@@ -23,6 +23,13 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
   { btn: "season-open", panel: "season-box" },
   { btn: "lakes-open", panel: "lakes-box" },
   { btn: "plants-open", panel: "plants-panel" },
+  // The three map-tap identify cards. They have no opener button, so only the
+  // mutual-exclusion and command-bar sync apply to them — but without being
+  // listed here, `closeAllPanels` left them showing underneath a panel that had
+  // just been raised over the top, at a lower z-index and so invisible.
+  { btn: "", panel: "fish-box" },
+  { btn: "", panel: "forage-box" },
+  { btn: "", panel: "land-box" },
 ];
 
 /**
@@ -90,7 +97,10 @@ export function initPanels(onPanelOpen?: () => void) {
     (e) => {
       const btn = (e.target as HTMLElement | null)?.closest?.("button");
       if (!btn) return;
-      const hit = PANELS.find((p) => p.btn === btn.id);
+      // `p.btn &&` matters: the identify cards carry an empty `btn`, and a
+      // button with no id also has `id === ""` — so a bare comparison would
+      // match every unidentified button in the app.
+      const hit = PANELS.find((p) => p.btn && p.btn === btn.id);
       if (!hit) return;
       const panel = document.getElementById(hit.panel);
       if (!panel) return;

@@ -6,6 +6,80 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.5
+
+**Find actually finds things, routes stop lying, and the GPS lets go of the
+radio.** A maintenance release, but a large one: the place index was missing
+most of the map, long routes refused outright, and a location fix kept the GPS
+running long after it had the answer.
+
+**Find knows six times as much.** The index read the pack's `places` layer down
+to zoom 10, on the assumption that villages appear by then. They don't — in this
+basemap most localities arrive at zoom 12, and everything outside `places` was
+being decoded and thrown away. Oregon went from **372 findable names to 24,000**:
+wilderness areas, glaciers, reservoirs, state parks, named highways, cliffs and
+rims, plus **10,732 Forest Service road names** from the MVUM overlay, which had
+been sitting on disk unsearchable.
+
+- **Results say what they are.** "Green Lakes Trailhead — parking" and "Mallard
+  Marsh Campground — camp_site" now read *trailhead* and *campground*. Where the
+  data's own word is a generic bucket, the name decides: a `water` polygon called
+  Cougar Reservoir is a reservoir.
+- **Repeated names are told apart.** Oregon has seven Clear Lakes. Each row now
+  carries its distance, direction and the nearest town — *lake · 40 mi WNW · near
+  Sisters* — and the nearest is listed first.
+- **Accented places are reachable.** Cañon City answers to "canon city", which
+  matters when there is no way to type ñ on the keyboard this app is used with.
+- The destination picker in Get there now describes and orders results the same
+  way Find does, instead of printing raw data tags in arbitrary order.
+
+**Routes go further and wander less.** Bend to Burns, Portland to Bend and
+Newport to La Grande all answered *"that's too far apart"* while sitting on a
+pack that contained the whole road. They route now. The gaps the router bridges
+are an artifact of tile resolution, and treating them as fixed made it detour
+around every seam it couldn't cross — Bend to Government Camp came out **151
+miles against a real drive of about 105**, and now comes out 115.
+
+- **Recalculate without opening the panel.** A route is a snapshot from where you
+  were standing when you asked for it. A ↻ Recalculate button now sits on the map
+  whenever a route is drawn, and falls back to the crosshair — saying so, clearly
+  — when there is no fix.
+- **The whole route is framed**, instead of its southern end sitting behind the
+  command bar.
+- Forest Service seasonal dates are read from the right column. Three of the nine
+  vehicle classes stored theirs under a different name, so a road open only June
+  to October could print as **open**.
+
+**The GPS stops when it has the answer.** Location watches were never being torn
+down — the permission to cancel them was missing from the iOS build, so every fix
+you ever took kept the radio running for the life of the process. Locate now
+shows the first position the phone can give and sharpens it in place, then lets
+go. Repeated taps join the running fix instead of stacking another watch.
+
+**Under the hood.** Route graphs build 2.6–5.1× faster and use 4.5–5× less
+memory (a long route held 408 MB of adjacency; it now holds 91), and route
+search itself is 2–4× faster. The search index build allocates far less. All of
+it verified against the real Oregon pack as byte-identical output — the same
+routes, the same places, in the same order.
+
+**Fixes**
+
+- Text you couldn't reach: the fishing card ran off the bottom of the screen with
+  no way to scroll, every identify card sat 73px under the command bar, and the
+  Sun & moon panel hid a third of itself.
+- Tap targets across the app meet the 44px minimum the stylesheet already
+  claimed twice — including the layer chips, the legend and the map controls.
+- Pinch-zoom works again.
+- The viewshed overlay was drawn up to 330 m north of the ground it describes.
+- Printed grid labels on the right-hand margin could name the wrong square.
+- A downloaded pack stays on the Map packs list, at the top, so terrain and
+  forest roads can be added while you still have a connection.
+- Waypoint and track timestamps survive a GPX round-trip; imported routes are no
+  longer named after their first waypoint.
+- Security: a feature name from a map pack, or a Meshtastic node's name, could
+  inject markup into the Get there panel. Escaped, and the webview no longer
+  exposes its command surface as a global.
+
 ## v1.1.4
 
 **Edible and dangerous plants, with pictures.** A new **Plants** reference under

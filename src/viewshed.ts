@@ -128,7 +128,26 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   // `lng - west` goes negative for a bbox straddling ±180 (the Aleutians),
   // putting every dot off-canvas.
   const lngSpan = ((east - west) % 360 + 360) % 360 || 360;
-  const eastOf = (lng: number) => (((lng - west) % 360) + 360) % 360;
+  // Samples can land a few metres outside the bbox: its edges come from
+  // `destination()` at bearings 90/270, but a geodesic circle's extreme
+  // longitude is not at those bearings. Wrapping such a value sent it to ~360°
+  // and off the canvas, notching the fan at due west — so resolve to the
+  // nearest side instead.
+  const eastOf = (lng: number) => {
+    const d = (((lng - west) % 360) + 360) % 360;
+    return d > lngSpan + 180 ? d - 360 : d;
+  };
+  // MapLibre stretches an `image` source between its corners linearly in
+  // Mercator y, not in degrees. Mapping rows linearly in latitude painted the
+  // whole sweep — and the observer dot — up to 330 m north of the ground it
+  // describes. This is the same exact mapping paper.ts uses.
+  const mercY = (latDeg: number) => {
+    const l = Math.max(-85.05112878, Math.min(85.05112878, latDeg));
+    return Math.log(Math.tan(Math.PI / 4 + (l * Math.PI) / 360));
+  };
+  const yTop = mercY(north);
+  const yBottom = mercY(south);
+  const rowOf = (lat: number) => ((yTop - mercY(lat)) / (yTop - yBottom)) * SIZE;
   ctx.fillStyle = "rgba(80, 220, 120, 0.4)";
   for (let r = 0; r < RAYS; r++) {
     for (let s = 0; s < steps; s++) {
@@ -137,7 +156,7 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
       const lng = lngs[i];
       const lat = lats[i];
       const x = (eastOf(lng) / lngSpan) * SIZE;
-      const y = ((north - lat) / (north - south)) * SIZE;
+      const y = rowOf(lat);
       // Dot size grows with distance so the ray fan stays gap-free.
       const px = (1.6 + (s / steps) * 2.6) * (SIZE / 512);
       ctx.fillRect(x - px / 2, y - px / 2, px, px);
@@ -146,7 +165,8 @@ async function compute(map: maplibregl.Map): Promise<ComputeResult> {
   // Observer dot.
   ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
   ctx.beginPath();
-  ctx.arc(SIZE / 2, SIZE / 2, 4, 0, 2 * Math.PI);
+  // Mercator is linear in longitude, so x really is the middle; the row is not.
+  ctx.arc(SIZE / 2, rowOf(c.lat), 4, 0, 2 * Math.PI);
   ctx.fill();
 
   // Use an unwrapped east edge (may exceed 180) so the quad stays non-degenerate

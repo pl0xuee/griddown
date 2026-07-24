@@ -108,7 +108,7 @@ function ask(message: string, opts: PromptOptions | null): Promise<string | null
       if (e.key === "Escape") {
         e.preventDefault();
         reject();
-      } else if (e.key === "Enter" && (opts || document.activeElement !== cancel)) {
+      } else if (e.key === "Enter" && document.activeElement !== cancel) {
         e.preventDefault();
         accept();
       }

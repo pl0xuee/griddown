@@ -23,7 +23,11 @@ function supported(): boolean {
 }
 
 async function request(): Promise<void> {
-  if (!supported() || sentinel) return;
+  // A sentinel the system already released is a dead object, not a held lock —
+  // it stays non-null after release, so testing it alone would wedge us here
+  // forever and make the re-acquire below unreachable.
+  if (!supported() || (sentinel && !sentinel.released)) return;
+  sentinel = null;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sentinel = await (navigator as any).wakeLock.request("screen");

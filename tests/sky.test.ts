@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtTime, moonUpDown, moonPhaseName, dayLength } from "../src/sky";
+import { fmtTime, moonUpDown, moonPhaseName, dayLength, zoneOffsetHours } from "../src/sky";
 import { fmtMgrs } from "../src/paper";
 import { forward as mgrsForward } from "mgrs";
 
@@ -80,6 +80,104 @@ describe("moonUpDown", () => {
     const html = moonUpDown({ rise: new Date(2026, 6, 19, 21, 0), set: new Date(2026, 6, 20, 5, 0) });
     expect(html).toContain("Moonrise");
     expect(html).toContain("Moonset");
+  });
+});
+
+/**
+ * Sun and moon times are computed for the map CENTRE but rendered with
+ * toLocaleTimeString, i.e. on the device's clock. That is right while you are
+ * standing where you are looking, and quietly wrong the moment you pan two
+ * states over to plan — the panel used to give no hint at all. This is the
+ * whole-hour gap it reports.
+ *
+ * The device zone is pinned per assertion rather than inherited from whatever
+ * machine the suite runs on, because the answer is a difference between two
+ * zones and a floating one would make the expected values unknowable.
+ */
+function withTZ<T>(tz: string, fn: () => T): T {
+  const prev = process.env.TZ;
+  process.env.TZ = tz;
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.TZ;
+    else process.env.TZ = prev;
+  }
+}
+
+describe("zoneOffsetHours", () => {
+  const JAN = new Date(Date.UTC(2026, 0, 15, 20, 0));
+  const JUL = new Date(Date.UTC(2026, 6, 15, 20, 0));
+
+  it("is silent when the map centre is in the device's own zone", () => {
+    // Los Angeles is UTC-8 standard; -122.68° (Portland) rounds to zone -8.
+    withTZ("America/Los_Angeles", () => {
+      expect(zoneOffsetHours(-122.6784, JAN)).toBe(0);
+      expect(zoneOffsetHours(-121.3153, JAN)).toBe(0);
+      // Anything from -112.5° to -127.5° rounds into the same whole-hour zone.
+      expect(zoneOffsetHours(-113, JAN)).toBe(0);
+      expect(zoneOffsetHours(-127, JAN)).toBe(0);
+    });
+  });
+
+  it("does not let the device's summer time read as a foreign zone", () => {
+    // The reason it compares against STANDARD offset: in July the device is on
+    // PDT (UTC-7), and a naive comparison would tell a user sitting at home in
+    // Oregon that the crosshair is an hour off, all summer.
+    withTZ("America/Los_Angeles", () => {
+      expect(zoneOffsetHours(-122.6784, JUL)).toBe(0);
+      expect(zoneOffsetHours(-122.6784, JAN)).toBe(zoneOffsetHours(-122.6784, JUL));
+    });
+  });
+
+  it("reports the gap with the right sign and size for a distant longitude", () => {
+    withTZ("America/Los_Angeles", () => {
+      // New York, -75° → zone -5. Three hours AHEAD of Pacific standard.
+      expect(zoneOffsetHours(-75, JAN)).toBe(3);
+      expect(zoneOffsetHours(-75, JUL)).toBe(3);
+      // Denver, -105° → zone -7. One ahead.
+      expect(zoneOffsetHours(-105, JAN)).toBe(1);
+      // Honolulu, -157.86° → zone -11 (rounds from -10.52). Three behind.
+      expect(zoneOffsetHours(-157.8583, JAN)).toBe(-3);
+      // Greenwich, 0° → zone 0. Eight ahead of UTC-8.
+      expect(zoneOffsetHours(0, JAN)).toBe(8);
+    });
+  });
+
+  it("measures against whatever zone the device is actually in", () => {
+    // Same longitudes, a different device: the answer must move with the
+    // device, not be baked in.
+    withTZ("America/New_York", () => {
+      // Eastern standard is UTC-5.
+      expect(zoneOffsetHours(-75, JAN)).toBe(0);
+      expect(zoneOffsetHours(-75, JUL)).toBe(0);
+      expect(zoneOffsetHours(-122.6784, JAN)).toBe(-3); // Oregon, three behind
+      expect(zoneOffsetHours(0, JAN)).toBe(5);
+    });
+    withTZ("UTC", () => {
+      expect(zoneOffsetHours(0, JAN)).toBe(0);
+      expect(zoneOffsetHours(-122.6784, JAN)).toBe(-8);
+      expect(zoneOffsetHours(139.6917, JAN)).toBe(9); // Tokyo, 139.69° → zone +9
+    });
+    // Southern hemisphere, where summer time falls in JANUARY and the standard
+    // offset is therefore the SMALLER of the two — which is why the code takes
+    // the larger getTimezoneOffset(), those being minutes WEST of Greenwich.
+    withTZ("Australia/Sydney", () => {
+      // AEST is UTC+10; 151.2° rounds to zone +10.
+      expect(zoneOffsetHours(151.2093, JAN)).toBe(0);
+      expect(zoneOffsetHours(151.2093, JUL)).toBe(0);
+      expect(zoneOffsetHours(0, JAN)).toBe(-10);
+    });
+  });
+
+  it("rounds to the nearest whole zone, not to the one below", () => {
+    withTZ("UTC", () => {
+      expect(zoneOffsetHours(7.4, JAN)).toBe(0);
+      expect(zoneOffsetHours(7.6, JAN)).toBe(1);
+      expect(zoneOffsetHours(-7.6, JAN)).toBe(-1);
+      expect(zoneOffsetHours(180, JAN)).toBe(12);
+      expect(zoneOffsetHours(-180, JAN)).toBe(-12);
+    });
   });
 });
 

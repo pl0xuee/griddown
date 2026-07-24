@@ -78,14 +78,28 @@ export function normalize(v: any): Marks {
 // able to smuggle markup into the Marks panel.
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+// Types are checked as well as ids. A restored backup is a file someone else
+// may have written, and the renderers assume these are strings and numbers —
+// a numeric `name` reaches `.replace()` and throws, which takes out the Marks
+// panel entirely, and a malformed `pts` produces NaN coordinates that make
+// fitBounds throw. Rejecting the entry is better than a panel that won't open.
 function isWaypoint(w: any): w is Waypoint {
   return (
     w && typeof w.id === "string" && ID_RE.test(w.id) &&
-    Number.isFinite(w.lat) && Number.isFinite(w.lng)
+    Number.isFinite(w.lat) && Number.isFinite(w.lng) &&
+    (w.name === undefined || typeof w.name === "string") &&
+    (w.note === undefined || typeof w.note === "string")
   );
 }
 function isTrack(t: any): t is Track {
-  return t && typeof t.id === "string" && ID_RE.test(t.id) && Array.isArray(t.pts);
+  return (
+    t && typeof t.id === "string" && ID_RE.test(t.id) &&
+    (t.name === undefined || typeof t.name === "string") &&
+    Array.isArray(t.pts) &&
+    t.pts.every(
+      (p: any) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])
+    )
+  );
 }
 
 // Set when the stored marks could not be read or parsed. While true we must

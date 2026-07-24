@@ -1,6 +1,8 @@
 // Offline survival handbook: a curated quick-reference cheat sheet, plus the full
 // public-domain U.S. Army Survival Manual (FM 3-05.70), bundled and searchable.
 
+import { esc } from "./esc";
+
 interface Section {
   title: string;
   items: string[]; // pre-formatted HTML (authored here, safe to inject)
@@ -81,11 +83,10 @@ export function openHandbook(query?: string) {
   opener?.(query);
 }
 
-function esc(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+/** The quick-reference items are authored HTML; match on their text, not their
+ *  markup, so "minutes without air" spans an inline <b> and "b" finds nothing. */
+function textOf(html: string): string {
+  return html.replace(/<[^>]*>/g, "");
 }
 
 function chapterBodyHtml(text: string): string {
@@ -112,7 +113,9 @@ export async function initHandbook() {
     // Quick reference cards
     const quick = QUICK.map((sec) => {
       const matchTitle = sec.title.toLowerCase().includes(q);
-      const items = q ? sec.items.filter((i) => i.toLowerCase().includes(q) || matchTitle) : sec.items;
+      const items = q
+        ? sec.items.filter((i) => textOf(i).toLowerCase().includes(q) || matchTitle)
+        : sec.items;
       if (items.length === 0) return "";
       return `<div class="hb-section ${q ? "" : "collapsed"}">
           <div class="hb-title">${sec.title}<span class="hb-icon">▾</span></div>
@@ -136,7 +139,7 @@ export async function initHandbook() {
     content.innerHTML =
       `<div class="hb-group">Quick reference</div>${quick}` +
       (manual
-        ? `<div class="hb-group">Field manual — FM 3-05.70 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${q}".</div>`}`
+        ? `<div class="hb-group">Field manual — FM 3-05.70 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${esc(q)}".</div>`}`
         : "");
 
     content.querySelectorAll<HTMLElement>(".hb-title").forEach((t) => {

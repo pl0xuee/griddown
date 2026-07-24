@@ -195,17 +195,28 @@ function drawGrid(
       const southEnd = first[1] > last[1] ? last : first;
       const [pxTop] = projectToImage(northEnd[0], northEnd[1], bounds, w, h);
       const [pxBottom] = projectToImage(southEnd[0], southEnd[1], bounds, w, h);
-      if (pxBottom < 4 || pxBottom > w - 4) continue;
+      // Each end is checked against its own edge: a line that leaves through
+      // the side never reaches that edge, and a label there names a square the
+      // reader cannot see. The other end may still be perfectly good.
+      const onEdge = (px: number) => px >= 4 && px <= w - 4;
       ctx.textAlign = "center";
-      ctx.fillText(label, (left + pxTop) * S, (top - 2.5) * S);
-      ctx.fillText(label, (left + pxBottom) * S, (top + h + 8) * S);
+      if (onEdge(pxTop)) ctx.fillText(label, (left + pxTop) * S, (top - 2.5) * S);
+      if (onEdge(pxBottom)) ctx.fillText(label, (left + pxBottom) * S, (top + h + 8) * S);
     } else {
-      const [, py] = projectToImage(bounds.west, line.points[0][1], bounds, w, h);
-      if (py < 4 || py > h - 4) continue;
+      // Convergence leans northing lines too, so the same rule applies across
+      // the page: at the edge of a zone the two ends of one line are 17 pt
+      // apart, and a label placed from the far end names the next square up.
+      const first = line.points[0];
+      const last = line.points[line.points.length - 1];
+      const westEnd = first[0] < last[0] ? first : last;
+      const eastEnd = first[0] < last[0] ? last : first;
+      const [, pyLeft] = projectToImage(westEnd[0], westEnd[1], bounds, w, h);
+      const [, pyRight] = projectToImage(eastEnd[0], eastEnd[1], bounds, w, h);
+      const onEdge = (py: number) => py >= 4 && py <= h - 4;
       ctx.textAlign = "right";
-      ctx.fillText(label, (left - 3) * S, (top + py + 2) * S);
+      if (onEdge(pyLeft)) ctx.fillText(label, (left - 3) * S, (top + pyLeft + 2) * S);
       ctx.textAlign = "left";
-      ctx.fillText(label, (left + w + 3) * S, (top + py + 2) * S);
+      if (onEdge(pyRight)) ctx.fillText(label, (left + w + 3) * S, (top + pyRight + 2) * S);
     }
   }
   ctx.restore();

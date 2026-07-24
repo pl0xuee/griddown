@@ -72,17 +72,27 @@ export function mvumClass(symbol: unknown): MvumClass {
   return MVUM_CLASSES[String(symbol ?? "")] ?? UNKNOWN;
 }
 
-/** Vehicle-class columns, in the order a driver would ask about them. */
-export const VEHICLES: ReadonlyArray<{ field: string; label: string }> = [
-  { field: "passengervehicle", label: "Passenger car" },
-  { field: "highclearancevehicle", label: "High-clearance" },
-  { field: "motorhome", label: "Motorhome" },
-  { field: "fourwd_gt50inches", label: "4WD over 50\"" },
-  { field: "twowd_gt50inches", label: "2WD over 50\"" },
-  { field: "atv", label: "ATV" },
-  { field: "motorcycle", label: "Motorcycle" },
-  { field: "otherwheeled_ohv", label: "Other wheeled OHV" },
-  { field: "other_ohv_lt50inches", label: "OHV under 50\"" },
+/**
+ * Vehicle-class columns, in the order a driver would ask about them.
+ *
+ * `dates` is spelled out rather than derived as `${field}_datesopen`: three of
+ * the nine USFS columns drop the width suffix on the dates twin
+ * (`fourwd_gt50inches` → `fourwd_gt50_datesopen`), and deriving it looked up a
+ * key that does not exist. Because the download strips blank properties, a
+ * missing key is indistinguishable from "no restriction", so a seasonal road
+ * silently printed as open year-round. Keep these in step with
+ * MVUM_FIELDS_COMMON in src-tauri/src/lib.rs.
+ */
+export const VEHICLES: ReadonlyArray<{ field: string; label: string; dates: string }> = [
+  { field: "passengervehicle", label: "Passenger car", dates: "passengervehicle_datesopen" },
+  { field: "highclearancevehicle", label: "High-clearance", dates: "highclearancevehicle_datesopen" },
+  { field: "motorhome", label: "Motorhome", dates: "motorhome_datesopen" },
+  { field: "fourwd_gt50inches", label: "4WD over 50\"", dates: "fourwd_gt50_datesopen" },
+  { field: "twowd_gt50inches", label: "2WD over 50\"", dates: "twowd_gt50_datesopen" },
+  { field: "atv", label: "ATV", dates: "atv_datesopen" },
+  { field: "motorcycle", label: "Motorcycle", dates: "motorcycle_datesopen" },
+  { field: "otherwheeled_ohv", label: "Other wheeled OHV", dates: "otherwheeled_ohv_datesopen" },
+  { field: "other_ohv_lt50inches", label: "OHV under 50\"", dates: "other_ohv_lt50_datesopen" },
 ];
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -122,7 +132,7 @@ export function vehicleAccess(
   const out: Array<{ label: string; dates: string }> = [];
   for (const v of VEHICLES) {
     if (String(props[v.field] ?? "").trim().toLowerCase() !== "open") continue;
-    out.push({ label: v.label, dates: formatDates(props[`${v.field}_datesopen`]) });
+    out.push({ label: v.label, dates: formatDates(props[v.dates]) });
   }
   return out;
 }
@@ -148,10 +158,15 @@ export function seasonalCodes(): string[] {
  * Cached because two callers want it — the overlay and the route checker — and
  * a state's worth of forest roads is tens of megabytes of JSON. Returns null
  * when the pack has no overlay downloaded, which is the normal case.
+ *
+ * `cache` is opt-out for the place index, which reads the file once, keeps a
+ * few thousand names and wants nothing else. Caching for that caller pinned
+ * 70 MB of parsed GeoJSON for the rest of the session the first time anyone
+ * opened Find, whether or not the overlay was ever switched on.
  */
 let mvumCache: { abbr: string; data: any } | null = null;
 
-export async function loadMvumFor(abbr: string): Promise<any | null> {
+export async function loadMvumFor(abbr: string, cache = true): Promise<any | null> {
   if (!abbr) return null;
   if (mvumCache?.abbr === abbr) return mvumCache.data;
   const inTauri = typeof (window as any).__TAURI_INTERNALS__ !== "undefined";
@@ -161,7 +176,7 @@ export async function loadMvumFor(abbr: string): Promise<any | null> {
     const res = await fetch(convertFileSrc(path));
     if (!res.ok) return null;
     const data = await res.json();
-    mvumCache = { abbr, data };
+    if (cache) mvumCache = { abbr, data };
     return data;
   } catch {
     return null;

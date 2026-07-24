@@ -17,6 +17,12 @@ const btn = (label: string) =>
 const input = () => document.querySelector<HTMLInputElement>(".ask-input")!;
 const key = (k: string) =>
   document.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true }));
+/** Same, but cancelable, and hands the event back so defaultPrevented is visible. */
+const keyEvent = (k: string) => {
+  const e = new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true });
+  document.dispatchEvent(e);
+  return e;
+};
 
 beforeEach(() => {
   document.body.innerHTML = "";
@@ -66,6 +72,22 @@ describe("confirmAction", () => {
     expect(buttons[0]).toBe("Cancel");
     btn("Cancel").click();
   });
+
+  it("Enter on a focused Cancel is a no, not a yes", async () => {
+    // Landing on Cancel and hitting Enter must not delete the thing.
+    let settled = false;
+    const p = confirmAction("Delete it?").then((v) => ((settled = true), v));
+    btn("Cancel").focus();
+    const e = keyEvent("Enter");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    // Left un-prevented on purpose: a browser turns Enter on a focused button
+    // into that button's click, which is exactly the answer we want. jsdom does
+    // not, so stand in for it.
+    expect(e.defaultPrevented).toBe(false);
+    btn("Cancel").click();
+    expect(await p).toBe(false);
+  });
 });
 
 describe("promptAction", () => {
@@ -98,6 +120,46 @@ describe("promptAction", () => {
     const escaped = promptAction("Waypoint name:", { value: "Camp" });
     key("Escape");
     expect(await escaped).toBeNull();
+  });
+
+  /**
+   * Cancel is deliberately the first tab stop, so the safe choice is where you
+   * land. That is only true if pressing Enter on it actually cancels. The guard
+   * read `(opts || document.activeElement !== cancel)`, and for a prompt `opts`
+   * is always truthy — so the whole check short-circuited away and Enter
+   * accepted no matter what was focused, which is the exact opposite of the
+   * documented intent.
+   */
+  it("Enter on a focused Cancel cancels, in a text prompt too", async () => {
+    let settled = false;
+    const p = promptAction("Waypoint name:", { value: "Camp" }).then((v) => ((settled = true), v));
+    btn("Cancel").focus();
+    expect(document.activeElement).toBe(btn("Cancel"));
+
+    const e = keyEvent("Enter");
+    await Promise.resolve();
+    // The dialog must NOT have accepted. Pre-fix it resolved "Camp" here.
+    expect(settled).toBe(false);
+    expect(overlay()).not.toBeNull();
+    // And the keystroke must be left alone, so the browser's own button
+    // activation can turn it into Cancel's click — which jsdom won't do for us.
+    expect(e.defaultPrevented).toBe(false);
+
+    btn("Cancel").click();
+    expect(await p).toBeNull();
+  });
+
+  it("Enter still accepts when the field or OK has focus", async () => {
+    const typed = promptAction("Waypoint name:", { value: "Camp" });
+    input().focus();
+    input().value = "Ridge camp";
+    key("Enter");
+    expect(await typed).toBe("Ridge camp");
+
+    const onOk = promptAction("Waypoint name:", { value: "Camp" });
+    btn("OK").focus();
+    key("Enter");
+    expect(await onOk).toBe("Camp");
   });
 
   it("shows the message as text, never as markup", async () => {

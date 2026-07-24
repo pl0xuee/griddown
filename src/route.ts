@@ -10,9 +10,10 @@ import {
   type RouteResult,
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
-import { ensurePlaceIndex, rankMatches, rankPins, type Place } from "./search";
+import { ensurePlaceIndex, rankMatches, rankPins, placeLabel, type Place } from "./search";
 import { getFix } from "./geoloc";
 import { esc as escapeHtml } from "./esc";
+import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
 import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
@@ -27,14 +28,52 @@ import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
 // UI says so on every result; do not quietly upgrade the wording to sound like
 // navigation.
 
+/** Start-point label used when a recompute had no GPS and fell back to the map
+ *  centre. Compared against in renderResult, so it lives in one place. */
+const CROSSHAIR_LABEL = "the crosshair";
+
 const SRC = "gd-route";
 const LINE = "gd-route-line";
 const CASING = "gd-route-casing";
 
 // z14 is the shallowest zoom carrying `oneway`; below it we'd be guessing at
 // direction. Long trips fall back to coarser zooms and say so.
-const ZOOMS = [14, 13, 12];
-const MAX_TILES = 900;
+//
+// z11 and z10 exist for the long haul. Without them a corridor that didn't fit
+// 900 tiles at z12 produced no plan at all, and the app simply refused: Bend to
+// Burns, Portland to Bend and Newport to La Grande — three of the drives anyone
+// in this state actually makes — all answered "that's too far apart for an
+// offline route overview" while sitting on a pack that contained the whole road.
+const ZOOMS = [14, 13, 12, 11, 10];
+const MAX_TILES = 1400;
+
+/**
+ * How far apart two pieces of road may be and still count as one road.
+ *
+ * Scaled to the zoom because the gaps this bridges are an artifact of tile
+ * resolution, not of the ground: the same junction that meets cleanly at z14 is
+ * rendered hundreds of metres apart at z12. A flat 25 m was right for z14 and
+ * far too tight below it, and the cost was not a failed route but a plausible
+ * WRONG one — the router detoured around every seam it could not cross.
+ * Measured against the Oregon pack: Bend to Government Camp came out 151 mi at
+ * 25 m and 110 mi at 250 m, against a real drive of about 105.
+ */
+function stitchFor(z: number): number {
+  return Math.round(25 * 2 ** (14 - z));
+}
+
+/**
+ * The widest the search corridor is allowed to get, in metres.
+ *
+ * Padding by a share of the trip length is right for short trips and ruinous
+ * for long ones: a 120-mile trip asked for a 42-mile margin on every side,
+ * which is what pushed long routes down to the coarsest zoom, where the road
+ * network is too sparse to follow. Capping the margin keeps a long trip on
+ * FINER tiles, and finer tiles are what make the route resemble the drive —
+ * Portland to Bend is 178 mi through a wide z12 corridor and 167 mi through a
+ * capped z13 one, against a real drive of about 160.
+ */
+const MAX_PAD_M = 15000;
 
 interface Endpoint {
   lng: number;
@@ -87,12 +126,20 @@ function planTiles(a: Endpoint, b: Endpoint, directMeters: number) {
   // connected road route" — which is what happened on a 62 km east-west trip
   // whose real road (US-26 through Government Camp) dips ~10 km south of the
   // straight line.
-  const padM = Math.max(3000, directMeters * 0.35);
+  const padM = Math.min(Math.max(3000, directMeters * 0.35), MAX_PAD_M);
   const midLat = (a.lat + b.lat) / 2;
   const padLat = padM / 111320;
   const padLng = padM / (111320 * Math.max(0.2, Math.cos((midLat * Math.PI) / 180)));
-  const west = Math.min(a.lng, b.lng) - padLng;
-  const east = Math.max(a.lng, b.lng) + padLng;
+  // Unwrap across the antimeridian before taking min/max. In the western
+  // Aleutians a trip from 179°E to 179°W is a few miles, but raw min/max makes
+  // it span the globe — every zoom then blows the tile budget and the app
+  // reports "too far apart" for two points you can see from each other. The
+  // corridor is allowed to run past ±180 so the tile range stays contiguous;
+  // loadRoads wraps each x back into the world when it asks for the tile.
+  const aLng = a.lng;
+  const bLng = Math.abs(b.lng - a.lng) > 180 ? b.lng + (b.lng < a.lng ? 360 : -360) : b.lng;
+  const west = Math.min(aLng, bLng) - padLng;
+  const east = Math.max(aLng, bLng) + padLng;
   const south = Math.min(a.lat, b.lat) - padLat;
   const north = Math.max(a.lat, b.lat) + padLat;
 
@@ -125,8 +172,13 @@ async function loadRoads(
 ): Promise<{ segs: RoadSeg[]; missing: number }> {
   const pm = new PMTiles(url);
   const jobs: [number, number][] = [];
+  // The x range is kept CONTIGUOUS by planTiles (it may run past the
+  // antimeridian, so x1 can exceed 2^z-1) and wrapped here, at the point of
+  // asking for a tile. A no-op everywhere except the western Aleutians.
+  const n = 2 ** plan.z;
   for (let x = plan.x0; x <= plan.x1; x++) {
-    for (let y = plan.y0; y <= plan.y1; y++) jobs.push([x, y]);
+    const wx = ((x % n) + n) % n;
+    for (let y = plan.y0; y <= plan.y1; y++) jobs.push([wx, y]);
   }
 
   const segs: RoadSeg[] = [];
@@ -271,6 +323,55 @@ export function initRoute(deps: {
   let shown: Shown | null = null;
   const SAVE_KEY = "griddown_last_route";
 
+  const recalc = document.getElementById("route-recalc") as HTMLButtonElement | null;
+
+  /**
+   * Show the on-map recompute button when, and only when, it is the thing you
+   * would reach for: a route is drawn AND the panel is not sitting over it.
+   *
+   * Deliberately manual. A route is a snapshot from where you were standing
+   * when you asked, and recomputing it on a timer would move the line under
+   * someone mid-decision and burn the GPS doing it. This just puts the button
+   * where your eyes already are.
+   */
+  /** True from the tap until the route is drawn or the attempt has failed —
+   *  which starts well before `busy`, since getting a fix comes first. */
+  let recalcPending = false;
+
+  function syncRecalc() {
+    if (!recalc) return;
+    const panelOpen = !!panel && !panel.classList.contains("hidden");
+    const working = busy || recalcPending;
+    recalc.classList.toggle("hidden", !shown || panelOpen);
+    recalc.disabled = working;
+    recalc.textContent = working ? "↻ Recomputing…" : "↻ Recalculate";
+  }
+
+  recalc?.addEventListener("click", () => {
+    if (busy || recalcPending) return;
+    // Mark it busy BEFORE asking for a fix. `busy` is only set once routing
+    // starts, which is after the GPS returns — so the button sat enabled and
+    // reading "Recalculate" through the entire acquisition, looked dead, and
+    // invited taps that each fired another location request.
+    recalcPending = true;
+    syncRecalc();
+    // The on-map button is pressed while walking, with the panel shut. A hard
+    // failure there is a dead end — there is no visible control to fall back
+    // to — so this one routes from the crosshair rather than giving up. The
+    // panel's "Recompute from where I am" keeps failing honestly: it names the
+    // start point in its own label, and the panel is open to say why.
+    useMyLocation(() => void go(), { orCrosshair: true });
+  });
+  // The panel is opened and closed from several places (its own button, the
+  // command bar, Escape, panels.ts's mutual exclusion), so watch the class
+  // rather than trying to hook every one of them.
+  if (panel) {
+    new MutationObserver(syncRecalc).observe(panel, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  }
+
   // Saved waypoints, refreshed each time the panel opens so a pin dropped a
   // moment ago is selectable without a restart.
   let pins: Waypoint[] = [];
@@ -371,12 +472,73 @@ export function initRoute(deps: {
     );
   }
 
+  /**
+   * Frame the whole route in the part of the map you can actually see.
+   *
+   * A uniform padding is wrong here, because the visible map is not the map
+   * element: the dock covers the bottom ~103px on a phone, the collar and the
+   * command bar sit on top of it, and an open panel takes a whole side. Fitting
+   * to the raw container tucked the southern end of every route behind the
+   * dock — worst on exactly the routes you most want to see whole, since a
+   * long one is fitted tightly.
+   *
+   * Measured from the live chrome rather than hard-coded, so it stays right as
+   * the safe-area insets and --dock-h change between devices and orientations.
+   */
   function fit(coords: [number, number][]) {
+    if (!coords.length) return;
+    const map = deps.map();
     const b = new maplibregl.LngLatBounds(coords[0], coords[0]);
     for (const c of coords) b.extend(c);
-    deps.map().fitBounds(b, { padding: 60, duration: 600 });
+
+    // A route can be a single point: both endpoints snap to the same graph node
+    // when the destination is within snapMeters, which the "Get there" button on
+    // an identify card hits for water a few hundred metres away. fitBounds on a
+    // zero-area box divides by zero and clamps to maxZoom — 22 here, since no
+    // maxZoom is set — flying to an empty void above the map.
+    if (b.getEast() - b.getWest() < 1e-6 && b.getNorth() - b.getSouth() < 1e-6) {
+      map.easeTo({ center: coords[0], zoom: Math.max(map.getZoom(), 15), duration: 600 });
+      return;
+    }
+
+    const canvas = map.getCanvas().getBoundingClientRect();
+    const GAP = 24; // breathing room, so the line never touches an edge
+    const box = (el: Element | null | undefined) =>
+      el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
+
+    const dock = box(document.getElementById("dock"));
+    let top = GAP;
+    let bottom = GAP + (dock ? Math.max(0, canvas.bottom - dock.top) : 0);
+    let left = GAP;
+    let right = GAP;
+
+    // A panel open over the map takes a side on desktop and the whole screen on
+    // a phone. Only pad for it when it leaves something worth fitting into.
+    const p = box(panel);
+    if (p && p.width < canvas.width * 0.6) {
+      if (p.left - canvas.left < canvas.width * 0.2) left += p.width;
+      else right += p.width;
+    }
+
+    // Never let the padding exceed the viewport: MapLibre cannot fit into a
+    // negative box, and a tall route on a short screen gets close.
+    const capV = Math.max(0, (canvas.height - 40) / 2);
+    const capH = Math.max(0, (canvas.width - 40) / 2);
+    top = Math.min(top, capV);
+    bottom = Math.min(bottom, capV);
+    left = Math.min(left, capH);
+    right = Math.min(right, capH);
+
+    map.fitBounds(b, { padding: { top, bottom, left, right }, duration: 600 });
   }
 
+  /**
+   * `msg` is NOT trusted, despite reading like our own copy. `routeTo` builds
+   * it from a tapped feature's name — which comes out of the map pack, i.e. out
+   * of a file a user may have been handed on an SD card — and from a Meshtastic
+   * node's longName, which any radio in range chooses. Escape it like every
+   * other interpolation here.
+   */
   function renderIdle(msg = "") {
     if (!body) return;
     pickerUpdate = null; // no picker on screen now
@@ -399,7 +561,7 @@ export function initRoute(deps: {
       ${slot(to, "to")}
       <button id="rt-go" type="button" class="rt-go">Find the way</button>
       ${canClear ? `<div class="rt-btns"><button id="rt-clear" type="button">Clear</button></div>` : ""}
-      ${msg ? `<div class="rt-msg">${msg}</div>` : ""}
+      ${msg ? `<div class="rt-msg">${escapeHtml(msg)}</div>` : ""}
       <div class="rt-disclaimer">Overview only, from map data: no turn restrictions,
       gates, private-road or seasonal-closure information. Check the ground before you commit.</div>`;
     wire();
@@ -470,8 +632,8 @@ export function initRoute(deps: {
     let curPins: Waypoint[] = [];
     let curPlaces: Place[] = [];
 
-    const placeKind = (p: Place) =>
-      p.kind === "region" ? "state" : p.kind === "county" ? "county" : p.detail || "place";
+    // Shared with Find, so the same feature is described the same way in both.
+    const placeKind = (p: Place) => placeLabel(p);
     const pinRow = (w: Waypoint, i: number) =>
       `<button class="rt-hit" data-kind="pin" data-i="${i}" type="button">
         <span class="rt-hit-name">&#9670; ${escapeHtml(w.name || "Unnamed pin")}</span>
@@ -511,7 +673,11 @@ export function initRoute(deps: {
       // a switch leaves last pack's list around until loadPlaces refreshes it.
       const idx = places && placesUrl === deps.sourceUrl() ? places : null;
       curPins = rankPins(pins, q, 6);
-      curPlaces = idx ? rankMatches(idx, q, 20) : [];
+      // Nearest first, same as Find. Without the centre the distance term is
+      // zero for every candidate, and since almost nothing in the widened index
+      // carries a population the score collapsed to name length — so a list
+      // that prints a distance beside every row showed them in no order at all.
+      curPlaces = idx ? rankMatches(idx, q, 20, { lng: here.lng, lat: here.lat }) : [];
       if (!curPins.length && !curPlaces.length) {
         resultsEl.innerHTML = "";
         hintEl.textContent = idx ? `Nothing here matches "${escapeHtml(q)}".` : "Reading place names…";
@@ -567,11 +733,21 @@ export function initRoute(deps: {
       )
       .join("");
     body.innerHTML = `
-      ${problem ? `<div class="rt-warn">⚠ ${problem} Showing the previous route, worked out ${ago(s.at)}.</div>` : ""}
+      ${problem ? `<div class="rt-warn">⚠ ${escapeHtml(problem)} Showing the previous route, worked out ${ago(s.at)}.</div>` : ""}
       <div class="rt-summary">
         <div class="rt-dist">${miles(r.meters)} mi</div>
         <div class="rt-sub">by road · ${miles(r.directMeters)} mi straight line (${detour.toFixed(1)}×)</div>
+        <div class="rt-sub">from ${escapeHtml(s.from.label)} to ${escapeHtml(s.to.label)}</div>
       </div>
+      ${
+        // Where a route STARTS is as load-bearing as where it ends, and the
+        // crosshair fallback can put the start an arbitrary distance from the
+        // user. The toast that announced it is long gone by the time they open
+        // this panel, so say it here too.
+        s.from.label === CROSSHAIR_LABEL
+          ? `<div class="rt-warn">⚠ Worked out from the crosshair, not from your position — there was no GPS fix.</div>`
+          : ""
+      }
       ${
         r.usedTrail
           ? `<div class="rt-warn">⚠ Part of this route is a trail or track, not a road. It may not be passable by vehicle.</div>`
@@ -628,6 +804,13 @@ export function initRoute(deps: {
     } else {
       renderIdle(msg);
     }
+    // Every message this function writes goes into the panel body. When the
+    // recompute was started from the ON-MAP button the panel is closed by
+    // definition, so a denied permission, unreadable tiles and a disconnected
+    // network were all indistinguishable from the button doing nothing.
+    if (!panel || panel.classList.contains("hidden")) toast(msg, "error", 7000);
+    recalcPending = false;
+    syncRecalc();
   }
 
   async function go() {
@@ -645,37 +828,38 @@ export function initRoute(deps: {
       return;
     }
     busy = true;
+    syncRecalc();
     if (body) body.innerHTML = `<div class="rt-msg">Reading roads from the pack&hellip;</div>`;
     try {
-      // Walk the zoom candidates, STRICT stitching on every one before trying a
-      // loose pass on any. A strict route at another zoom is more trustworthy
-      // than a loose route at the preferred zoom, because the loose pass can
-      // bridge roads that don't actually meet.
-      const loaded = new Map<number, { segs: RoadSeg[]; missing: number }>();
-      const roadsFor = async (plan: (typeof plans)[number]) => {
-        const hit = loaded.get(plan.z);
-        if (hit) return hit;
-        const got = await loadRoads(deps.sourceUrl(), plan, (d, t) => {
+      const roadsFor = async (plan: (typeof plans)[number]) =>
+        // Not cached by zoom any more. The old loop visited every plan twice
+        // (all zooms strict, then all zooms loose) so a cache paid for itself;
+        // this one visits each plan once, so the map only ever pinned up to
+        // five zooms' worth of decoded geometry — MAX_TILES tiles each — live
+        // at once on a phone, for no hit.
+        loadRoads(deps.sourceUrl(), plan, (d, t) => {
           if (body) body.innerHTML = `<div class="rt-msg">Reading roads&hellip; ${d}/${t} tiles</div>`;
         });
-        loaded.set(plan.z, got);
-        return got;
-      };
 
       let best: { r: RouteResult; plan: (typeof plans)[number]; missing: number; approx: boolean } | null = null;
-      for (const stitch of [undefined, 60]) {
-        for (const plan of plans) {
-          const { segs, missing } = await roadsFor(plan);
-          if (!segs.length) continue;
-          if (body) body.innerHTML = `<div class="rt-msg">Working out the way&hellip;</div>`;
-          const graph = buildRouteGraph(segs, stitch ? { stitchMeters: stitch } : {});
+      // Finest zoom first, and at each zoom the stitch distance that zoom's
+      // tiles actually need. Only if a zoom cannot produce a route at all do we
+      // try a looser pass over the same, already-loaded segments — a route that
+      // needed loose bridging is marked `approx` because loose bridging can join
+      // roads that do not meet on the ground.
+      outer: for (const plan of plans) {
+        const { segs, missing } = await roadsFor(plan);
+        if (!segs.length) continue;
+        if (body) body.innerHTML = `<div class="rt-msg">Working out the way&hellip;</div>`;
+        const tight = stitchFor(plan.z);
+        for (const stitch of [tight, tight * 4]) {
+          const graph = buildRouteGraph(segs, { stitchMeters: stitch });
           const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
           if (r) {
-            best = { r, plan, missing, approx: stitch !== undefined };
-            break;
+            best = { r, plan, missing, approx: stitch !== tight };
+            break outer;
           }
         }
-        if (best) break;
       }
 
       if (!best) {
@@ -700,12 +884,14 @@ export function initRoute(deps: {
       draw(best.r.coords, best.plan.z < 14);
       fit(best.r.coords);
       shown = next;
+      syncRecalc();
       save(next);
       renderResult(next);
     } catch (err) {
       fail(`Couldn't build the route: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       busy = false;
+      syncRecalc();
     }
   }
 
@@ -721,18 +907,44 @@ export function initRoute(deps: {
 
   /** Set `from` to the current fix, then continue — or explain why not.
    *  Via geoloc.ts, so on a phone it's the native, single-prompt path. */
-  function useMyLocation(then: () => void) {
+  function useMyLocation(then: () => void, opts?: { orCrosshair?: boolean }) {
     if (body) body.innerHTML = `<div class="rt-msg">Getting your location…</div>`;
     void getFix().then(
       (f) => {
         from = { lng: f.lng, lat: f.lat, label: "my location" };
+        recalcPending = false; // `busy` takes over from here
         then();
       },
       (err) => {
         // Never leave this silent: the user is waiting on a fix that isn't coming.
         const msg = err instanceof Error ? err.message : String(err);
+        const denied = /denied/i.test(msg);
+        if (opts?.orCrosshair) {
+          // No fix, but the map still has a point: route from the crosshair
+          // rather than refusing. Indoors, under canopy, or with location off,
+          // a route from the middle of the screen is the answer you wanted —
+          // and the crosshair is already what every other readout in this app
+          // measures from.
+          //
+          // SAID OUT LOUD, always. Quietly starting somewhere other than where
+          // the user is standing is the one way this could get someone hurt, so
+          // the start point is renamed too: it reads "the crosshair" wherever
+          // the route is described, not "my location".
+          const c = deps.map().getCenter();
+          from = { lng: c.lng, lat: c.lat, label: CROSSHAIR_LABEL };
+          toast(
+            denied
+              ? "No location permission — routed from the crosshair, not from you."
+              : "Couldn't get a GPS fix — routed from the crosshair, not from you.",
+            "info",
+            8000
+          );
+          recalcPending = false;
+          then();
+          return;
+        }
         fail(
-          /denied/i.test(msg)
+          denied
             ? "Location permission denied — use the map point instead."
             : "Couldn't get a location fix — use the map point instead."
         );
@@ -761,6 +973,7 @@ export function initRoute(deps: {
     document.getElementById("rt-clear")?.addEventListener("click", () => {
       from = to = null;
       shown = null;
+      syncRecalc();
       try {
         localStorage.removeItem(SAVE_KEY);
       } catch {
@@ -788,6 +1001,7 @@ export function initRoute(deps: {
       const saved = loadSaved();
       if (saved) {
         shown = saved;
+        syncRecalc();
         from = saved.from;
         to = saved.to;
       }
@@ -826,9 +1040,12 @@ export function initRoute(deps: {
     }
   }
 
-  // Style rebuilds (theme/terrain/pack switches) drop custom sources.
+  // Style rebuilds (theme/terrain/pack switches) drop custom sources. Every
+  // other overlay redraws itself here; route did not, so toggling the theme
+  // erased the line while the panel still showed its distance and steps.
   deps.map().on("style.load", () => {
-    if (deps.map().getSource(SRC)) return;
+    if (!shown || deps.map().getSource(SRC)) return;
+    draw(shown.r.coords, shown.z < 14);
   });
 
   return { routeTo };
