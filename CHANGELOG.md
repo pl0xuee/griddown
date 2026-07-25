@@ -6,6 +6,35 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.8
+
+**Terrain that half-downloaded no longer claims to be there.** If a terrain
+download was killed rather than failed — the app closed, the machine slept, the
+process went away — the tiles it had already written stayed on disk and the app
+counted them as terrain installed. Pressing **Terrain** then did visibly nothing,
+on a state the list said had it.
+
+Found on a real install: one state's terrain directory held 390 MB of zoom 12 and
+no other zoom at all, beside another state holding a complete pyramid. The tile
+queue is worked from the deepest zoom back, so a run that dies leaves exactly
+that: the bottom of the pyramid and none of the rest.
+
+Everything downstream of "is terrain installed?" was reading bytes on disk, so
+all of it pointed the wrong way. The state row stopped offering to add terrain,
+which removed the only way to finish it. The Terrain button appeared and toggled
+as though it worked. And hillshade asked for elevation at whatever zoom the map
+was on — a state opens at zoom 7 — found nothing there, and drew nothing, while
+the contour lines, which start at zoom 11, had nothing either. Terrain could only
+appear if you were already zoomed most of the way in.
+
+A finished download now says so, in a marker recording the zoom it built to, and
+the state row offers **Finish terrain** with how far it got. That resumes: every
+tile already on disk is kept and checked without being fetched again.
+
+Terrain you have already downloaded in full will ask to be finished once, because
+it predates the marker. That run reads the tiles it already has, downloads
+nothing, and completes in seconds.
+
 ## v1.1.7
 
 **A forest-road download that fails tells you why.** The Forest Service's own
