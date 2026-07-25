@@ -11,7 +11,7 @@ import {
 } from "./routegraph";
 import { loadMarks, marksUnreadable, type Waypoint } from "./store";
 import { ensurePlaceIndex, rankMatches, rankPins, placeLabel, type Place } from "./search";
-import { getFix } from "./geoloc";
+import { getFixFast, type GeoFix } from "./geoloc";
 import { esc as escapeHtml } from "./esc";
 import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
@@ -31,6 +31,18 @@ import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
 /** Start-point label used when a recompute had no GPS and fell back to the map
  *  centre. Compared against in renderResult, so it lives in one place. */
 const CROSSHAIR_LABEL = "the crosshair";
+
+/**
+ * Above this accuracy, in metres, a start point gets said out loud.
+ *
+ * 100 m, because that is roughly where the fix stops identifying which road you
+ * are on. A phone's own GPS settles around 5–20 m; a wifi or cell position — what
+ * arrives first, and what routing starts from so the panel is not dead for half a
+ * minute — can be several hundred. The router snaps the start to the nearest
+ * road, so a fix that loose can begin the route on a parallel street and send you
+ * the wrong way from the first turn.
+ */
+const ROUGH_FIX_M = 100;
 
 const SRC = "gd-route";
 const LINE = "gd-route-line";
@@ -79,6 +91,11 @@ interface Endpoint {
   lng: number;
   lat: number;
   label: string;
+  /** Metres, when this endpoint came from a GPS fix that reported it. Only the
+   *  start ever carries one, and only so renderResult can warn when the route
+   *  was worked out from a position too rough to trust the first road it snapped
+   *  to. Absent for a picked place, a pin, or the crosshair. */
+  accuracy?: number;
 }
 
 /** A computed route plus everything needed to redraw it later. */
@@ -307,6 +324,10 @@ export function initRoute(deps: {
   sourceUrl: () => string;
   /** Which pack is active, for looking up its Forest Service overlay. */
   activeAbbr?: () => string;
+  /** Hand back every fix this module takes, so the user-location dot marks
+   *  where the route was computed from rather than wherever the locate button
+   *  last left it. Recomputing is the one thing here that asks the GPS. */
+  onFix?: (f: GeoFix) => void;
 }) {
   const panel = document.getElementById("route-panel");
   const body = document.getElementById("route-body");
@@ -337,6 +358,11 @@ export function initRoute(deps: {
   /** True from the tap until the route is drawn or the attempt has failed —
    *  which starts well before `busy`, since getting a fix comes first. */
   let recalcPending = false;
+
+  /** Tears down the in-flight location watch. See useMyLocation: the watch
+   *  outlives the promise that resolves from it, so a superseded request has to
+   *  be stopped rather than left to time out. */
+  let fixAbort: AbortController | null = null;
 
   function syncRecalc() {
     if (!recalc) return;
@@ -749,6 +775,17 @@ export function initRoute(deps: {
           : ""
       }
       ${
+        // A rough start is the other way this can begin somewhere you are not.
+        // Routing runs on the first fix the phone can give so the panel is not
+        // dead for half a minute, and that fix is sometimes a wifi or cell
+        // position hundreds of metres out — far enough to snap to the wrong road
+        // and send you off in the wrong direction from the first turn. Same rule
+        // as the crosshair: say it, don't bury it.
+        s.from.accuracy && s.from.accuracy > ROUGH_FIX_M
+          ? `<div class="rt-warn">⚠ Your position was only good to about ${shortDist(s.from.accuracy)} when this was worked out, so the first road may be wrong. Recalculate for a sharper start.</div>`
+          : ""
+      }
+      ${
         r.usedTrail
           ? `<div class="rt-warn">⚠ Part of this route is a trail or track, not a road. It may not be passable by vehicle.</div>`
           : ""
@@ -905,17 +942,75 @@ export function initRoute(deps: {
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
   }
 
-  /** Set `from` to the current fix, then continue — or explain why not.
-   *  Via geoloc.ts, so on a phone it's the native, single-prompt path. */
+  /**
+   * Set `from` to the current fix, then continue — or explain why not.
+   * Via geoloc.ts, so on a phone it's the native, single-prompt path.
+   *
+   * `getFixFast`, the same call the locate button on the map makes, NOT `getFix`.
+   * The two are not close: `getFix` asks CoreLocation for one high-accuracy
+   * position, which from cold means waiting for it to actually acquire GPS —
+   * ten to thirty seconds with the panel reading "Getting your location…" and
+   * nothing else happening. `getFixFast` watches instead, so the position the
+   * phone already had (last known, wifi, cell) arrives in about a second and the
+   * GPS sharpens it in place. That difference is the whole of why the panel felt
+   * slow next to the button; the button had been on the fast path since 1.1.5 and
+   * this was still on the old one.
+   *
+   * Routing starts on the FIRST fix, because a road-following overview does not
+   * improve enough from a sharper start to be worth ten more seconds of nothing.
+   * The refinements still land: each one moves the dot, and the accuracy of the
+   * one the route was actually built from is recorded so renderResult can say so
+   * when it is poor. Starting somewhere other than where you are standing is
+   * never allowed to be silent.
+   */
   function useMyLocation(then: () => void, opts?: { orCrosshair?: boolean }) {
     if (body) body.innerHTML = `<div class="rt-msg">Getting your location…</div>`;
-    void getFix().then(
+    // ONE request at a time, and the previous one torn down rather than left to
+    // finish. getFixFast's watch outlives its promise by up to REFINE_MS, so a
+    // second tap on "My location" — which the picker does not disable, and which
+    // is exactly what someone does when they think nothing happened — left the
+    // first watch running alongside it. N concurrent high-accuracy watches is
+    // the battery cost geoloc.ts was written to avoid, and the reason the locate
+    // button on the map carries an AbortController too.
+    fixAbort?.abort();
+    const ctl = new AbortController();
+    fixAbort = ctl;
+    void getFixFast((better) => {
+      // Sharper fix, after routing has started: move the dot, leave the route
+      // alone. Re-routing under someone mid-decision is what the manual
+      // Recalculate button is for.
+      if (ctl.signal.aborted) return;
+      deps.onFix?.(better);
+    },
+      ctl.signal,
+      // NOT the five-minute cache getFixFast defaults to. This asked "where am I
+      // now" and acts on the first answer, so a position from five minutes and
+      // several hundred metres ago is the wrong one — the locate button can take
+      // a stale first fix because the watch walks it forward under a dot the map
+      // is following, and a route cannot. Ten seconds, matching what the old
+      // one-shot call asked for. No effect on iOS, where the plugin ignores it.
+      { maximumAge: 10000 }
+    ).then(
       (f) => {
-        from = { lng: f.lng, lat: f.lat, label: "my location" };
+        if (ctl.signal.aborted) return; // superseded while the fix was in flight
+        from = {
+          lng: f.lng,
+          lat: f.lat,
+          label: "my location",
+          accuracy: f.accuracy,
+        };
+        // Move the dot with the start point. They are the same claim about where
+        // you are, and a recompute that leaves the dot at the previous fix draws
+        // a route setting off from a spot the map still marks as you.
+        deps.onFix?.(f);
         recalcPending = false; // `busy` takes over from here
         then();
       },
       (err) => {
+        // Superseded by a newer request for the same thing — that one is still
+        // running and will report for itself. Tagged by getFixFast rather than
+        // sniffed from the message, so a real failure is never mistaken for one.
+        if ((err as { cancelled?: boolean })?.cancelled) return;
         // Never leave this silent: the user is waiting on a fix that isn't coming.
         const msg = err instanceof Error ? err.message : String(err);
         const denied = /denied/i.test(msg);

@@ -190,40 +190,59 @@
       </div>
     </div>
 
-    <!-- Legend: a collapsible card ON the map, not buried in the menu. The
-         publicland/mvum rows still show and hide with their overlays — the
-         toggles target these rows by class, so moving them here changed
-         nothing about that. -->
     <!-- Recompute the drawn route without going back into the panel. A route is
          a snapshot from where you were standing when you asked for it, so the
          moment that matters is while you are walking it and looking at the map,
          not while you have a panel open over it. Shown only when a route is on
-         the map and the panel is closed. -->
+         the map and the panel is closed.
+
+         Bottom CENTRE, in the strip of furniture that runs across the top of the
+         dock: the scale bars own the left of that row, the attribution and the
+         legend own the right, and the middle was empty. It used to stack above
+         the legend at a hand-measured 110px, which was the legend's height with
+         its three base rows and nothing else — switching on public land, or the
+         forest roads, grew the legend straight up through it. Nothing about the
+         legend's height can reach it here. -->
     <button id="route-recalc" class="hidden" type="button" title="Recompute this route from where you are now">
       &#8635; Recalculate
     </button>
 
+    <!-- Legend: a collapsible card ON the map, not buried in the menu.
+         Set like the key on a printed quad — specimens in a fixed gutter, terse
+         labels, a hairline where one overlay's block ends and the next begins.
+         The rows name themselves, so the blocks carry no headings; the vehicle
+         classes are the exception, because "All vehicles" means nothing without
+         knowing what it is about.
+         The fishing/wildfood/publicland/mvum rows show and hide with their
+         overlays, which target them by class (see mvum.ts and main.ts) — the
+         `Who may drive` heading carries `legend-row mvum` for exactly that
+         reason, so it travels with the rows it heads. -->
     <div id="map-legend">
       <button id="legend-toggle" type="button" class="legend-head" aria-expanded="true">
         <span class="legend-title">Legend</span>
         <span class="legend-caret">&#9662;</span>
       </button>
       <div id="legend-body">
-        <div class="legend-row"><span class="swatch forest"></span>Forest road</div>
-        <div class="legend-row"><span class="swatch trail"></span>Trail</div>
-        <div class="legend-row"><span class="swatch contour"></span>Contour (ft)</div>
-        <div class="legend-row fishing hidden"><span class="swatch fishing"></span>Fishing water &mdash; tap to identify</div>
-        <div class="legend-row fishing hidden"><span class="swatch watersrc"></span>Spring / well &mdash; drinking water</div>
-        <div class="legend-row wildfood hidden"><span class="swatch wildfood-wild"></span>Wild ground &mdash; forage &amp; game</div>
-        <div class="legend-row wildfood hidden"><span class="swatch wildfood-crop"></span>Farmland &amp; orchards</div>
-        <div class="legend-row publicland hidden"><span class="swatch publicland"></span>Park / protected land &mdash; tap to identify</div>
-        <div class="legend-row publicland hidden"><span class="swatch forestland"></span>Forest (ownership varies)</div>
-        <div class="legend-row publicland hidden"><span class="swatch military"></span>Military &mdash; keep out</div>
-        <div class="legend-row mvum hidden"><span class="swatch mvum-all"></span>MVUM: all vehicles</div>
-        <div class="legend-row mvum hidden"><span class="swatch mvum-highway"></span>MVUM: highway-legal only</div>
-        <div class="legend-row mvum hidden"><span class="swatch mvum-ohv"></span>MVUM: OHV under 50&quot;</div>
-        <div class="legend-row mvum hidden"><span class="swatch mvum-moto"></span>MVUM: motorcycle only</div>
-        <div class="legend-row mvum hidden"><span class="swatch mvum-seasonal"></span>Dashed = seasonal</div>
+        <div class="legend-row"><span class="swatch forest"></span><span class="lg-t">Forest road</span></div>
+        <div class="legend-row"><span class="swatch trail"></span><span class="lg-t">Trail</span></div>
+        <div class="legend-row"><span class="swatch contour"></span><span class="lg-t">Contour <span class="lg-n">in feet</span></span></div>
+
+        <div class="legend-row lg-start fishing hidden"><span class="swatch fishing"></span><span class="lg-t">Fishing water <span class="lg-n">tap to identify</span></span></div>
+        <div class="legend-row fishing hidden"><span class="swatch watersrc"></span><span class="lg-t">Spring or well <span class="lg-n">drinking water</span></span></div>
+
+        <div class="legend-row lg-start wildfood hidden"><span class="swatch wildfood-wild"></span><span class="lg-t">Wild ground <span class="lg-n">forage &amp; game</span></span></div>
+        <div class="legend-row wildfood hidden"><span class="swatch wildfood-crop"></span><span class="lg-t">Farmland &amp; orchards</span></div>
+
+        <div class="legend-row lg-start publicland hidden"><span class="swatch publicland"></span><span class="lg-t">Park or protected land <span class="lg-n">tap to identify</span></span></div>
+        <div class="legend-row publicland hidden"><span class="swatch forestland"></span><span class="lg-t">Forest <span class="lg-n">ownership varies</span></span></div>
+        <div class="legend-row publicland hidden"><span class="swatch military"></span><span class="lg-t">Military <span class="lg-n lg-warn">keep out</span></span></div>
+
+        <div class="legend-row legend-sec mvum hidden">Who may drive</div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-all"></span><span class="lg-t">All vehicles</span></div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-highway"></span><span class="lg-t">Highway-legal only</span></div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-ohv"></span><span class="lg-t">OHV under 50&#8243;</span></div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-moto"></span><span class="lg-t">Motorcycles only</span></div>
+        <div class="legend-row mvum hidden"><span class="swatch mvum-seasonal"></span><span class="lg-t">Dashed line <span class="lg-n">seasonal dates</span></span></div>
       </div>
     </div>
 

@@ -6,6 +6,104 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.6
+
+**The bottom of the screen, and where you actually are.** The dock gives back
+21pt of map and stops painting a strip of dead bar under the buttons; the
+location dot stays on the crosshair instead of walking off it; and a route
+recomputed from where you are standing no longer leaves the map marking you
+somewhere else.
+
+**The command bar owns its own edge.** The home-indicator inset was reserved
+*below* the bar — 34pt of bar-coloured surface past the end of the button
+dividers, which reads as a gap that is not part of the bar. It was not inert,
+either: that strip belongs to the dock, which ignores pointer events, so a thumb
+landing at the very bottom of the screen fell through to the map and could open
+an identify card. The bar carries the inset itself now, so its dividers, its
+press state and its active indicator all reach the glass.
+
+- **The dock is 116pt, against 137.** The bar is 44pt — the height of an iOS tab
+  bar's items — against 58, and the collar 38 against 45. 87.9% of the screen is
+  map, against 85.7%.
+- **The labels sit in the bar rather than at the top of it.** Shortening the bar
+  alone made that worse, not better: the glyph and label come to under 30px, and
+  the inset cannot hold content, so the shorter the bar the bigger a share of it
+  that dead space became. The buttons hold out half the inset instead of all of
+  it — 19pt of air above the labels against 35 below, with 21pt of daylight over
+  the indicator.
+- **The grid reference keeps its 44pt tap target** on a 38pt strip by reaching up
+  over the map, where nothing is painted and nothing else is underneath.
+
+**Locate puts the crosshair on you, and keeps it there.** A sharpened GPS fix
+landing during the flight to your position was being thrown away. The test for
+"has the user panned away?" read the camera *mid-animation*, where it is
+somewhere between start and destination by definition, concluded they had, and
+dropped the refinement — after the dot had already been redrawn at it. The dot
+walked off the crosshair and stayed there, 46px out in the case this was
+reproduced from. The whole decision now waits for the camera to arrive.
+
+- **A tap on a lit locate button brings you back.** It used to advance to
+  heading-up regardless, and on a phone whose compass permission has been denied
+  that fails, switches locate off, and moves the map neither time.
+
+**Get there finds you as fast as the map button.** The two were on different
+calls. The button has watched-and-sharpened since 1.1.5 — the position the phone
+already has arrives in about a second, and the GPS refines it in place — while
+the panel still asked for a single high-accuracy fix, which from cold means
+waiting for CoreLocation to actually acquire GPS. Ten to thirty seconds reading
+"Getting your location…". Both are on the fast path now: in a harness where the
+single shot answers at 14 seconds, the panel has a position at 0.9. Routing
+starts on that first fix and the refinements move the dot without recomputing
+under you — and if the fix it started from was rougher than 100m, the result says
+so, because a start that loose can snap to the wrong road.
+
+**One place to record where you are.** The dot, the accuracy circle and the
+position every panel reads now move together, or none of them do. Only the
+locate button used to draw it, so a route recomputed from your real position
+drew its line setting off from a spot the map still marked as you, and the water
+card took a fix without drawing anything at all.
+
+**The legend reads like a key.** Specimens sit in a fixed gutter, so every label
+starts on the same column — the 9px spring-and-well dot used to pull its label
+11px left of the line samples above it. Labels are set in the collar face, which
+is where the width came back: 198px against 244. What a row is *for* reads first
+and its qualifier second, instead of both sharing an em dash. A hairline marks
+where one overlay's block ends, and one "Who may drive" heading replaces the
+`MVUM:` that was repeated down five rows.
+
+**The recompute button is out of the legend's way.** It used to clear the legend
+by a hand-measured 110px, which was the legend's height with its three base rows
+and nothing else — switching on public land, or the forest roads, grew the legend
+straight up through it, 195px of overlap with every overlay on. It sits centred
+now, in a band between the map's bottom furniture and the legend, and the legend
+steps up by exactly that band when a route is drawn. Neither measures the other.
+
+**Fixes**
+
+- Drumming on the zoom button no longer zooms the whole app. iOS reads two quick
+  taps as double-tap-to-zoom, and page zoom is deliberately on — the viewport
+  lock that would suppress it also costs pinch-zoom, which WCAG 1.4.4 requires.
+  Controls now decline the double-tap gesture and keep pinch-zoom, which also
+  drops iOS's 300ms delay after every tap.
+- Tapping "My location" in Get there twice no longer leaves two GPS watches
+  running. The picker does not disable itself, and the watch outlives the fix it
+  resolves from.
+- A route recompute no longer reuses a position up to five minutes old on desktop
+  or in a browser. The five-minute window is right for a dot that goes on
+  sharpening under a following camera, and wrong for a question asked once.
+- The legend cannot grow past the top of the screen, however many overlays are
+  added to it.
+- Night vision and battery saver now dim the recompute button along with
+  everything else, instead of leaving one bright white control on a red screen.
+- **The scale bar leads with miles and feet.** Both bars are still there, the way
+  a quad prints them, but imperial is the one on top — MapLibre stacks controls in
+  a bottom corner in reverse, so the imperial bar had been sitting underneath the
+  metric one since it was added.
+- **The camp check reads in feet and miles.** It was the one card still telling
+  you water was "about 300 m away" while the collar above it read in feet. The
+  thresholds it scores against stay metric, because that is the unit the terrain
+  and water layers arrive in; only the sentence converts.
+
 ## v1.1.5
 
 **Find actually finds things, routes stop lying, and the GPS lets go of the

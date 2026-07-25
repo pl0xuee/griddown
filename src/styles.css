@@ -126,8 +126,20 @@
      bottom-right corner covered the ⓘ attribution button, which is the one
      control there you have to be able to hit. 34 + 4px of daylight. */
   --attrib-h: 38px;
+  /* The band the route recompute occupies when a route is drawn: 44pt of button
+     and 6px of daylight either side of it. The legend steps up by exactly this
+     when the button appears (see #route-recalc:not(.hidden) ~ #map-legend), which
+     is what keeps the two apart without either measuring the other. */
+  --recalc-band: 56px;
   --cmdbar-h: 0px;
-  --dock-h: calc(var(--collar-h) + var(--cmdbar-h) + env(safe-area-inset-bottom));
+  /* The home-indicator inset, named once for the same reason the heights above
+     are: the dock reserves it in --dock-h and something inside the dock has to
+     paint exactly that many pixels, so the two must read the same value. Which
+     child owns it depends on whether the command bar is there (see #dock and
+     #cmdbar), and that choice is only safe while the total is written down here.
+     Zero on every device without an inset. */
+  --home-inset: env(safe-area-inset-bottom);
+  --dock-h: calc(var(--collar-h) + var(--cmdbar-h) + var(--home-inset));
 
   font-family: var(--font-prose);
   color: var(--type);
@@ -215,6 +227,26 @@ body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+}
+
+/* Tapping a control quickly is a control being used quickly, not a request to
+   zoom the page.
+ *
+ * iOS reads two taps inside its double-tap window as double-tap-to-zoom, and
+ * this app deliberately leaves page zoom on: the viewport meta dropped
+ * `user-scalable=no` because that lock cost pinch-zoom for the whole app, which
+ * WCAG 1.4.4 requires (see index.html). The two together meant drumming on the
+ * map's + button scaled the entire interface instead of zooming in twice — the
+ * collar, the dock and the panels along with the map.
+ *
+ * `manipulation` keeps panning and pinch-zoom and drops only the double-tap
+ * gesture, so the page is still zoomable by pinch, just not by hammering a
+ * button. It removes iOS's 300ms post-tap click delay as a bonus.
+ *
+ * Buttons only. The map canvas has its own touch-action, set by MapLibre from
+ * whichever gesture handlers are enabled, and must keep it. */
+button {
+  touch-action: manipulation;
 }
 
 /* Bold is 600, because 600 is the heaviest weight this app actually ships.
@@ -370,21 +402,34 @@ h6 {
   box-shadow: 0 0 8px var(--label);
 }
 
-/* Legend, now a collapsible card ON the map rather than a block in the menu.
-   Bottom-right so it clears the top zoom controls and the bottom-left scale
-   bar; lifted above the attribution on desktop and the sheet peek on phones. */
-/* On-map route recompute.
-   Right-hand side, stacked directly above the legend. Bottom-left looked like
-   the free corner and is not: on the desktop layout the menu is anchored top
-   -left and reaches most of the way down, so on a 1280x720 window — or ANY
-   phone in landscape, which takes the desktop layout — the button sat entirely
-   behind an opaque panel and could not be clicked. The right edge is already
-   the legend's, and the legend is the one thing here that yields. */
+/* --- On-map route recompute ---------------------------------------------
+   Centred, in a band of its own between the map's bottom furniture and the
+   legend: the scale bars and the attribution sit below it, the legend above.
+
+   Dead centre rather than stacked in the right-hand corner, where it used to
+   clear the legend by a hand-measured 110px — the legend's height with three
+   base rows and nothing else — so switching on public land, or the forest roads,
+   grew the legend straight up through it. Nothing about the legend's height can
+   reach it here; the legend steps up by --recalc-band when this appears.
+
+   In a band rather than IN the furniture row, because that row is not free: on a
+   phone MapLibre's attribution expands to a pill most of the width, and the
+   collar's grid-reference target reaches up over the map from below. The button
+   sat on both.
+
+   Not bottom-left either, which looks like the free corner and is not: on the
+   desktop layout the menu is anchored top-left and reaches most of the way down,
+   so on a 1280x720 window — or ANY phone in landscape, which takes the desktop
+   layout — a button there sat entirely behind an opaque panel and could not be
+   clicked. */
 #route-recalc {
   position: absolute;
-  right: calc(8px + env(safe-area-inset-right));
-  bottom: calc(var(--dock-h) + var(--attrib-h) + 110px);
-  /* Above the legend (8), so neither can swallow the other's edge. */
+  left: 50%;
+  transform: translateX(-50%);
+  /* Clear of the attribution below, with the 6px that --recalc-band accounts for. */
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 6px);
+  /* Above the legend (8), below the bottom sheet (#hud is 10) — raising the menu
+     on a phone covers this the way a sheet should. */
   z-index: 9;
   display: inline-flex;
   align-items: center;
@@ -403,6 +448,7 @@ h6 {
   letter-spacing: 0.04em;
   box-shadow: var(--shadow-soft);
   cursor: pointer;
+  pointer-events: auto;
 }
 #route-recalc:hover {
   background: var(--wash-firm);
@@ -416,8 +462,10 @@ h6 {
 #map-legend {
   position: absolute;
   /* Landscape iPhone puts the sensor housing on a side edge, and this card is
-     pinned to the right one. The bottom already clears the dock. */
+     pinned to the right one. */
   right: calc(8px + env(safe-area-inset-right));
+  /* Anchored to the TOP of the furniture row, so the recompute button in the
+     middle of that row and this card can never meet. */
   bottom: calc(var(--dock-h) + var(--attrib-h));
   /* Below the bottom sheet (#hud is z-index 10), so raising the menu on a phone
      covers the legend instead of the legend punching through on top of it.
@@ -425,6 +473,8 @@ h6 {
   z-index: 8;
   width: max-content;
   max-width: 62vw;
+  /* Nothing else to do when there is no route: the band below belongs to the
+     attribution, and the legend sits straight on top of it. */
   /* Was inherited from #hud when the legend lived in the menu; the standalone
      card has to set both, or the labels render near-black in the browser's
      default serif on the dark card instead of light mono. */
@@ -439,37 +489,84 @@ h6 {
   overflow: hidden;
   pointer-events: auto;
 }
+/* The head is a table header, not a title bar: a hairline under it, and the
+   sides line up with the gutter the rows below are set on. */
 .legend-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   width: 100%;
-  padding: 6px 10px;
+  padding: 5px 9px;
   background: none;
   border: none;
+  border-bottom: 1px solid var(--rule-faint);
   color: var(--label-lift);
   font-family: inherit;
   font-size: 10px;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
+}
+/* Nothing to divide when the body is shut. */
+#map-legend.collapsed .legend-head {
+  border-bottom: none;
 }
 .legend-caret {
   transition: transform 0.2s ease;
   font-size: 9px;
+  color: var(--type-quiet);
 }
 #map-legend.collapsed .legend-caret {
   transform: rotate(-90deg);
 }
+@media (prefers-reduced-motion: reduce) {
+  .legend-caret {
+    transition: none;
+  }
+}
 #legend-body {
   display: grid;
-  gap: 5px;
-  padding: 0 10px 9px;
-  font-size: 11px;
+  gap: 3px;
+  padding: 6px 9px 7px;
+  /* Archivo Narrow, the face every other reading in this app is set in. Prose
+     was inherited from the menu the legend used to live in, and it costs width
+     the card does not have: "Park or protected land" sets about a sixth shorter
+     narrow, which is a sixth less card over the map at the same size. */
+  font-family: var(--font-collar);
+  font-size: 11.5px;
+  line-height: 1.3;
+  /* The card can never grow past the screen. Every overlay on is sixteen rows,
+     which on a short phone would otherwise run off the top — scrolling keeps the
+     head, and so the way to shut it, on screen.
+     The reserve is everything the card cannot have: the dock, the furniture row
+     below it, the band the recompute button takes when a route is drawn, the
+     status-bar inset, and 60px for the card's own head and the top-right map
+     controls. Sixteen rows is nowhere near this; a seventeenth block would be. */
+  max-height: calc(
+    100vh - var(--dock-h) - var(--attrib-h) - var(--recalc-band) -
+      env(safe-area-inset-top) - 60px
+  );
+  max-height: calc(
+    100dvh - var(--dock-h) - var(--attrib-h) - var(--recalc-band) -
+      env(safe-area-inset-top) - 60px
+  );
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 #map-legend.collapsed #legend-body {
   display: none;
+}
+
+/* The legend steps up over the recompute button, and only while there is one to
+   step over — the band is dead space the rest of the time, which is most of it.
+   A sibling selector rather than a body class or a resize observer: route.ts
+   already toggles `.hidden` on the button, the button precedes the legend in the
+   DOM, and this is the whole of the coupling between them. Two IDs and a
+   pseudo-class, so it outranks the phone and menu-hidden placements below
+   whatever order they land in. */
+#route-recalc:not(.hidden) ~ #map-legend {
+  bottom: calc(var(--dock-h) + var(--attrib-h) + var(--recalc-band));
 }
 
 .hud-sub {
@@ -508,10 +605,50 @@ h6 {
   color: var(--type-loud);
 }
 
+/* A fixed gutter for the specimens, the way a printed key sets them: every
+   label starts on the same column whatever shape its swatch is. Laid out inline
+   before, so the 9px spring-and-well dot pulled its label 11px left of the line
+   samples above it — the raggedness that made the card read as a bulleted list
+   rather than a key. */
 .legend-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 9px;
   align-items: center;
-  gap: 8px;
+}
+/* Each overlay you switch on contributes a block. A hairline marks where one
+   ends; the rows name themselves, so none of them spends a line on a heading.
+   Carried by the block's first row rather than derived with a selector, because
+   the blocks show and hide whole — there is no "first visible" to match on. */
+.lg-start,
+.legend-sec {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-faint);
+}
+/* The exception. Vehicle classes are a taxonomy, not a set of features: "All
+   vehicles" says nothing on its own about what it is allowed on. One heading
+   scopes the block and buys back the "MVUM:" that was repeated down five rows —
+   and says it in the words someone would use out loud. */
+.legend-sec {
+  display: block;
+  padding-bottom: 2px;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--type-quiet);
+}
+/* What a row is FOR reads first; how to use it, or what it does not promise,
+   reads second. These were run into the label with an em dash, which gave a
+   parenthetical the same weight as the thing it qualifies. */
+.lg-n {
+  color: var(--type-quiet);
+  font-size: 10.5px;
+}
+/* Except this one. Everywhere else in the app a warning is the loudest thing on
+   its row (see the plant list), because the reader is deciding what to avoid. */
+.lg-warn {
+  color: var(--bad-soft);
 }
 
 .swatch {
@@ -1019,6 +1156,7 @@ body.nightvis #map {
 
 body.nightvis #hud,
  body.nightvis #map-legend,
+ body.nightvis #route-recalc,
 body.nightvis #dock,
 body.nightvis .panel,
 body.nightvis .maplibregl-ctrl {
@@ -1597,14 +1735,51 @@ button {
    just gives the finger somewhere to land. Inflating padding instead would have
    turned the nine layer chips into slabs. */
 @media (pointer: coarse) {
-  /* The collar is a tap target — #coords copies the grid reference — and its
+  /* The collar carries a tap target — #coords copies the grid reference — and its
      height is pinned by this token, so the floor has to be applied here rather
      than on the cell. --dock-h is derived from it, so everything anchored to the
      dock moves down with it in the same pass.
-     45, not 44: the strip is border-box and its top hairline is drawn inside
-     that height, so a cell stretched to fill it gets one pixel less. */
+     38, not 45. The readings are 11px on a single line, so 45 was leaving 34px of
+     empty strip to hold them and the whole dock read heavier than anything in it.
+     The 44pt floor is kept by the target reaching up rather than by the strip
+     standing taller — see #coords below. */
   :root {
-    --collar-h: 45px;
+    --collar-h: 38px;
+  }
+
+  /* The grid reference keeps its 44pt of touchable height on a 38pt strip by
+     reaching UP over the map. A tap in that band copies the reference sitting
+     directly under it, which is what a thumb going for the bottom-left corner
+     was after anyway, and nothing is painted there: the cell's background is
+     none, and the two things that WOULD show outside the strip are handled below.
+     --reach is derived, so this lands on 44 whatever --collar-h becomes. The
+     45 rather than 44 is the strip's own top hairline, drawn inside its
+     border-box height, which a stretched cell does not get.
+
+     Done by lifting the box rather than by an ::before spacer: the cell carries
+     `overflow: hidden` so the lat/long can ellipsize, and that clipped a
+     pseudo-element reaching past its edge to nothing at all. */
+  #coords {
+    --reach: calc(45px - var(--collar-h));
+    position: relative;
+    /* Negative top margin against the collar's `align-items: stretch`: the
+       stretched height becomes the strip plus --reach. */
+    margin-top: calc(-1 * var(--reach));
+    /* …and the padding puts the reading back in the middle of the STRIP, rather
+       than the middle of a box that is taller than it. */
+    padding-top: var(--reach);
+    /* The divider moves to ::after for the same reason: as a border on a box that
+       now starts above the strip, it drew a --reach-tall tick up into the map. */
+    border-right: none;
+  }
+  #coords::after {
+    content: "";
+    position: absolute;
+    top: var(--reach);
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--rule-faint);
   }
 
   /* The icon row is one control and gets one height. #nightvis-toggle used to
@@ -1943,10 +2118,17 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   z-index: 11;
   display: flex;
   flex-direction: column;
-  /* The dock owns the home-indicator inset for whatever it contains, so the
-     reservation in --dock-h and the pixels actually painted always agree —
-     with or without the command bar. Zero on every device without an inset. */
-  padding-bottom: env(safe-area-inset-bottom);
+  /* The dock owns the home-indicator inset when nothing inside it wants to
+     reach the glass — which is the collar-only case: a readout has no press
+     state and no dividers below its text, so a strip of surface under it is
+     just the margin of the sheet.
+     Where there IS a command bar, the bar takes this over (see #cmdbar): held
+     here it painted the inset BELOW the buttons, past the end of their
+     dividers, which is a band of bar-coloured nothing that reads as a gap and
+     is not part of the bar — and, since this element is pointer-events:none,
+     one that passed a thumb tap at the bottom of the screen through to the map
+     underneath. Zero on every device without an inset either way. */
+  padding-bottom: var(--home-inset);
   background: var(--surface);
   pointer-events: none;
 }
@@ -2082,8 +2264,18 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 
 @media (max-width: 640px) {
+  /* 44px — Apple's floor exactly, which for a bar whose glyph and label come to
+     under 30px is all the room they need. With the collar at 38 that puts the
+     dock at 38 + 44 + 34 = 116pt, against 128 at the last pass and 137 before
+     that; the button's box runs through the inset besides, so the target is 78px
+     of glass whatever this says.
+     It was 58, then 49. At 58 a band twice the height of its content centred the
+     pair with 14px of air above and, once the inset was added below, another 48
+     beneath — it read as floating rather than placed. Do not go under 44: this
+     is the number the .cmd min-height below is a backstop for, and the two
+     agreeing is what keeps the visible target legal. */
   :root {
-    --cmdbar-h: 58px;
+    --cmdbar-h: 44px;
   }
 
   /* Find / Get there / Mark already sit in the command bar, permanently, one
@@ -2102,11 +2294,20 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     display: none;
   }
 
+  /* The command bar takes the home-indicator inset off #dock and carries it
+     itself, so the bar is the full height of what the dock paints below the
+     collar and there is no strip left over underneath it. --dock-h is unchanged
+     — the same pixels, reserved once, painted by the bar instead of by the space
+     under it. */
+  #dock {
+    padding-bottom: 0;
+  }
+
   #cmdbar {
     flex: none;
     display: flex;
     align-items: stretch;
-    height: var(--cmdbar-h);
+    height: calc(var(--cmdbar-h) + var(--home-inset));
     /* Landscape iPhone puts the notch on a side, not the top. */
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
@@ -2118,14 +2319,31 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   .cmd {
     flex: 1;
     min-width: 0;
-    /* Apple's 44pt floor, before the home-indicator inset is added below. */
+    /* Apple's 44pt floor — a floor on the border box, so it says nothing about
+       how much of the button is above the home indicator. --cmdbar-h is what
+       guarantees that, and it is now the same 44: the visible part of every
+       button is exactly the floor, and stretch gives it the inset on top. Keep
+       the two in step. */
     min-height: 44px;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 3px;
-    padding: 4px 2px;
+    /* The inset is padding on the BUTTON, not space beneath the bar: the box
+       runs to the bottom of the glass, so the divider between buttons, the
+       :active wash and the .on indicator all reach it, while the glyph and
+       label stay in the content box, clear of the home indicator.
+
+       HALF the inset, not all of it. The full 34pt is what the gesture area
+       needs in order to stay swipeable, but it is far more than the indicator
+       needs in order to stay legible — the pill is 5pt tall and sits 9pt off the
+       edge, so it owns the bottom 14. Holding out all 34 pushed the glyph and
+       label into the top of the band: 10px of air above them against 43 below,
+       which is what made a shorter bar look emptier rather than tighter. Half
+       reads as placed — 19 above, 35 below, and still 21pt of daylight between
+       the label and the pill. */
+    padding: 4px 2px calc(4px + var(--home-inset) / 2);
     background: none;
     border: none;
     color: var(--type-quiet);
@@ -2904,12 +3122,14 @@ body.battery.nightvis #map {
 }
 body.battery #hud,
  body.battery #map-legend,
+ body.battery #route-recalc,
 body.battery #dock,
 body.battery .maplibregl-ctrl {
   filter: brightness(0.7);
 }
 body.battery.nightvis #hud,
  body.battery.nightvis #map-legend,
+ body.battery.nightvis #route-recalc,
 body.battery.nightvis #dock,
 body.battery.nightvis .maplibregl-ctrl {
   filter: grayscale(1) sepia(1) hue-rotate(-38deg) saturate(7) brightness(0.6);

@@ -95,7 +95,21 @@ export async function getFixFast(
    *  second locate before the first has settled leaves the first watch running
    *  — several concurrent high-accuracy watches is exactly the battery cost
    *  this function exists to avoid. */
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  /** How old a cached position may be and still count as the first fix.
+   *
+   *  Defaults to five minutes, which is right for the locate button: any
+   *  position at all, instantly, is better than a blank screen, and the watch
+   *  sharpens it in place while the map follows.
+   *
+   *  It is NOT right for a caller that acts on the first fix and stops — a route
+   *  recompute asked "where am I now" and was handed a position from five
+   *  minutes and several hundred metres ago. Those pass something short.
+   *
+   *  Web and desktop only either way. The iOS plugin decodes just
+   *  `enableHighAccuracy` and drops maximumAge on the floor, so there the first
+   *  fix is whatever CoreLocation volunteers and this changes nothing. */
+  opts?: { maximumAge?: number }
 ): Promise<GeoFix> {
   return new Promise<GeoFix>((resolve, reject) => {
     let first = false; // the caller has been given a position
@@ -181,7 +195,7 @@ export async function getFixFast(
       // CoreLocation happens to deliver first from cache — welcome, but not
       // something we are asking for. HARD_MS is the real backstop; do not tune
       // this value expecting it to do anything on a phone.
-      { maximumAge: 300000 }
+      { maximumAge: opts?.maximumAge ?? 300000 }
     )
       .then((s) => {
         stop = s;

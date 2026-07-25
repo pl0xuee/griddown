@@ -944,6 +944,49 @@ async function start() {
   let headingDec = 0; // magnetic→true correction for the area, degrees
   let smoothBearing = 0; // continuous, low-pass filtered to damp sensor jitter
 
+  /**
+   * Record a position, wherever in the app it came from: the dot, the accuracy
+   * circle and `lastFix` all move together, or none of them do.
+   *
+   * Every consumer of geoloc.ts goes through here. A fix taken to recompute a
+   * route, or to find the nearest water, is the same fact about where you are as
+   * one taken by the locate button — but only the button used to draw it. The
+   * water card set `lastFix` and left the dot alone; the route recompute set
+   * neither, so it built a route from where you were standing while the map went
+   * on marking you at wherever the button had last put the dot. A dot that lies
+   * about your position is worse than no dot: it is the thing you would point at
+   * to say "I am here".
+   *
+   * The three moving together is also what `dotAdrift` depends on — it asks how
+   * far the DOT is from the crosshair by measuring `lastFix`, which is only the
+   * same question while the two cannot disagree.
+   */
+  function noteFix(f: GeoFix) {
+    lastFix = { lng: f.lng, lat: f.lat };
+    shownFix = f;
+    drawUserLoc(f);
+  }
+
+  /** How far the dot may sit from the crosshair before a tap on a lit locate
+   *  button means "bring me back" rather than "next mode". Pixels, not metres:
+   *  200 m is off the screen at z16 and inside the dot at z10, and this is a
+   *  question about what you can see. */
+  const ADRIFT_PX = 40;
+  /** Is the dot visibly away from the crosshair? False with no fix — there is
+   *  nothing to come back to. */
+  function dotAdrift(): boolean {
+    if (!lastFix) return false;
+    const p = map.project([lastFix.lng, lastFix.lat]);
+    const b = map.getCanvas().getBoundingClientRect();
+    return Math.hypot(p.x - b.width / 2, p.y - b.height / 2) > ADRIFT_PX;
+  }
+  /** Put the crosshair back on the dot, and resume following refinements. */
+  function recentreOnFix() {
+    if (!lastFix) return;
+    map.easeTo({ center: [lastFix.lng, lastFix.lat], duration: 400 });
+    followAnchor = { lng: lastFix.lng, lat: lastFix.lat };
+  }
+
   const LOCATE_SVG =
     '<svg class="gd-loc-svg" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">' +
     '<circle cx="12" cy="12" r="4.4" fill="none" stroke="currentColor" stroke-width="2"/>' +
@@ -1050,6 +1093,35 @@ async function start() {
   }
 
   async function locateOnce(ctl: AbortController): Promise<GeoFix> {
+    /** The sharpest fix the camera has not caught up with yet. */
+    let waiting: GeoFix | null = null;
+    let hooked = false; // a moveend listener is already installed
+
+    /**
+     * Keep the dot ON the crosshair. The crosshair is the map's centre and
+     * everything else reads the ground under it — the coordinate collar,
+     * elevation, camp check — so a dot beside it means those readouts describe
+     * somewhere you are not.
+     *
+     * Measured against `followAnchor`, which only moves when WE move the
+     * camera. Testing against shownFix instead was self-defeating: one skipped
+     * ease left the anchor at the sharpened fix while the map sat on the coarse
+     * one, and every later comparison then failed too — the map stayed parked
+     * while the dot walked away.
+     *
+     * Only ever asked of a camera that has ARRIVED — see the deferral below.
+     */
+    const follow = () => {
+      const use = waiting;
+      waiting = null;
+      if (!use || ctl.signal.aborted || locState === "off") return;
+      const c = map.getCenter();
+      const following =
+        !!followAnchor && haversine([c.lng, c.lat], [followAnchor.lng, followAnchor.lat]) < 200;
+      if (!following) return;
+      map.easeTo({ center: [use.lng, use.lat], duration: 400 });
+      followAnchor = { lng: use.lng, lat: use.lat };
+    };
 
     // Show the first position the phone can give, then sharpen it in place.
     // Waiting for a full-accuracy GPS fix before drawing anything left the
@@ -1058,40 +1130,35 @@ async function start() {
       // Stale callbacks must not steer the map: this watch can still be
       // refining after the user has turned locate off or started a new one.
       if (ctl.signal.aborted || locState === "off") return;
-      lastFix = { lng: better.lng, lat: better.lat };
-      shownFix = better;
-      drawUserLoc(better);
+      noteFix(better);
+      waiting = better; // getFixFast only ever hands back a sharper fix
 
-      // Keep the dot ON the crosshair. The crosshair is the map's centre and
-      // everything else reads the ground under it — the coordinate collar,
-      // elevation, camp check — so a dot beside it means those readouts
-      // describe somewhere you are not.
-      //
-      // Measured against `followAnchor`, which only moves when WE move the
-      // camera. Testing against shownFix instead was self-defeating: one
-      // skipped ease left the anchor at the sharpened fix while the map sat on
-      // the coarse one, and every later comparison then failed too — the map
-      // stayed parked while the dot walked away.
-      const c = map.getCenter();
-      const following =
-        !!followAnchor && haversine([c.lng, c.lat], [followAnchor.lng, followAnchor.lat]) < 200;
-      if (!following) return;
-      const apply = () => {
-        if (ctl.signal.aborted || locState === "off") return;
-        map.easeTo({ center: [better.lng, better.lat], duration: 400 });
-        followAnchor = { lng: better.lng, lat: better.lat };
-      };
-      // DEFERRED, not dropped, while the camera is animating. The thing usually
-      // moving is our own flyTo to the first (cached, coarse) fix, and the
-      // sharpened GPS fix routinely lands during it — discarding it there left
-      // the dot on the accurate position and the map on the coarse one, which
-      // is exactly the mismatch this block exists to prevent.
-      if (map.isMoving()) map.once("moveend", apply);
-      else apply();
+      // The WHOLE decision waits on the camera, not just the ease that follows
+      // it. `getCenter()` mid-animation is wherever the flight has got to, not
+      // where it is going, so a sharpened fix landing during the locate flyTo —
+      // the ordinary case, since the first fix is CoreLocation's coarse cache
+      // and the flight in from a whole-state view runs for seconds — was
+      // compared against a camera still in transit, read as "the user has
+      // panned away", and dropped. The dot had already been redrawn at the
+      // sharper fix by then, so it walked off the crosshair and stayed there:
+      // the mismatch this block exists to prevent, arrived at from the other
+      // side. Reproduced at 46px of drift with the refinement landing 900ms
+      // into the flight.
+      if (!map.isMoving()) {
+        follow();
+        return;
+      }
+      // One listener, latest fix wins. Several refinements can land inside a
+      // single flight, and a `once` apiece would queue that many eases against
+      // the same moveend, each to a position the next one supersedes.
+      if (hooked) return;
+      hooked = true;
+      map.once("moveend", () => {
+        hooked = false;
+        follow();
+      });
     }, ctl.signal);
-    lastFix = { lng: f.lng, lat: f.lat };
-    shownFix = f;
-    drawUserLoc(f);
+    noteFix(f);
     map.flyTo({ center: [f.lng, f.lat], zoom: Math.max(map.getZoom(), 14) });
     followAnchor = { lng: f.lng, lat: f.lat };
     return f;
@@ -1128,6 +1195,18 @@ async function start() {
       // map round and reported the button off, moments before the prompt
       // resolved and set it to heading.
       if (headingBusy) return;
+      // Drifted off the crosshair since the locate? Then this tap is asking to
+      // be brought back, not to change mode — which is what a lit location
+      // button does in every other map app, and what "the crosshair doesn't go
+      // to my location when I press the location button" describes when it is
+      // reported. Without it the only route back was through heading-up, and on
+      // a phone whose compass permission has been denied startHeading fails,
+      // turns locate off, and leaves the map exactly where it was: the button
+      // lit, then dark, and the map never moving either time.
+      if (dotAdrift()) {
+        recentreOnFix();
+        return;
+      }
       // No compass (desktop, or a denied iOS prompt that will never be asked
       // again) must not trap the button here: without this the third tap has
       // nowhere to go and every further tap replays the same error.
@@ -1168,8 +1247,16 @@ async function start() {
     }
   }
   map.addControl(new LocateControl(), "top-right");
-  map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
+  // Two bars, the way a topo sheet prints them — and imperial ON TOP, because
+  // that is the unit everything else in this app leads with: the collar's
+  // elevation, every route distance, the camp and viewshed readouts.
+  //
+  // Metric is added FIRST on purpose. MapLibre inserts controls in a bottom
+  // corner at the front of the container rather than appending, so the last one
+  // added is the one that renders above. Added in reading order, imperial ended
+  // up underneath the metric bar.
   map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-left");
+  map.addControl(new maplibregl.ScaleControl({ unit: "imperial" }), "bottom-left");
 
   map.on("error", (e) => {
     console.error("[map error]", e && (e as any).error ? (e as any).error : e);
@@ -1802,7 +1889,7 @@ async function start() {
       try {
         const f = await getFix();
         center = { lng: f.lng, lat: f.lat };
-        lastFix = center;
+        noteFix(f);
         fromYou = true;
       } catch {
         center = { lng: map.getCenter().lng, lat: map.getCenter().lat };
@@ -2057,6 +2144,9 @@ async function start() {
     map: () => map,
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
     activeAbbr: () => activePackAbbr,
+    // A recompute takes its own fix. Report it, or the dot goes on marking the
+    // start of the route you just replaced.
+    onFix: noteFix,
   });
   initPrint({
     getMap: () => map,

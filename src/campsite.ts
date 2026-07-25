@@ -25,6 +25,21 @@ export interface CampResult {
   reasons: string[]; // plain-language, best first
 }
 
+/** Short distances in feet, longer ones in miles.
+ *
+ *  The thresholds this module scores against stay in metres — they come from the
+ *  DEM and the water layer, and comparing in the unit the data arrives in is one
+ *  fewer conversion to get wrong. Only what the reader is told converts, and it
+ *  converts to imperial because that is the unit every other readout in this app
+ *  uses: the collar's elevation, route distances, the viewshed radius. This card
+ *  was the one place still quoting metres and kilometres at the user. */
+function dist(m: number): string {
+  const ft = m * 3.28084;
+  if (ft < 1000) return `${Math.round(ft).toLocaleString()} ft`;
+  const mi = m / 1609.344;
+  return `${mi < 10 ? mi.toFixed(1) : Math.round(mi).toLocaleString()} mi`;
+}
+
 export function scoreCamp(i: CampInputs): CampResult {
   const reasons: string[] = [];
   let score = 0;
@@ -61,18 +76,18 @@ export function scoreCamp(i: CampInputs): CampResult {
   // --- Water proximity: close is convenient, too close floods and chills ---
   if (i.waterMeters == null) {
     score -= 1;
-    reasons.push("No water within about 3 km — you'd have to carry it in.");
+    reasons.push("No water within about 2 miles — you'd have to carry it in.");
   } else if (i.waterMeters < 30) {
     score -= 1;
-    reasons.push("Right on the water — risk of flooding, cold air, and bugs; back off 60–90 m.");
+    reasons.push("Right on the water — risk of flooding, cold air, and bugs; back off 200–300 ft.");
   } else if (i.waterMeters <= 800) {
     score += 2;
-    reasons.push(`Water about ${Math.round(i.waterMeters)} m away — close enough to fetch, far enough to be dry.`);
+    reasons.push(`Water about ${dist(i.waterMeters)} away — close enough to fetch, far enough to be dry.`);
   } else if (i.waterMeters <= 3000) {
-    reasons.push(`Nearest water is roughly ${(i.waterMeters / 1000).toFixed(1)} km — a hike, but reachable.`);
+    reasons.push(`Nearest water is roughly ${dist(i.waterMeters)} — a hike, but reachable.`);
   } else {
     score -= 1;
-    reasons.push(`Nearest water is over 3 km away — plan to carry it in.`);
+    reasons.push(`Nearest water is over 2 miles away — plan to carry it in.`);
   }
 
   // --- Cover ---
