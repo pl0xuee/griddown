@@ -711,6 +711,51 @@ fn mvum_path(app: AppHandle, abbr: String) -> Result<String, String> {
     Ok(mvum_file(&app, &abbr)?.to_string_lossy().to_string())
 }
 
+/// Why an HTTP request failed, in words someone can act on.
+///
+/// reqwest's own Display is `error sending request for url (…)` followed by the
+/// whole URL — for an ArcGIS query that is three hundred characters of geometry
+/// and field names in a toast, and not one word about what actually went wrong,
+/// because the cause lives in the error's SOURCE chain rather than its Display.
+/// Surfacing it raw is how "the Forest Service closed the connection on us" and
+/// "this laptop has no network" arrived looking identical, and neither of them
+/// arrived legibly.
+///
+/// Reads as the reason after "Forest roads download failed: ", which is how
+/// states.ts presents it.
+fn http_why(e: &reqwest::Error) -> String {
+    // The chain, lowercased, is only ever MATCHED against — never shown. It
+    // contains the URL, which is the thing this function exists to keep out of
+    // the message.
+    let mut chain = String::new();
+    let mut src: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(s) = src {
+        chain.push_str(&s.to_string().to_lowercase());
+        chain.push(' ');
+        src = s.source();
+    }
+    if e.is_timeout() || chain.contains("timed out") {
+        return "the Forest Service server took too long to answer. Try again later.".into();
+    }
+    if chain.contains("dns error") || chain.contains("failed to lookup") {
+        return "couldn't find the Forest Service server. Check your internet connection.".into();
+    }
+    if chain.contains("reset") || chain.contains("closed") || chain.contains("broken pipe") {
+        return "the Forest Service server closed the connection. Their service is having \
+                trouble, not this app — try again later."
+            .into();
+    }
+    if e.is_connect() {
+        return "couldn't reach the Forest Service server. Check your internet connection, \
+                then try again later."
+            .into();
+    }
+    if let Some(code) = e.status() {
+        return format!("the Forest Service server answered {code}. Try again later.");
+    }
+    "the Forest Service server didn't answer. Try again later.".into()
+}
+
 /// How many MVUM features a layer holds inside a bbox — for a progress total.
 fn mvum_count(
     client: &reqwest::blocking::Client,
@@ -718,23 +763,49 @@ fn mvum_count(
     envelope: &str,
 ) -> Result<usize, String> {
     let url = format!("{}/{}/query", MVUM_SERVICE, layer);
-    let res = client
-        .get(&url)
-        .query(&[
-            ("geometry", envelope),
-            ("geometryType", "esriGeometryEnvelope"),
-            ("inSR", "4326"),
-            ("spatialRel", "esriSpatialRelIntersects"),
-            ("where", "1=1"),
-            ("returnCountOnly", "true"),
-            ("f", "json"),
-        ])
-        .send()
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| e.to_string())?;
-    // Parsed from text rather than via reqwest's `json` feature, which isn't
-    // enabled here and would pull in serde machinery this crate already has.
-    let body = res.text().map_err(|e| e.to_string())?;
+    // Retried, like the pages below. This runs FIRST and used to be the one step
+    // of the download with no second chance: a single dropped connection here
+    // ended the whole thing before a byte of road had been asked for, while the
+    // very same blip three pages in would have been ridden out. Same three
+    // attempts, same backoff.
+    let mut last: Option<reqwest::Error> = None;
+    let mut body = None;
+    for attempt in 0..3 {
+        match client
+            .get(&url)
+            .query(&[
+                ("geometry", envelope),
+                ("geometryType", "esriGeometryEnvelope"),
+                ("inSR", "4326"),
+                ("spatialRel", "esriSpatialRelIntersects"),
+                ("where", "1=1"),
+                ("returnCountOnly", "true"),
+                ("f", "json"),
+            ])
+            .send()
+            .and_then(|r| r.error_for_status())
+            // Parsed from text rather than via reqwest's `json` feature, which
+            // isn't enabled here and would pull in serde machinery this crate
+            // already has.
+            .and_then(|r| r.text())
+        {
+            Ok(b) => {
+                body = Some(b);
+                break;
+            }
+            Err(e) => {
+                last = Some(e);
+                std::thread::sleep(std::time::Duration::from_millis(500 * (attempt + 1)));
+            }
+        }
+    }
+    let body = match body {
+        Some(b) => b,
+        // Every attempt failed the same way, so the last one's cause is the story.
+        None => return Err(last.map(|e| http_why(&e)).unwrap_or_else(|| {
+            "the Forest Service server didn't answer. Try again later.".into()
+        })),
+    };
     let v: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     // ArcGIS reports faults as HTTP 200 with an `error` member, so
     // `error_for_status` above lets them through. Defaulting a fault to 0 made
@@ -816,6 +887,10 @@ async fn download_mvum(app: AppHandle, abbr: String, bbox: String) -> Result<u64
                 // Each page gets its own retries: one flaky response should not
                 // discard a download that may already be twenty pages deep.
                 let mut page: Option<serde_json::Value> = None;
+                // Kept so the failure can say WHICH failure it was. Discarding
+                // it meant a download that died because the wifi dropped read
+                // exactly like one the Forest Service refused.
+                let mut last: Option<reqwest::Error> = None;
                 for attempt in 0..3 {
                     let res = client
                         .get(&url)
@@ -834,25 +909,32 @@ async fn download_mvum(app: AppHandle, abbr: String, bbox: String) -> Result<u64
                             ("f", "geojson"),
                         ])
                         .send()
-                        .and_then(|r| r.error_for_status());
-                    let parsed = res
-                        .and_then(|r| r.text())
-                        .ok()
-                        .and_then(|b| serde_json::from_str::<serde_json::Value>(&b).ok());
-                    match parsed {
-                        Some(v) => {
-                            page = Some(v);
-                            break;
+                        .and_then(|r| r.error_for_status())
+                        .and_then(|r| r.text());
+                    match res {
+                        Ok(b) => {
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&b) {
+                                page = Some(v);
+                                break;
+                            }
+                            // A body that is not JSON is not a transport fault,
+                            // so there is no reqwest error to keep — retry it
+                            // anyway, which is what the old `.ok()` chain did.
                         }
-                        None => std::thread::sleep(std::time::Duration::from_millis(
-                            500 * (attempt + 1),
-                        )),
+                        Err(e) => last = Some(e),
+                    }
+                    // No point sleeping after the attempt that gives up.
+                    if attempt < 2 {
+                        std::thread::sleep(std::time::Duration::from_millis(500 * (attempt + 1)));
                     }
                 }
                 let Some(page) = page else {
-                    return Err(
-                        "The Forest Service map server didn't respond — try again later.".into(),
-                    );
+                    return Err(match last {
+                        Some(e) => http_why(&e),
+                        None => "the Forest Service server sent something that wasn't a map. \
+                                 Try again later."
+                            .into(),
+                    });
                 };
                 let Some(batch) = page.get("features").and_then(|f| f.as_array()) else {
                     break;
@@ -1231,3 +1313,4 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
