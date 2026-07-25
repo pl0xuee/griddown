@@ -6,6 +6,36 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.1.7
+
+**A forest-road download that fails tells you why.** The Forest Service's own
+server went to completing the TLS handshake and then resetting every request,
+which is theirs and not this app's — but two things here made it land worse than
+it had to.
+
+**The download gives up less easily.** Counting the roads in a state is the first
+thing it does, before a byte of road is asked for, and it was the one step with no
+second attempt: a single dropped connection there ended the whole download, while
+the very same blip three pages deep would have been ridden out. The paging loop
+has retried with backoff all along. The count does now too.
+
+**And the message says which failure it was.** It used to read `error sending
+request for url` followed by the entire query — three hundred characters of
+geometry and field names in a toast, and not one word about what went wrong,
+because the actual cause sits one layer below what gets printed. For the outage
+above it was "connection reset by peer", four levels down.
+
+You now get one of four sentences, and never the URL:
+
+- no internet — the server couldn't be found;
+- the Forest Service server closed the connection, which is their trouble and not
+  yours, so try later;
+- it took too long to answer;
+- it answered with an error status.
+
+A download that dies because the wifi dropped no longer reads exactly like one
+the Forest Service refused.
+
 ## v1.1.6
 
 **The bottom of the screen, and where you actually are.** The dock gives back
