@@ -6,6 +6,62 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.2.0
+
+**The app now holds the plan, not just the map.** Everything GridDown did before
+answered a question you ask standing in the weather. This release adds the half
+you are meant to answer at the kitchen table, months earlier: where you are
+going, how you get there, what you do when that way is shut, what is in the bag,
+and where you meet if you are apart.
+
+**Get there forgot every route the moment you closed the panel.** It computed a
+road-following path from the map pack and then threw it away — so the one thing
+you could never do was work out the way out while you still had power, signal
+and a clear head, and *keep* it. There is now a **Save to plan** button on every
+result, and what it saves is frozen: the geometry, the turn list, the distance,
+and a note of which map pack and which build produced them. A frozen route
+redraws with the pack deleted, the app offline and the router never invoked.
+Recomputing is offered. It is never required.
+
+A plan holds more than one route, because one blocked bridge should not end it —
+the primary draws solid in the overprint magenta, alternates dashed in the
+lifted hue. It also holds **stops** (rally points, caches, fuel, water, shelter,
+medical, and ground to avoid), the **go/no-go conditions** decided while calm
+rather than at 3am, and one sentence for what happens if you are not together.
+Legs the router has no data for — trails, tracks, cross-country — can be **drawn
+by tapping the map**.
+
+**Kit** is the new checklist panel: a 72-hour go bag, a vehicle kit, a
+shelter-in-place list running from thirty days to a year, medical, documents and
+comms. Tick what you have, and put a date on anything that lapses — because
+rotation is what actually kills preparations. A bag packed once and never opened
+is a bag of expired water tablets, flat batteries and medication that stopped
+working two years ago, and the tickbox will still say you are ready. The
+progress bar goes red when something has expired, whatever the percentage says.
+
+**Readiness now checks all of it**, which is the whole point of that panel: it
+exists to be read while things are still fixable. It will tell you that a plan
+has no alternate route, that a route was built from a map pack you no longer
+have downloaded, that a route is over a year old and the roads may have moved,
+that four items in the go bag expired, and that nobody has written down an
+out-of-area contact — the one distant number everybody calls when the local
+lines fail together, which is how a scattered group finds itself again.
+
+**The Handbook has twenty new guides.** FM 3-05.70 is a superb reference and a
+useless plan: it answers "how do I purify water" and not "it is day three and
+the taps are off". The new **playbooks** are that missing half, in order — the
+first hour, the first day, the first week, the first month, the first year, go
+or stay, and coming home. The **guides** cover what a military survival manual
+has no reason to: sanitation and human waste, water at household scale, food
+preservation, growing and seed saving, medical beyond first aid, dental, power
+and fuel, comms discipline, barter, children and the elderly, and morale.
+
+Everything here is stored on this device and nowhere else, in the same
+atomically-written file as your pins and tracks, and it is included in **Back up
+everything**. Note that a backup now contains the roster — names, and the
+medical facts a stranger would need — so treat that file like a document rather
+than like a map.
+
 ## v1.1.8
 
 **Terrain that half-downloaded no longer claims to be there.** If a terrain

@@ -1,7 +1,15 @@
 import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { buildGPX, parseGPX } from "./gpx";
-import { loadMarks, normalize, saveMarks, type Pt, type Track, type Waypoint } from "./store";
+import {
+  currentMarks,
+  loadMarks,
+  normalize,
+  updateMarks,
+  type Pt,
+  type Track,
+  type Waypoint,
+} from "./store";
 import { BACKUP_KEY, fmtAge } from "./readiness";
 import { haversine } from "./geo";
 import { watchFix } from "./geoloc";
@@ -62,7 +70,9 @@ export async function initWaypoints(map: maplibregl.Map) {
   // wait — surface a failure as a toast rather than swallowing it, since a
   // silent save failure is exactly the kind of thing this change exists to stop.
   const save = () => {
-    void saveMarks({ waypoints, tracks }).catch(() =>
+    // A patch, not a whole Marks: this module doesn't own plans, and writing
+    // the object it does know about would delete them.
+    void updateMarks({ waypoints, tracks }).catch(() =>
       toast("Couldn't save your marks to disk.", "error")
     );
   };
@@ -320,7 +330,17 @@ export async function initWaypoints(map: maplibregl.Map) {
   }
 
   function backupAll() {
-    if (waypoints.length === 0 && tracks.length === 0) {
+    // Plans, kits and the roster count as data worth backing up, and are read
+    // from the store rather than held here — this module doesn't own them, it
+    // just must not lose them.
+    const { plans, kits, roster, comms } = currentMarks();
+    if (
+      !waypoints.length &&
+      !tracks.length &&
+      !plans.length &&
+      !kits.length &&
+      !roster.length
+    ) {
       toast("Nothing to back up yet — drop a pin or record a track first.");
       return;
     }
@@ -332,6 +352,14 @@ export async function initWaypoints(map: maplibregl.Map) {
       settings: { ...localStorage },
       waypoints,
       tracks,
+      plans,
+      kits,
+      // The roster carries names and medical details. It is in the backup
+      // because losing it is the failure that matters, but this file is
+      // therefore worth handling like a document, not like a map — the panel
+      // says so where you press the button.
+      roster,
+      comms,
     };
     void saveFile(
       "griddown-backup.json",
@@ -356,21 +384,44 @@ export async function initWaypoints(map: maplibregl.Map) {
       return;
     }
     const restored = normalize(data);
-    if (!restored.waypoints.length && !restored.tracks.length) {
+    const had = currentMarks().plans.length;
+    if (
+      !restored.waypoints.length &&
+      !restored.tracks.length &&
+      !restored.plans.length &&
+      !restored.kits.length
+    ) {
       toast("No marks found in that backup.", "error");
       return;
     }
     // A restore replaces, so make the user say yes — with the counts, so they
-    // can see they're not about to trade a full set for an empty one.
+    // can see they're not about to trade a full set for an empty one. Plans are
+    // named too: a backup taken before plans existed restores zero of them, and
+    // silently trading your bug-out plan for nothing is the worst thing this
+    // button could do.
     const ok = await confirmAction(
-      `Replace your current ${waypoints.length} pin(s) and ${tracks.length} track(s) ` +
-        `with ${restored.waypoints.length} pin(s) and ${restored.tracks.length} track(s) ` +
+      `Replace your current ${waypoints.length} pin(s), ${tracks.length} track(s) ` +
+        `and ${had} plan(s) with ${restored.waypoints.length} pin(s), ` +
+        `${restored.tracks.length} track(s) and ${restored.plans.length} plan(s) ` +
         `from this backup?`
     );
     if (!ok) return;
     waypoints = restored.waypoints;
     tracks = restored.tracks;
-    save();
+    void updateMarks({
+      waypoints,
+      tracks,
+      plans: restored.plans,
+      kits: restored.kits,
+      roster: restored.roster,
+      comms: restored.comms,
+    })
+      .then(() => {
+        // The Plan and Kit panels hold their own copies; tell them to re-read
+        // rather than leaving them showing data that is no longer on disk.
+        document.dispatchEvent(new CustomEvent("griddown:marks-changed"));
+      })
+      .catch(() => toast("Couldn't save your marks to disk.", "error"));
     refreshMarkers();
     ensureTrackLayer();
     renderList();
@@ -463,6 +514,21 @@ export async function initWaypoints(map: maplibregl.Map) {
   document.getElementById("marks-import")?.addEventListener("click", () => void importGPX());
   document.getElementById("marks-backup")?.addEventListener("click", backupAll);
   document.getElementById("marks-restore")?.addEventListener("click", () => void restoreAll());
+
+  // Somebody else wrote the marks file — a restore, or the Plan panel pushing
+  // its stops onto the map as pins.
+  //
+  // Re-reading is not cosmetic, it is the difference between keeping those pins
+  // and destroying them: this module holds `waypoints` in a closure, and the
+  // very next save() would write that stale array straight over the new ones.
+  document.addEventListener("griddown:marks-changed", () => {
+    const m = currentMarks();
+    waypoints = m.waypoints;
+    tracks = m.tracks;
+    refreshMarkers();
+    ensureTrackLayer();
+    renderList();
+  });
 
   refreshMarkers();
   updateRecUi();

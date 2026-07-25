@@ -1,8 +1,21 @@
-import type { Marks, Pt, Track, Waypoint } from "./store";
+import type { Pt, Track, Waypoint } from "./store";
 
 // GPX 1.1 read/write. Kept separate from the UI so it can be exercised directly:
 // this is the format that carries your data between devices and into other
 // mapping tools, so it's the piece most worth being able to test.
+
+/**
+ * What a GPX file can carry — pins and lines, and nothing else.
+ *
+ * Narrower than `Marks` on purpose. GPX has no way to express a bug-out plan,
+ * so an import must not be typed as though it produces a whole Marks: that made
+ * `parseGPX` assignable to a save, and importing someone's tracks would have
+ * dropped every plan on the device.
+ */
+export interface GpxMarks {
+  waypoints: Waypoint[];
+  tracks: Track[];
+}
 
 function esc(s: string): string {
   return s
@@ -80,7 +93,7 @@ function coord(el: Element): [number, number] | null {
  * Routes (<rte>) are imported as tracks: for our purposes a planned line and a
  * walked line are the same thing.
  */
-export function parseGPX(xml: string): Marks {
+export function parseGPX(xml: string): GpxMarks {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
   if (doc.getElementsByTagName("parsererror").length) {
     throw new Error("That file isn't valid XML.");

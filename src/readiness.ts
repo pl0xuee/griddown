@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { loadMarks, marksUnreadable } from "./store";
+import { planIssues } from "./plan";
+import { kitIssues } from "./kit";
+import { rosterIssues } from "./roster";
+import { PLAN_PDF_KEY } from "./planprint";
 
 // "Are you ready to go dark?" — a preflight check.
 //
@@ -141,7 +145,11 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
   // --- Your own data ---
   const marks = await loadMarks();
   const unreadable = marksUnreadable();
-  const n = marks.waypoints.length + marks.tracks.length;
+  const n =
+    marks.waypoints.length +
+    marks.tracks.length +
+    marks.plans.length +
+    marks.kits.length;
   if (unreadable) {
     // The whole point of this panel is catching exactly this before it matters.
     // An empty list here means "couldn't read", not "none" — reporting it as
@@ -158,6 +166,104 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
       level: "ok",
       detail: `${marks.waypoints.length} pin(s), ${marks.tracks.length} track(s), saved to disk.`,
     });
+  }
+
+  // --- The plan ---
+  //
+  // This is the part of the panel that has to be read *now*. Everything a plan
+  // says is decided in advance, so everything wrong with one is fixable in
+  // advance — and only in advance. A missing map pack is a download today and an
+  // impossibility next week.
+  const nowMs = Date.now();
+  const installedPacks = packs.map((p) => p.abbr);
+  if (!unreadable) {
+    if (!marks.plans.length) {
+      checks.push({
+        label: "Bug-out plan",
+        level: "bad",
+        detail: "No plan saved.",
+        fix: "A route worked out today is a route you don't have to compute on the day. Get there → Save to plan, or start one in Plan.",
+      });
+    } else {
+      const issues = marks.plans.flatMap((p) =>
+        planIssues(p, { installedPacks, now: nowMs })
+      );
+      const routes = marks.plans.reduce((t, p) => t + p.routes.length, 0);
+      checks.push({
+        label: "Bug-out plan",
+        level: issues.length ? "warn" : "ok",
+        detail: `${marks.plans.length} plan(s), ${routes} route(s) frozen to disk.`,
+      });
+      // Each plan's own complaints, in its own words — see plan.ts.
+      for (const i of issues) checks.push(i);
+
+      // Paper is the only copy that survives a dead battery, and this app runs
+      // on the device most likely to be flat when it matters.
+      const printed = Number(localStorage.getItem(PLAN_PDF_KEY) || 0);
+      checks.push(
+        printed
+          ? {
+              label: "Plan on paper",
+              level: "ok",
+              detail: `Last printed ${fmtAge(now - Math.floor(printed / 1000))}.`,
+            }
+          : {
+              label: "Plan on paper",
+              level: "warn",
+              detail: "Never printed.",
+              fix: "Open the plan and press Print to paper. Put a copy in each go bag and one in the glovebox — it's the copy that works at 0%.",
+            }
+      );
+    }
+
+    // --- Roster & comms ---
+    for (const i of rosterIssues(marks.roster, marks.comms)) checks.push(i);
+
+    // --- Kit ---
+    if (!marks.kits.length) {
+      checks.push({
+        label: "Kit",
+        level: "warn",
+        detail: "No checklists yet.",
+        fix: "Kit → Add a checklist. Start with the go bag; it takes ten minutes and tells you what you're missing.",
+      });
+    } else {
+      for (const k of marks.kits) {
+        const i = kitIssues(k, nowMs);
+        if (i.expired) {
+          checks.push({
+            label: k.name,
+            level: "bad",
+            detail: `${i.expired} item(s) expired · ${i.pct}% packed.`,
+            fix: "Open it in Kit — expired items are listed with their dates. Replace them now; the tickbox says you're ready and the date says you aren't.",
+          });
+        } else if (i.soon) {
+          checks.push({
+            label: k.name,
+            level: "warn",
+            detail: `${i.soon} item(s) due for rotation${
+              i.nextExpiry ? ` — next ${i.nextExpiry}` : ""
+            } · ${i.pct}% packed.`,
+            fix: "Replace them on the next shop rather than at the point of use.",
+          });
+        } else if (i.pct < 100) {
+          checks.push({
+            label: k.name,
+            level: "warn",
+            detail: `${i.have} of ${i.total} packed (${i.pct}%).`,
+            fix: "Finish it while the shops are open.",
+          });
+        } else {
+          checks.push({
+            label: k.name,
+            level: "ok",
+            detail: `Complete, nothing expiring${
+              i.nextExpiry ? ` before ${i.nextExpiry}` : ""
+            }.`,
+          });
+        }
+      }
+    }
   }
 
   const last = Number(localStorage.getItem(BACKUP_KEY) || 0);

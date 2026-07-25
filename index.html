@@ -174,6 +174,13 @@
           <button id="plants-open" type="button" title="Edible and dangerous plants — what grows here and what it is confused with">&#10047; Plants</button>
         </div>
 
+        <!-- Filled in before anything happens, read when it has. -->
+        <div class="hud-sub">The plan</div>
+        <div class="hud-grid">
+          <button id="plan-open" type="button" title="Bug-out plans — routes frozen while you still have data, rally points, caches and the conditions that mean you go">&#9670; Plan</button>
+          <button id="kit-open" type="button" title="Go bag and longer-term checklists — what you have, and what has expired">&#9636; Kit</button>
+        </div>
+
         <!-- Quietest group on purpose: none of it is any use once you are out
              there, and all of it competed with Find at equal weight before. -->
         <div class="hud-sub">Library</div>
@@ -273,6 +280,30 @@
         <button id="route-close" class="panel-close" type="button" aria-label="Close">&times;</button>
       </div>
       <div id="route-body"></div>
+    </div>
+
+    <!-- Bug-out plans: frozen routes, rally points, caches, go/no-go conditions -->
+    <div id="plan-panel" class="panel panel--scroll hidden">
+      <div id="plan-head" class="panel-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Plan</div>
+        </div>
+        <button id="plan-close" class="panel-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="plan-body"></div>
+    </div>
+
+    <!-- Kit: go bag and long-term checklists, with rotation dates -->
+    <div id="kit-panel" class="panel panel--scroll hidden">
+      <div id="kit-head" class="panel-head">
+        <div>
+          <div class="panel-kicker">GRIDDOWN</div>
+          <div class="panel-title">Kit</div>
+        </div>
+        <button id="kit-close" class="panel-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <div id="kit-body"></div>
     </div>
 
     <!-- Team mesh: teammate positions over Meshtastic LoRa radio -->

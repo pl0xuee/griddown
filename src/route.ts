@@ -17,6 +17,8 @@ import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
 import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
+import { computePadding, visibleBox } from "./fitmap";
+import { saveRouteToPlan } from "./planpanel";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -498,19 +500,8 @@ export function initRoute(deps: {
     );
   }
 
-  /**
-   * Frame the whole route in the part of the map you can actually see.
-   *
-   * A uniform padding is wrong here, because the visible map is not the map
-   * element: the dock covers the bottom ~103px on a phone, the collar and the
-   * command bar sit on top of it, and an open panel takes a whole side. Fitting
-   * to the raw container tucked the southern end of every route behind the
-   * dock — worst on exactly the routes you most want to see whole, since a
-   * long one is fitted tightly.
-   *
-   * Measured from the live chrome rather than hard-coded, so it stays right as
-   * the safe-area insets and --dock-h change between devices and orientations.
-   */
+  /** Frame the whole route in the part of the map you can actually see — see
+   *  fitmap.ts for why that isn't the same as the map element. */
   function fit(coords: [number, number][]) {
     if (!coords.length) return;
     const map = deps.map();
@@ -527,35 +518,12 @@ export function initRoute(deps: {
       return;
     }
 
-    const canvas = map.getCanvas().getBoundingClientRect();
-    const GAP = 24; // breathing room, so the line never touches an edge
-    const box = (el: Element | null | undefined) =>
-      el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
-
-    const dock = box(document.getElementById("dock"));
-    let top = GAP;
-    let bottom = GAP + (dock ? Math.max(0, canvas.bottom - dock.top) : 0);
-    let left = GAP;
-    let right = GAP;
-
-    // A panel open over the map takes a side on desktop and the whole screen on
-    // a phone. Only pad for it when it leaves something worth fitting into.
-    const p = box(panel);
-    if (p && p.width < canvas.width * 0.6) {
-      if (p.left - canvas.left < canvas.width * 0.2) left += p.width;
-      else right += p.width;
-    }
-
-    // Never let the padding exceed the viewport: MapLibre cannot fit into a
-    // negative box, and a tall route on a short screen gets close.
-    const capV = Math.max(0, (canvas.height - 40) / 2);
-    const capH = Math.max(0, (canvas.width - 40) / 2);
-    top = Math.min(top, capV);
-    bottom = Math.min(bottom, capV);
-    left = Math.min(left, capH);
-    right = Math.min(right, capH);
-
-    map.fitBounds(b, { padding: { top, bottom, left, right }, duration: 600 });
+    const padding = computePadding(
+      map.getCanvas().getBoundingClientRect(),
+      visibleBox(document.getElementById("dock")),
+      visibleBox(panel)
+    );
+    map.fitBounds(b, { padding, duration: 600 });
   }
 
   /**
@@ -814,6 +782,7 @@ export function initRoute(deps: {
       <div id="rt-mvum"></div>
       <button id="rt-refresh" type="button" class="rt-go">↻ Recompute from where I am</button>
       <div class="rt-btns">
+        <button id="rt-save" type="button">&#9670; Save to plan</button>
         <button id="rt-again" type="button">New route</button>
         <button id="rt-clear" type="button">Clear</button>
       </div>
@@ -1087,6 +1056,24 @@ export function initRoute(deps: {
       });
     });
     document.getElementById("rt-go")?.addEventListener("click", () => void go());
+    // Freeze this route into a plan. Everything the Plan panel needs is handed
+    // over here, because `shown` is discarded the moment the route is cleared —
+    // and a route you can't keep is a route you have to recompute on the day
+    // you least can.
+    document.getElementById("rt-save")?.addEventListener("click", () => {
+      if (!shown) return;
+      void saveRouteToPlan({
+        result: {
+          coords: shown.r.coords,
+          meters: shown.r.meters,
+          steps: shown.r.steps,
+          usedTrail: shown.r.usedTrail,
+        },
+        from: { lat: shown.from.lat, lng: shown.from.lng, label: shown.from.label },
+        to: { lat: shown.to.lat, lng: shown.to.lng, label: shown.to.label },
+        pack: deps.activeAbbr?.() ?? "",
+      });
+    });
   }
 
   document.getElementById("route-open")?.addEventListener("click", async () => {

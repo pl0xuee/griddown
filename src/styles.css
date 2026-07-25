@@ -96,6 +96,9 @@
      uses, so it can never be misread as map data. */
   --overprint: #e8177f;
   --overprint-lift: #ff6fb0;
+  /* The casing drawn under an overprinted line or marker so it stays legible
+     over anything — snow, rock, dark forest. Mirrors OVERPRINT_CASING. */
+  --overprint-casing: #2a0316;
   --overprint-wash: rgba(232, 23, 127, 0.18);
 
   --shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
@@ -1129,6 +1132,554 @@ h6 {
   .mk-rec-dot { animation: none; }
 }
 
+/* ==========================================================================
+   The Plan panel
+   ==========================================================================
+   Structurally the Marks panel — rows, a group heading, an action stack — and
+   deliberately so: both are lists of things you put on the sheet yourself, and
+   a second visual language for the same job would be drift, not hierarchy.
+   What differs is what the overprint marks. A plan's PRIMARY route is the
+   overprint proper; alternates are the lifted hue, the same step tracks take
+   against routes. */
+#plan-body {
+  overflow-y: auto;
+  flex: 1;
+  /* See #marks-content: a flex item's default min-height is `auto`, so without
+     this a long plan pushes the rest out of the panel instead of scrolling. */
+  min-height: 0;
+}
+.pn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+.pn-actions button {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pn-actions button:hover {
+  background: var(--control-hover);
+}
+/* Destructive actions sit alone at the foot, quiet and not stretched. Red is
+   the warning, not the emphasis — a delete button should be findable, never the
+   thing your eye lands on first. */
+.pn-danger-row {
+  margin: 20px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-faint);
+}
+.pn-danger {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: none;
+  color: var(--bad-soft);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.pn-danger:hover {
+  border-color: var(--bad);
+  background: rgba(255, 90, 90, 0.1);
+}
+.pn-group {
+  margin: 14px 2px 6px;
+  font-family: var(--font-collar);
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: 600;
+  color: var(--label);
+  text-transform: uppercase;
+  border-top: 1px solid var(--rule-faint);
+  padding-top: 10px;
+}
+.pn-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 2px;
+}
+.pn-empty p {
+  margin: 6px 0 0;
+}
+.pn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+}
+.pn-row--tap {
+  cursor: pointer;
+}
+.pn-row--tap:hover {
+  background: var(--wash);
+}
+.pn-chev {
+  flex: none;
+  color: var(--type-quiet);
+  font-size: 16px;
+}
+.pn-info {
+  flex: 1;
+  min-width: 0;
+}
+.pn-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pn-sub {
+  font-size: 10px;
+  opacity: 0.6;
+}
+/* Provenance is a measured fact about the route — date, pack, build — so it
+   takes the instrument face, like coordinates and distances do. */
+.pn-prov {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  color: var(--type-quiet);
+  margin-top: 2px;
+}
+.pn-btn {
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pn-del {
+  background: none;
+  border: none;
+  color: var(--bad-soft);
+  cursor: pointer;
+  font-size: 13px;
+}
+.pn-back {
+  background: none;
+  border: none;
+  color: var(--label-lift);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.pn-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pn-route {
+  border: 1px solid var(--rule-faint);
+  border-left: 3px solid var(--overprint-lift);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.pn-route.primary {
+  border-left-color: var(--overprint);
+  background: var(--overprint-wash);
+}
+.pn-route-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pn-route-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pn-route-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.pn-steps {
+  margin-top: 6px;
+  border-top: 1px dotted var(--rule-faint);
+  padding-top: 5px;
+}
+.pn-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+  color: var(--type-2);
+}
+.pn-step span:last-child {
+  font-family: var(--font-data);
+  font-size: 10px;
+  color: var(--type-quiet);
+  flex: none;
+}
+.pn-warn {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.pn-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--type-quiet);
+  border: 1px dotted var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.pn-notes {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  padding: 4px 2px;
+}
+.pn-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  margin-bottom: 5px;
+}
+.pn-role {
+  font-family: var(--font-collar);
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--label);
+  border: 1px solid var(--rule-faint);
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+/* Medical facts are what a stranger reads off this in a hurry, so they get the
+   weight of a warning rather than the greyed-out treatment of a subtitle. */
+.pn-med {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warn-soft);
+  margin-top: 2px;
+}
+/* A frequency is a measured value — instrument face, like coordinates. */
+.pn-freq {
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--type-2);
+  margin-top: 2px;
+}
+.pn-fine {
+  margin-top: 12px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+
+/* ==========================================================================
+   The Kit panel
+   ==========================================================================
+   Same structural language as Plan and Marks. The one thing it adds is the
+   expiry chip, which is the whole reason the feature exists: a tickbox says you
+   are ready and a lapsed date says you are not, so the date has to be at least
+   as loud as the tick. */
+#kit-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0; /* see #marks-content */
+}
+.kt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+.kt-actions button {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kt-actions button:hover {
+  background: var(--control-hover);
+}
+.kt-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 2px;
+}
+.kt-empty p {
+  margin: 6px 0 0;
+}
+.kt-fine {
+  margin-top: 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+.kt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.kt-row:hover {
+  background: var(--wash);
+}
+.kt-info {
+  flex: 1;
+  min-width: 0;
+}
+.kt-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.kt-sub {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+/* A percentage is a measured value, so it takes the instrument face. */
+.kt-pct {
+  font-family: var(--font-data);
+  font-size: 15px;
+  color: var(--type-loud);
+  flex: none;
+}
+.kt-bar {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--wash-firm);
+  overflow: hidden;
+}
+.kt-bar-fill {
+  height: 100%;
+  background: var(--good);
+  border-radius: var(--radius-pill);
+}
+/* Expired kit is not progress. A bar that reads 100% green while four items
+   are out of date is the exact lie this panel exists to stop. */
+.kt-bar-fill.has-expired {
+  background: var(--bad);
+}
+.kt-flags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.kt-flag {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.4px;
+}
+.kt-flag.bad {
+  color: var(--bad-soft);
+  background: rgba(255, 90, 90, 0.16);
+}
+.kt-flag.warn {
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+}
+.kt-back {
+  background: none;
+  border: none;
+  color: var(--label-lift);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+.kt-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.kt-supply {
+  margin: 10px 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(127, 227, 255, 0.08); /* --layer-water, as a wash */
+}
+.kt-section {
+  margin-top: 10px;
+}
+.kt-section-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rule-faint);
+  padding: 8px 2px;
+  color: var(--label);
+  font-family: var(--font-collar);
+  font-size: 10.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.kt-section-count {
+  font-family: var(--font-data);
+  letter-spacing: 0;
+  color: var(--type-quiet);
+}
+.kt-caret {
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform 0.15s ease;
+}
+.kt-section.collapsed .kt-caret {
+  transform: rotate(-90deg);
+}
+.kt-section.collapsed .kt-section-body {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kt-caret { transition: none; }
+}
+.kt-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 2px;
+  border-bottom: 1px dotted var(--rule-faint);
+}
+.kt-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.kt-item-name {
+  font-size: 12.5px;
+}
+.kt-item.have .kt-item-name {
+  color: var(--type-quiet);
+}
+.kt-item-meta {
+  font-family: var(--font-data);
+  font-size: 10px;
+  color: var(--type-quiet);
+  margin-top: 2px;
+}
+.kt-note {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--type-quiet);
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.kt-tick {
+  background: none;
+  border: none;
+  color: var(--type-quiet);
+  font-size: 15px;
+  line-height: 1.1;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+}
+.kt-item.have .kt-tick {
+  color: var(--good);
+}
+.kt-edit {
+  background: none;
+  border: none;
+  color: var(--type-quiet);
+  cursor: pointer;
+  font-size: 14px;
+  flex: none;
+}
+.kt-exp {
+  border-radius: var(--radius-pill);
+  padding: 0 5px;
+}
+.kt-exp.expired {
+  color: var(--bad-soft);
+  background: rgba(255, 90, 90, 0.18);
+}
+.kt-exp.soon {
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+}
+.kt-exp.ok {
+  color: var(--type-quiet);
+}
+
+/* Plan stop markers. Kinds are told apart by glyph first and hue second, so
+   they still read on a greyscale print and in night-vision red. */
+.plan-stop {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  color: #14171b;
+  background: var(--overprint-lift);
+  border: 1.5px solid var(--overprint-casing);
+  box-shadow: var(--shadow-soft);
+}
+.plan-stop--rally {
+  background: var(--overprint);
+  color: #fff;
+}
+.plan-stop--cache { background: var(--layer-camp); }
+.plan-stop--fuel { background: var(--warn); }
+.plan-stop--water { background: var(--layer-water); }
+.plan-stop--shelter { background: var(--layer-camp); }
+.plan-stop--medical { background: #fff; }
+.plan-stop--avoid {
+  background: var(--bad);
+  color: #fff;
+}
+
 /* Waypoint pin marker */
 /* Your pins. Overprinted — see src/overprint.ts for what that means and what
    may and may not use it. */
@@ -1647,6 +2198,31 @@ body.nightvis {
   text-indent: -8px;
   padding-left: 8px;
 }
+/* Headings inside a guide. The guides run to several hundred words each and are
+   read under stress, so the sections have to be findable by eye. Collar type,
+   like every other section heading in the app. */
+.hb-head {
+  margin: 12px 0 5px;
+  font-family: var(--font-collar);
+  font-size: 10.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--label-lift);
+}
+.hb-head:first-child {
+  margin-top: 0;
+}
+/* Shown while the section is collapsed: what this guide is for, so a list of
+   twenty-one titles can be scanned rather than opened one at a time. */
+.hb-summary {
+  margin: -2px 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--type-quiet);
+}
+.hb-section:not(.collapsed) .hb-summary {
+  margin-bottom: 10px;
+}
 
 #handbook-disclaimer {
   flex: none;
@@ -1800,7 +2376,13 @@ button {
   #compass-close,
   .mk-del,
   .mesh-route,
-  .rt-back {
+  .rt-back,
+  /* Icon-only controls in Plan and Kit: a ✕ and a tickbox are the smallest
+     targets in either panel, and the tickbox is the one you press sixty times
+     while packing a bag. */
+  .pn-del,
+  .kt-tick,
+  .kt-edit {
     min-width: 44px;
     min-height: 44px;
   }
@@ -1814,7 +2396,11 @@ button {
   .rt-slot,
   .mesh-node,
   .pl-row,
-  .pl-look {
+  .pl-look,
+  .pn-row,
+  .kt-row,
+  .kt-item,
+  .kt-section-head {
     min-height: 44px;
   }
   .hb-title {
@@ -1843,6 +2429,11 @@ button {
   .fish-actions button,
   .search-alt,
   .pl-back,
+  .pn-back,
+  .pn-btn,
+  .pn-actions button,
+  .kt-back,
+  .kt-actions button,
   .mesh-go,
   .mesh-alt,
   .state-dem-btn,
@@ -4224,6 +4815,11 @@ body.battery.nightvis .maplibregl-ctrl {
 .hb-title,
 .state-action,
 .mk-btn,
+.pn-actions button,
+.pn-btn,
+.pn-back,
+.kt-actions button,
+.kt-back,
 .rd-label {
   font-family: var(--font-collar);
   font-weight: 600;

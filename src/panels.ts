@@ -12,6 +12,8 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
   { btn: "states-open", panel: "states-panel" },
   { btn: "search-open", panel: "search-panel" },
   { btn: "route-open", panel: "route-panel" },
+  { btn: "plan-open", panel: "plan-panel" },
+  { btn: "kit-open", panel: "kit-panel" },
   { btn: "handbook-open", panel: "handbook-panel" },
   { btn: "marks-open", panel: "marks-panel" },
   { btn: "mesh-open", panel: "mesh-panel" },
