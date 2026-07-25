@@ -48,7 +48,11 @@ interface PackInfo {
   abbr: string;
   bytes: number;
   modified: number; // unix seconds, 0 = unknown
-  dem_bytes: number; // 0 = no terrain downloaded
+  dem_bytes: number; // bytes on disk, finished or not
+  /** Whether that DEM is a FINISHED pyramid. Bytes alone are not the same
+   *  question: a download that is killed rather than failed leaves some of the
+   *  deepest zoom behind and nothing else. */
+  dem_complete: boolean;
   mvum_bytes: number; // 0 = no Forest Service overlay downloaded
 }
 
@@ -263,7 +267,11 @@ function rowHtml(s: StateEntry): string {
   const isDownloading = dl !== undefined;
   const dem = demDownloading.get(s.abbr);
   const isDemDownloading = dem !== undefined;
-  const hasDem = (packInfo.get(s.abbr)?.dem_bytes ?? 0) > 0;
+  const demBytes = packInfo.get(s.abbr)?.dem_bytes ?? 0;
+  const hasDem = packInfo.get(s.abbr)?.dem_complete === true;
+  // Bytes but no finish: a killed download. Worth naming, because the button
+  // resumes rather than starting over — every tile already on disk is kept.
+  const demPartial = demBytes > 0 && !hasDem;
 
   let action: string;
   if (isDownloading) {
@@ -288,6 +296,12 @@ function rowHtml(s: StateEntry): string {
   if (isInstalled && !isDownloading) {
     if (isDemDownloading) {
       demRow = taskRow("Terrain", dem!);
+    } else if (demPartial) {
+      demRow = `<div class="state-dem">
+          <button class="state-dem-btn" data-dem="${s.abbr}">△ Finish terrain (${fmtBytes(
+            demBytes
+          )} of ~${fmtSize(estDemMB(s.bbox))} so far)</button>
+        </div>`;
     } else if (!hasDem) {
       demRow = `<div class="state-dem">
           <button class="state-dem-btn" data-dem="${s.abbr}">△ Add terrain (~${fmtSize(estDemMB(s.bbox))})</button>
@@ -474,7 +488,10 @@ async function activate(abbr: string, fly: boolean, closePanel = true) {
   try {
     const path = await invoke<string>("state_path", { abbr });
     const url = `pmtiles://${convertFileSrc(path)}`;
-    const hasDem = (packInfo.get(abbr)?.dem_bytes ?? 0) > 0;
+    // Complete, not merely present. Handing a half-built pyramid to the map lit
+    // the Terrain button and drew nothing, because hillshade asks for the zoom
+    // the map is on and a killed download only ever has the deepest one.
+    const hasDem = packInfo.get(abbr)?.dem_complete === true;
     let demUrl: string | undefined;
     if (hasDem) {
       const demDir = await invoke<string>("dem_path", { abbr });

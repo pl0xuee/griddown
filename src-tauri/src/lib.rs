@@ -341,6 +341,10 @@ struct PackInfo {
     modified: u64,
     /// Total size of this state's downloaded DEM tiles; 0 = no terrain.
     dem_bytes: u64,
+    /// Whether that DEM is a FINISHED pyramid rather than however far a killed
+    /// download got. Bytes on disk were standing in for this, and the two are
+    /// not the same thing — see `dem_done_marker`.
+    dem_complete: bool,
     /// Size of this state's Motor Vehicle Use Map overlay; 0 = not downloaded.
     mvum_bytes: u64,
 }
@@ -356,6 +360,40 @@ fn dem_dir(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
         .join("dem")
         .join(abbr))
 }
+
+/// Marker written when a DEM download reaches the end of its queue.
+///
+/// "Is terrain installed?" was answered by `dem_bytes > 0`, and a download that
+/// is KILLED rather than failed leaves bytes behind. The tile queue is popped
+/// from the back, so the deepest zoom goes first: a run that dies partway leaves
+/// a directory holding some of z12 and nothing else. Every consequence of that
+/// pointed the wrong way — the state row stopped offering "Add terrain", so
+/// there was no way left to finish it; `terrainAvailable` went true, so the
+/// Terrain button lit up and toggled; and hillshade asked for tiles at the zoom
+/// the map was actually on, found none, and drew nothing. Pressing Terrain did
+/// visibly nothing, on a state the app said had terrain. Found in the wild with
+/// 390 MB of Oregon z12 and no other zoom at all.
+///
+/// Records the maxzoom too, so raising it later invalidates the old pyramid
+/// rather than passing it off as current.
+fn dem_done_marker(dir: &std::path::Path) -> PathBuf {
+    dir.join("complete.json")
+}
+
+/// Whether a state's DEM is a finished pyramid at `maxzoom` or better.
+fn dem_is_complete(dir: &std::path::Path, want_maxzoom: u32) -> bool {
+    let Ok(s) = std::fs::read_to_string(dem_done_marker(dir)) else {
+        return false;
+    };
+    serde_json::from_str::<serde_json::Value>(&s)
+        .ok()
+        .and_then(|v| v.get("maxzoom").and_then(|z| z.as_u64()))
+        .is_some_and(|z| z as u32 >= want_maxzoom)
+}
+
+/// The maxzoom every DEM download asks for. One place, so the writer and the
+/// completeness check cannot drift.
+const DEM_MAXZOOM: u32 = 12;
 
 fn dir_size(dir: &PathBuf) -> u64 {
     let mut total = 0u64;
@@ -402,7 +440,12 @@ async fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let dem_bytes = dem_dir(&app, abbr).map(|d| dir_size(&d)).unwrap_or(0);
+        let dem_path = dem_dir(&app, abbr);
+        let dem_bytes = dem_path.as_ref().map(dir_size).unwrap_or(0);
+        let dem_complete = dem_path
+            .as_ref()
+            .map(|d| dem_is_complete(d, DEM_MAXZOOM))
+            .unwrap_or(false);
         let mvum_bytes = mvum_file(&app, abbr)
             .ok()
             .and_then(|p| p.metadata().ok())
@@ -413,6 +456,7 @@ async fn pack_info(app: AppHandle) -> Result<Vec<PackInfo>, String> {
             bytes: md.len(),
             modified,
             dem_bytes,
+            dem_complete,
             mvum_bytes,
         });
     }
@@ -515,6 +559,10 @@ async fn download_dem(
     };
     let dir = dem_dir(&app, &abbr)?;
     std::fs::create_dir_all(&dir).map_err(|e2| e2.to_string())?;
+    // Drop any previous marker for the duration: if THIS run is killed the
+    // directory must not still be claiming to be finished.
+    let _ = std::fs::remove_file(dem_done_marker(&dir));
+    let marker = dem_done_marker(&dir);
 
     let mut todo: Vec<(u32, u32, u32)> = Vec::new();
     for z in 0..=maxzoom.min(14) {
@@ -603,6 +651,13 @@ async fn download_dem(
         if nfail * 50 > total.max(1) {
             return Err(format!("{} of {} tiles failed — check your connection and try again", nfail, total));
         }
+        // Reached the end of the queue with the stragglers within tolerance:
+        // this pyramid is as complete as it is going to get, and saying so is
+        // what stops a killed run from passing for a finished one.
+        let _ = std::fs::write(
+            &marker,
+            serde_json::json!({ "maxzoom": maxzoom, "tiles": total, "failed": nfail }).to_string(),
+        );
         Ok(dir_size(&dir))
     })
     .await
@@ -1216,6 +1271,46 @@ mod tests {
 
     fn p(s: &str) -> Option<PathBuf> {
         Some(PathBuf::from(s))
+    }
+
+    /// Bytes on disk are not the question. A DEM download that is KILLED rather
+    /// than failed leaves tiles behind — the queue pops from the back, so it is
+    /// some of the deepest zoom and nothing else — and every consequence of
+    /// calling that "installed" pointed the wrong way: the state row stopped
+    /// offering to finish it, the Terrain button lit up, and hillshade drew
+    /// nothing because it asks for the zoom the map is actually on.
+    #[test]
+    fn dem_completeness_is_marked_not_inferred() {
+        let dir = std::env::temp_dir().join(format!("gd-dem-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("12").join("600")).unwrap();
+
+        // A partial pyramid: real tiles, no marker.
+        std::fs::write(dir.join("12").join("600").join("1400.png"), b"notempty").unwrap();
+        assert!(
+            !dem_is_complete(&dir, DEM_MAXZOOM),
+            "tiles on disk must not pass for a finished download"
+        );
+
+        // Finished at the zoom we ask for.
+        std::fs::write(
+            dem_done_marker(&dir),
+            serde_json::json!({ "maxzoom": DEM_MAXZOOM, "tiles": 1, "failed": 0 }).to_string(),
+        )
+        .unwrap();
+        assert!(dem_is_complete(&dir, DEM_MAXZOOM));
+
+        // Deeper than asked for still counts; shallower does not — raising
+        // DEM_MAXZOOM has to invalidate a pyramid built to the old one rather
+        // than pass it off as current.
+        assert!(dem_is_complete(&dir, DEM_MAXZOOM - 1));
+        assert!(!dem_is_complete(&dir, DEM_MAXZOOM + 1));
+
+        // Garbage is not a completion certificate.
+        std::fs::write(dem_done_marker(&dir), "{ this is not json").unwrap();
+        assert!(!dem_is_complete(&dir, DEM_MAXZOOM));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The bug this whole pair of functions exists to prevent. iOS has no
