@@ -1551,19 +1551,44 @@ body.placing-stop #route-recalc {
   border: 1px solid var(--rule-faint);
   margin-bottom: 5px;
 }
-/* A stop the route actually goes through, as opposed to one merely marked
-   near it. The overprint, because it is now part of the line you drew. */
-.pn-via {
-  font-family: var(--font-collar);
+/* A stop, on two rows: what it is, then what you can do with it.
+   One row could not hold a name, a state badge and three controls in a 344px
+   panel without the buttons closing up on each other — and the badge was
+   redundant beside a button that already said the same thing. */
+.pn-stop {
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+}
+.pn-stop-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pn-stop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.pn-stop-actions .pn-btn {
+  flex: 1 1 auto;
+  min-height: 34px;
+}
+/* On the route: the overprint, because the stop is now part of the line you
+   drew rather than a mark sitting near it. */
+.pn-btn.on {
+  border-color: var(--overprint);
+  background: var(--overprint-wash);
+  color: var(--type-loud);
+}
+/* Coordinates are a measured value — instrument face, like every other reading
+   in the app. */
+.pn-coord {
+  font-family: var(--font-data);
   font-size: 9.5px;
-  letter-spacing: 1.2px;
-  text-transform: uppercase;
-  color: var(--overprint-lift);
-  border: 1px solid var(--overprint-lift);
-  border-radius: var(--radius-pill);
-  padding: 1px 6px;
-  margin-left: 4px;
-  white-space: nowrap;
 }
 .pn-role {
   font-family: var(--font-collar);

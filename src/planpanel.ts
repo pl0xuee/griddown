@@ -449,25 +449,33 @@ function renderDetail(p: Plan) {
   if (!el) return;
   const stops = p.stops
     .map(
-      (s) => `<div class="pn-row" data-stop="${esc(s.id)}">
-        <div class="pn-info">
-          <div class="pn-name">${KIND_GLYPH[s.kind]} ${esc(s.name)}${
-            s.via ? ` <span class="pn-via">on the route</span>` : ""
-          }</div>
-          <div class="pn-sub">${KIND_LABEL[s.kind]} · ${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</div>
-          ${s.note ? `<div class="pn-sub">${esc(s.note)}</div>` : ""}
+      // Two rows, not one. Name, badge and three controls abreast left the
+      // buttons fighting for a panel 344px wide — and the badge said exactly
+      // what the button beside it already said.
+      (s) => `<div class="pn-stop" data-stop="${esc(s.id)}">
+        <div class="pn-stop-head">
+          <div class="pn-info">
+            <div class="pn-name">${KIND_GLYPH[s.kind]} ${esc(s.name)}</div>
+            <div class="pn-sub">${KIND_LABEL[s.kind]} · <span class="pn-coord">${s.lat.toFixed(
+              4
+            )}, ${s.lng.toFixed(4)}</span></div>
+            ${s.note ? `<div class="pn-sub">${esc(s.note)}</div>` : ""}
+          </div>
+          <button class="pn-del" data-delstop="${esc(s.id)}" type="button" aria-label="Delete stop">✕</button>
         </div>
-        ${
-          // Avoid stops are the one kind with nothing to offer here: routing
-          // through ground you marked as ground to stay off is backwards.
-          canRouteThrough(s) && p.routes.length
-            ? `<button class="pn-btn" data-via="${esc(s.id)}" type="button">${
-                s.via ? "Take off route" : "Route through"
-              }</button>`
-            : ""
-        }
-        <button class="pn-btn" data-gostop="${esc(s.id)}" type="button">Show</button>
-        <button class="pn-del" data-delstop="${esc(s.id)}" type="button" aria-label="Delete stop">✕</button>
+        <div class="pn-stop-actions">
+          ${
+            // Avoid stops are the one kind with nothing to offer here: routing
+            // through ground you marked as ground to stay off is backwards.
+            canRouteThrough(s) && p.routes.length
+              ? `<button class="pn-btn${s.via ? " on" : ""}" data-via="${esc(s.id)}"
+                   type="button" aria-pressed="${!!s.via}">${
+                  s.via ? "◈ On the route" : "Route through"
+                }</button>`
+              : ""
+          }
+          <button class="pn-btn" data-gostop="${esc(s.id)}" type="button">Show</button>
+        </div>
       </div>`
     )
     .join("");
