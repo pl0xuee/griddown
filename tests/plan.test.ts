@@ -6,6 +6,7 @@ import {
   planIssues,
   planBounds,
   makePrimary,
+  routeSaveTarget,
   isPlan,
   type FrozenRoute,
   type Plan,
@@ -238,6 +239,45 @@ describe("planIssues", () => {
       now,
     });
     expect(issues.some((i) => i.level === "bad")).toBe(true);
+  });
+});
+
+/**
+ * Where a freshly computed route goes. Saving one into the wrong plan is a
+ * quiet error — you find out when you open the plan expecting a way out and the
+ * route in it goes somewhere else — so the rule is that whenever there is more
+ * than one plan, it gets asked.
+ */
+describe("routeSaveTarget", () => {
+  const p1 = plan({ id: "p1" });
+  const p2 = plan({ id: "p2" });
+
+  it("has nothing to ask about when there are no plans yet", () => {
+    expect(routeSaveTarget([], null)).toEqual({ kind: "create" });
+  });
+
+  it("asks whenever there is more than one plan", () => {
+    expect(routeSaveTarget([p1, p2], null)).toEqual({ kind: "ask" });
+  });
+
+  it("still asks when there is more than one plan, even coming from one", () => {
+    // Pressing "Add a route" on a plan says which plan you meant, but the
+    // route panel is a long way from that tap and saving to the wrong one is
+    // silent. Confirming costs a single button.
+    expect(routeSaveTarget([p1, p2], "p1")).toEqual({ kind: "ask" });
+  });
+
+  it("does not ask when the only plan is the one that sent you", () => {
+    expect(routeSaveTarget([p1], "p1")).toEqual({ kind: "use", planId: "p1" });
+  });
+
+  it("asks with one plan when you did not come from it, so a new plan is reachable", () => {
+    expect(routeSaveTarget([p1], null)).toEqual({ kind: "ask" });
+  });
+
+  it("ignores a stale origin whose plan has since been deleted", () => {
+    expect(routeSaveTarget([p1], "gone")).toEqual({ kind: "ask" });
+    expect(routeSaveTarget([], "gone")).toEqual({ kind: "create" });
   });
 });
 

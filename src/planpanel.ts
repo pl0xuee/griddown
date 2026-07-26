@@ -12,6 +12,7 @@ import {
   makePrimary,
   planBounds,
   planSummary,
+  routeSaveTarget,
   STOP_KINDS,
   type FrozenRoute,
   type LL,
@@ -28,6 +29,7 @@ import {
 import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { printPlan } from "./planprint";
 import { OVERPRINT, OVERPRINT_CASING, OVERPRINT_LIFT } from "./overprint";
+import { closeAllPanels } from "./panels";
 import { chooseAction, confirmAction, promptAction } from "./dialog";
 import { esc } from "./esc";
 import { toast } from "./toast";
@@ -689,20 +691,24 @@ export async function saveRouteToPlan(h: {
   to: { lat: number; lng: number; label: string };
   pack: string;
 }): Promise<void> {
-  let target: Plan | undefined;
-  // Came here from a plan's "Add a route"? Then the question has already been
-  // answered, and asking it again is just a button to press.
-  const sentFrom = awaitingRouteFor ? findPlan(awaitingRouteFor) : undefined;
+  const sentFromId = awaitingRouteFor;
   awaitingRouteFor = null;
-  if (sentFrom) {
-    target = sentFrom;
-  } else if (!plans.length) {
+
+  let target: Plan | undefined;
+  const decision = routeSaveTarget(plans, sentFromId);
+  if (decision.kind === "create") {
     // Nothing to choose between — go straight to making one.
     target = (await newPlan()) ?? undefined;
-    if (!target) return;
+  } else if (decision.kind === "use") {
+    target = findPlan(decision.planId);
   } else {
-    const picked = await chooseAction<Plan | "new">("Add this route to which plan?", [
-      ...plans.map((p) => ({
+    // The plan you came from goes first and takes the focus, so confirming it
+    // is one button rather than a hunt.
+    const ordered = sentFromId
+      ? [...plans.filter((p) => p.id === sentFromId), ...plans.filter((p) => p.id !== sentFromId)]
+      : plans;
+    const picked = await chooseAction<Plan | "new">("Save this route to which plan?", [
+      ...ordered.map((p) => ({
         label: p.name,
         value: p as Plan | "new",
         detail: p.routes.length
@@ -713,8 +719,8 @@ export async function saveRouteToPlan(h: {
     ]);
     if (picked == null) return;
     target = picked === "new" ? ((await newPlan()) ?? undefined) : picked;
-    if (!target) return;
   }
+  if (!target) return;
   const suggested = target.routes.length ? `Alternate ${target.routes.length}` : "Primary";
   const name = await promptAction("Name this route", { value: suggested, okLabel: "Save" });
   if (name == null) return;
@@ -731,7 +737,22 @@ export async function saveRouteToPlan(h: {
   replacePlan({ ...target, routes: target.routes.concat(r) });
   await persist();
   toast(`Saved to "${target.name}".`, "success");
-  openId = target.id;
+  revealPlan(target.id);
+}
+
+/**
+ * Show a plan, from wherever you were.
+ *
+ * Setting openId and re-rendering is not enough on its own: after saving from
+ * Get there the Plan panel is closed, so the render lands in a hidden element
+ * and pressing Save appears to do nothing but raise a toast. Saving a route is
+ * the one moment you want to see the plan it went into — if only to check it
+ * went into the right one.
+ */
+function revealPlan(id: string) {
+  openId = id;
+  closeAllPanels();
+  document.getElementById("plan-panel")?.classList.remove("hidden");
   render();
 }
 

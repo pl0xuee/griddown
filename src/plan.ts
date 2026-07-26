@@ -274,6 +274,32 @@ export function planSummary(p: Plan): PlanSummary {
   };
 }
 
+export type SaveTarget =
+  | { kind: "create" }
+  | { kind: "use"; planId: string }
+  | { kind: "ask" };
+
+/**
+ * Which plan a freshly computed route should go into.
+ *
+ * The rule is: whenever there is more than one plan, ask. Saving a route into
+ * the wrong plan is a silent error — nothing looks broken, and you find out on
+ * the day you open the plan expecting a way out and the route in it goes
+ * somewhere else. Pressing "Add a route" on a plan does say which one you
+ * meant, but the route panel is a long way from that tap, so it is treated as a
+ * default to confirm rather than an answer to act on.
+ *
+ * The one case with nothing to ask: a single plan, which is also the one that
+ * sent you.
+ */
+export function routeSaveTarget(plans: Plan[], sentFromId: string | null): SaveTarget {
+  if (!plans.length) return { kind: "create" };
+  if (plans.length === 1 && sentFromId && plans[0].id === sentFromId) {
+    return { kind: "use", planId: plans[0].id };
+  }
+  return { kind: "ask" };
+}
+
 /**
  * Promote a route to primary.
  *
