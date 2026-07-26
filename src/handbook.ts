@@ -73,6 +73,27 @@ interface Chapter {
 }
 let manual: { source: string; chapters: Chapter[] } | null = null;
 
+/**
+ * The guides — what the field manual isn't.
+ *
+ * FM 3-05.70 is a reference: it answers "how do I purify water" superbly and
+ * "it is day three and the taps are off, what do I do now" not at all. The
+ * playbooks are that missing half, in order; the domain guides cover the ground
+ * a military survival manual has no reason to cover — sanitation at household
+ * scale, food preservation, growing, dentistry, keeping people sane.
+ *
+ * Same plain-text shape as the manual (a line is a paragraph, or a bullet
+ * starting "• "), so both render through chapterBodyHtml.
+ */
+interface Guide {
+  slug: string;
+  title: string;
+  kind: "playbook" | "domain";
+  summary?: string;
+  text: string;
+}
+let guides: Guide[] = [];
+
 // Assigned by initHandbook; lets other panels open the handbook to a topic.
 let opener: ((q?: string) => void) | null = null;
 
@@ -89,15 +110,23 @@ function textOf(html: string): string {
   return html.replace(/<[^>]*>/g, "");
 }
 
+/**
+ * Render one body of plain text — a manual chapter or a guide.
+ *
+ * Three line forms, and only three: "• " is a bullet, "§ " is a heading (see
+ * tools/build_guides.mjs), anything else is a paragraph. The field manual only
+ * ever produces the first and last; the guides produce all three, and without
+ * the heading form a 700-word guide arrives as an undifferentiated wall.
+ */
 function chapterBodyHtml(text: string): string {
   return text
     .split("\n")
     .filter((l) => l.trim())
-    .map((l) =>
-      l.startsWith("• ")
-        ? `<div class="hb-bullet">• ${esc(l.slice(2))}</div>`
-        : `<p>${esc(l)}</p>`
-    )
+    .map((l) => {
+      if (l.startsWith("• ")) return `<div class="hb-bullet">• ${esc(l.slice(2))}</div>`;
+      if (l.startsWith("§ ")) return `<div class="hb-head">${esc(l.slice(2))}</div>`;
+      return `<p>${esc(l)}</p>`;
+    })
     .join("");
 }
 
@@ -123,6 +152,34 @@ export async function initHandbook() {
         </div>`;
     }).join("");
 
+    // The guides. Bodies render lazily on expand, like the manual's, because
+    // twenty of them at once is a lot of DOM to build for a panel that opens
+    // on a phone.
+    const guideHtml = (kind: Guide["kind"]) =>
+      guides
+        .filter((g) => g.kind === kind)
+        .filter(
+          (g) =>
+            !q ||
+            g.title.toLowerCase().includes(q) ||
+            (g.summary || "").toLowerCase().includes(q) ||
+            g.text.toLowerCase().includes(q)
+        )
+        .map((g) => {
+          const open = q ? "" : "collapsed";
+          const body = q ? chapterBodyHtml(g.text) : "";
+          // The summary shows while collapsed: twenty-one titles alone is a
+          // list you have to open one by one to navigate.
+          return `<div class="hb-section ${open}" data-guide="${esc(g.slug)}">
+              <div class="hb-title">${esc(g.title)}<span class="hb-icon">▾</span></div>
+              ${g.summary ? `<div class="hb-summary">${esc(g.summary)}</div>` : ""}
+              <div class="hb-body">${body}</div>
+            </div>`;
+        })
+        .join("");
+    const playbooks = guideHtml("playbook");
+    const domains = guideHtml("domain");
+
     // Full manual chapters (bodies rendered lazily on expand)
     const chaps = (manual?.chapters || [])
       .filter((c) => !q || c.title.toLowerCase().includes(q) || c.text.toLowerCase().includes(q))
@@ -138,6 +195,10 @@ export async function initHandbook() {
 
     content.innerHTML =
       `<div class="hb-group">Quick reference</div>${quick}` +
+      // Playbooks sit above the manual deliberately: they are the thing you
+      // want when you don't yet know what to look up.
+      (playbooks ? `<div class="hb-group">Playbooks — what to do, in order</div>${playbooks}` : "") +
+      (domains ? `<div class="hb-group">Guides</div>${domains}` : "") +
       (manual
         ? `<div class="hb-group">Field manual — FM 3-05.70 <span class="hb-src">public domain</span></div>${chaps || `<div class="hb-empty">No chapters match "${esc(q)}".</div>`}`
         : "");
@@ -152,6 +213,11 @@ export async function initHandbook() {
         if (chapId && bodyEl && !bodyEl.innerHTML) {
           const ch = manual?.chapters.find((c) => String(c.n) === chapId);
           if (ch) bodyEl.innerHTML = chapterBodyHtml(ch.text);
+        }
+        const guideId = sec.getAttribute("data-guide");
+        if (guideId && bodyEl && !bodyEl.innerHTML) {
+          const g = guides.find((x) => x.slug === guideId);
+          if (g) bodyEl.innerHTML = chapterBodyHtml(g.text);
         }
       });
     });
@@ -178,6 +244,17 @@ export async function initHandbook() {
     panel?.classList.add("hidden");
   });
   search?.addEventListener("input", render);
+  render();
+
+  // The guides are small and are the most useful thing here, so they load
+  // first and independently — a failure to fetch the 750 KB manual must not
+  // take them with it.
+  try {
+    const g = await (await fetch(`${location.origin}/guides.json`)).json();
+    guides = Array.isArray(g?.guides) ? g.guides : [];
+  } catch {
+    guides = [];
+  }
   render();
 
   // Load the full public-domain field manual, then re-render to include it.

@@ -36,9 +36,15 @@ import { initMeasure } from "./measure";
 import { dropGotoPin } from "./goto";
 import { initSearch, resetPlaceIndex } from "./search";
 import { initRoute } from "./route";
+import { clearShownPlan, hasShownPlan, initPlan } from "./planpanel";
+import { initKit } from "./kitpanel";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
 import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
+
+/** Set by start(); called whenever a panel opens or closes so the on-map
+ *  controls can decide whether they are still the thing you would reach for. */
+let onPanelChange: (() => void) | null = null;
 import { initPlantPanel, openPlant, findPlant } from "./plantpanel";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
@@ -1345,7 +1351,11 @@ async function start() {
   // Assigned further down, once the overlay is initialised — switchToSource is
   // declared before it but only ever runs after.
   let mvumCtl: { packChanged(): void } | null = null;
-  let routeCtl: { routeTo(lng: number, lat: number, label: string): void } | null = null;
+  let routeCtl: {
+    routeTo(lng: number, lat: number, label: string): void;
+    clear(): void;
+    hasRoute(): boolean;
+  } | null = null;
 
   // --- Map info cards: tap water (Fishing) or land (Wild food) to identify it
   // and its likely food, plus the Camp-check and In-season tools. Everything
@@ -2148,6 +2158,50 @@ async function start() {
     // start of the route you just replaced.
     onFix: noteFix,
   });
+  // After initRoute: the Save-to-plan button lives in the route panel, and the
+  // plan it saves into has to exist by the time that button can be pressed.
+  initPlan({
+    map: () => map,
+    activeAbbr: () => activePackAbbr,
+    // Routing a plan through a stop reads the same pack Get there does.
+    sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
+    // Saving a route into a plan hands the map over to the plan.
+    clearRoute: () => routeCtl?.clear(),
+  });
+
+  /**
+   * "Clear route" in the menu, shown only when there is a line to clear.
+   *
+   * Two things can put one on the map — a route from Get there, and a plan
+   * shown from the Plan panel — and each could previously only be taken off
+   * again from inside the panel that drew it, which meant first knowing which
+   * of the two it was.
+   *
+   * Synced when the menu is raised rather than watched continuously: the menu
+   * has to be open for the button to be seen at all, so anything more is work
+   * nobody can observe.
+   */
+  const clearBtn = document.getElementById("clear-lines") as HTMLButtonElement | null;
+  const clearOnMap = document.getElementById("clear-map");
+  const syncClearLines = () => {
+    const anyLine = !!routeCtl?.hasRoute() || hasShownPlan();
+    if (clearBtn) clearBtn.hidden = !anyLine;
+    // The on-map one has the extra condition the recompute button has: it is
+    // only the thing you would reach for when nothing is covering the map.
+    clearOnMap?.classList.toggle("hidden", !anyLine || anyPanelOpen());
+  };
+  const clearEverything = () => {
+    routeCtl?.clear();
+    clearShownPlan();
+    syncClearLines();
+    toast("Route cleared.", "success");
+  };
+  clearBtn?.addEventListener("click", clearEverything);
+  clearOnMap?.addEventListener("click", clearEverything);
+  document.getElementById("hud-toggle")?.addEventListener("click", syncClearLines);
+  onPanelChange = syncClearLines;
+  syncClearLines();
+  initKit();
   initPrint({
     getMap: () => map,
     // Paper is always the light theme — dark maps waste ink and scan badly.
@@ -2156,7 +2210,7 @@ async function start() {
   });
   // Opening any panel drops the phone menu out of the way — peekSheet is
   // already exactly that, and is a no-op on a desktop.
-  initPanels(peekSheet);
+  initPanels(peekSheet, () => onPanelChange?.());
 
   void initStateLibrary(switchToSource);
 }
@@ -2633,6 +2687,7 @@ function initChrome() {
     hud.classList.add("collapsed");
   }
   syncMenuHidden(hud);
+
   document.getElementById("hud-toggle")?.addEventListener("click", () => {
     // Same meaning on both: ☰ hides the menu completely. On a phone that turns
     // the bottom sheet back into the corner pill (see the sheet styles).

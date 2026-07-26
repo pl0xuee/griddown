@@ -12,6 +12,8 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
   { btn: "states-open", panel: "states-panel" },
   { btn: "search-open", panel: "search-panel" },
   { btn: "route-open", panel: "route-panel" },
+  { btn: "plan-open", panel: "plan-panel" },
+  { btn: "kit-open", panel: "kit-panel" },
   { btn: "handbook-open", panel: "handbook-panel" },
   { btn: "marks-open", panel: "marks-panel" },
   { btn: "mesh-open", panel: "mesh-panel" },
@@ -41,7 +43,7 @@ const PANELS: ReadonlyArray<{ btn: string; panel: string }> = [
  * jump, an Escape key, a module closing itself. Observing the class attribute
  * catches every route into the state; watching clicks would only catch one.
  */
-function watchPanelState(onOpen?: () => void) {
+function watchPanelState(onOpen?: () => void, onChange?: () => void) {
   const bar = document.getElementById("cmdbar");
   const cmds = bar
     ? [...bar.querySelectorAll<HTMLElement>(".cmd[data-forward]")]
@@ -61,6 +63,10 @@ function watchPanelState(onOpen?: () => void) {
     // from inside the menu drops the menu — whichever button you used to do it.
     if (anyOpen && !wasOpen) onOpen?.();
     wasOpen = anyOpen;
+    // Every change, not just the transition into "something is showing": the
+    // on-map controls appear only when nothing is covering the map, so they
+    // care about panels CLOSING every bit as much as opening.
+    onChange?.();
   };
 
   const obs = new MutationObserver(sync);
@@ -86,8 +92,8 @@ export function anyPanelOpen(): boolean {
   );
 }
 
-export function initPanels(onPanelOpen?: () => void) {
-  watchPanelState(onPanelOpen);
+export function initPanels(onPanelOpen?: () => void, onPanelChange?: () => void) {
+  watchPanelState(onPanelOpen, onPanelChange);
 
   // Capture on `document` so this always runs before the button's own handler.
   // (Listeners on the button itself fire in registration order regardless of

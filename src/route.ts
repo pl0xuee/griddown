@@ -17,6 +17,9 @@ import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
 import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
+import { haversine } from "./geo";
+import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
+import { saveRouteToPlan } from "./planpanel";
 
 // "How do I get there" overview: a road-following path from a start point to a
 // destination, built entirely from the active map pack. Not turn-by-turn, not
@@ -318,6 +321,78 @@ function shortDist(m: number) {
   return ft < 1000 ? `${Math.round(ft).toLocaleString()} ft` : `${miles(m)} mi`;
 }
 
+export interface LegOutcome {
+  r: RouteResult;
+  z: number;
+  missing: number;
+  approx: boolean;
+}
+
+/**
+ * Work out one span of road, from a point to a point.
+ *
+ * Lifted out of the Get there panel's own `go()` so the Plan panel can route
+ * through a stop with the same machinery. There is only one router in this app
+ * and there should only ever be one: a second one would drift, and a route that
+ * disagrees with itself depending on which panel asked for it is worse than no
+ * route at all.
+ *
+ * Throws with a human sentence rather than returning null for the two failures
+ * a caller has to say something about — too far apart to plan tiles for, and no
+ * connected road found at any zoom.
+ */
+export async function computeLeg(
+  from: { lng: number; lat: number },
+  to: { lng: number; lat: number },
+  sourceUrl: string,
+  onProgress?: (msg: string) => void
+): Promise<LegOutcome> {
+  // The shared implementation, not the panel's private copy — see geo.ts.
+  const direct = haversine([from.lng, from.lat], [to.lng, to.lat]);
+  const plans = planTiles({ ...from, label: "" }, { ...to, label: "" }, direct);
+  if (!plans.length) {
+    throw new Error(
+      "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
+    );
+  }
+
+  let best: LegOutcome | null = null;
+  // Finest zoom first, and at each zoom the stitch distance that zoom's tiles
+  // actually need. Only if a zoom cannot produce a route at all do we try a
+  // looser pass over the same, already-loaded segments — a route that needed
+  // loose bridging is marked `approx` because loose bridging can join roads
+  // that do not meet on the ground.
+  outer: for (const plan of plans) {
+    const { segs, missing } = await loadRoads(sourceUrl, plan, (d, t) =>
+      onProgress?.(`Reading roads… ${d}/${t} tiles`)
+    );
+    if (!segs.length) continue;
+    onProgress?.("Working out the way…");
+    const tight = stitchFor(plan.z);
+    for (const stitch of [tight, tight * 4]) {
+      const graph = buildRouteGraph(segs, { stitchMeters: stitch });
+      const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], {
+        snapMeters: 2000,
+      });
+      if (r) {
+        best = { r, z: plan.z, missing, approx: stitch !== tight };
+        break outer;
+      }
+    }
+  }
+
+  if (!best) {
+    // Be explicit that this is a limit of the data, not a claim that no road
+    // exists — the network in these tiles is not fully connected.
+    throw new Error(
+      `No connected road route found at any detail level. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
+        direct
+      )} mi.`
+    );
+  }
+  return best;
+}
+
 export function initRoute(deps: {
   map: () => maplibregl.Map;
   /** Current pmtiles URL WITHOUT the pmtiles:// prefix. */
@@ -498,19 +573,8 @@ export function initRoute(deps: {
     );
   }
 
-  /**
-   * Frame the whole route in the part of the map you can actually see.
-   *
-   * A uniform padding is wrong here, because the visible map is not the map
-   * element: the dock covers the bottom ~103px on a phone, the collar and the
-   * command bar sit on top of it, and an open panel takes a whole side. Fitting
-   * to the raw container tucked the southern end of every route behind the
-   * dock — worst on exactly the routes you most want to see whole, since a
-   * long one is fitted tightly.
-   *
-   * Measured from the live chrome rather than hard-coded, so it stays right as
-   * the safe-area insets and --dock-h change between devices and orientations.
-   */
+  /** Frame the whole route in the part of the map you can actually see — see
+   *  fitmap.ts for why that isn't the same as the map element. */
   function fit(coords: [number, number][]) {
     if (!coords.length) return;
     const map = deps.map();
@@ -527,35 +591,20 @@ export function initRoute(deps: {
       return;
     }
 
-    const canvas = map.getCanvas().getBoundingClientRect();
-    const GAP = 24; // breathing room, so the line never touches an edge
-    const box = (el: Element | null | undefined) =>
-      el && !el.classList.contains("hidden") ? el.getBoundingClientRect() : null;
-
-    const dock = box(document.getElementById("dock"));
-    let top = GAP;
-    let bottom = GAP + (dock ? Math.max(0, canvas.bottom - dock.top) : 0);
-    let left = GAP;
-    let right = GAP;
-
-    // A panel open over the map takes a side on desktop and the whole screen on
-    // a phone. Only pad for it when it leaves something worth fitting into.
-    const p = box(panel);
-    if (p && p.width < canvas.width * 0.6) {
-      if (p.left - canvas.left < canvas.width * 0.2) left += p.width;
-      else right += p.width;
-    }
-
-    // Never let the padding exceed the viewport: MapLibre cannot fit into a
-    // negative box, and a tall route on a short screen gets close.
-    const capV = Math.max(0, (canvas.height - 40) / 2);
-    const capH = Math.max(0, (canvas.width - 40) / 2);
-    top = Math.min(top, capV);
-    bottom = Math.min(bottom, capV);
-    left = Math.min(left, capH);
-    right = Math.min(right, capH);
-
-    map.fitBounds(b, { padding: { top, bottom, left, right }, duration: 600 });
+    const padding = computePadding({
+      canvas: map.getCanvas().getBoundingClientRect(),
+      // The recompute button floats ABOVE the dock, so the dock's box says
+      // nothing about it — and it is exactly what you press after a route is
+      // drawn, so the end of the line used to land behind it.
+      bottom: [
+        visibleBox(document.getElementById("dock")),
+        visibleBox(document.getElementById("route-recalc")),
+        visibleBox(document.getElementById("map-legend")),
+      ],
+      panel: visibleBox(panel),
+      insets: safeAreaInsets(),
+    });
+    map.fitBounds(b, { padding, duration: 600 });
   }
 
   /**
@@ -814,6 +863,7 @@ export function initRoute(deps: {
       <div id="rt-mvum"></div>
       <button id="rt-refresh" type="button" class="rt-go">↻ Recompute from where I am</button>
       <div class="rt-btns">
+        <button id="rt-save" type="button">&#9670; Save to plan</button>
         <button id="rt-again" type="button">New route</button>
         <button id="rt-clear" type="button">Clear</button>
       </div>
@@ -856,72 +906,29 @@ export function initRoute(deps: {
       renderIdle("Set both a start and a destination first.");
       return;
     }
-    const direct = haversineLL(from, to);
-    const plans = planTiles(from, to, direct);
-    if (!plans.length) {
-      fail(
-        "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
-      );
-      return;
-    }
     busy = true;
     syncRecalc();
     if (body) body.innerHTML = `<div class="rt-msg">Reading roads from the pack&hellip;</div>`;
     try {
-      const roadsFor = async (plan: (typeof plans)[number]) =>
-        // Not cached by zoom any more. The old loop visited every plan twice
-        // (all zooms strict, then all zooms loose) so a cache paid for itself;
-        // this one visits each plan once, so the map only ever pinned up to
-        // five zooms' worth of decoded geometry — MAX_TILES tiles each — live
-        // at once on a phone, for no hit.
-        loadRoads(deps.sourceUrl(), plan, (d, t) => {
-          if (body) body.innerHTML = `<div class="rt-msg">Reading roads&hellip; ${d}/${t} tiles</div>`;
-        });
-
-      let best: { r: RouteResult; plan: (typeof plans)[number]; missing: number; approx: boolean } | null = null;
-      // Finest zoom first, and at each zoom the stitch distance that zoom's
-      // tiles actually need. Only if a zoom cannot produce a route at all do we
-      // try a looser pass over the same, already-loaded segments — a route that
-      // needed loose bridging is marked `approx` because loose bridging can join
-      // roads that do not meet on the ground.
-      outer: for (const plan of plans) {
-        const { segs, missing } = await roadsFor(plan);
-        if (!segs.length) continue;
-        if (body) body.innerHTML = `<div class="rt-msg">Working out the way&hellip;</div>`;
-        const tight = stitchFor(plan.z);
-        for (const stitch of [tight, tight * 4]) {
-          const graph = buildRouteGraph(segs, { stitchMeters: stitch });
-          const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
-          if (r) {
-            best = { r, plan, missing, approx: stitch !== tight };
-            break outer;
-          }
-        }
-      }
-
-      if (!best) {
-        // Be explicit that this is a limit of the data, not a claim that no
-        // road exists — the network in these tiles is not fully connected.
-        fail(
-          `No connected road route found at any detail level. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
-            direct
-          )} mi.`
-        );
-        return;
-      }
+      const best = await computeLeg(from, to, deps.sourceUrl(), (msg) => {
+        if (body) body.innerHTML = `<div class="rt-msg">${escapeHtml(msg)}</div>`;
+      });
       const next: Shown = {
         r: best.r,
-        z: best.plan.z,
+        z: best.z,
         missing: best.missing,
         approx: best.approx,
         from,
         to,
         at: Date.now(),
       };
-      draw(best.r.coords, best.plan.z < 14);
-      fit(best.r.coords);
+      draw(best.r.coords, best.z < 14);
       shown = next;
+      // Before fit, not after: syncRecalc is what puts the on-map recompute
+      // button on screen, and fit measures it. Fitting first measured a screen
+      // that was about to grow a button over the bottom of the route.
       syncRecalc();
+      fit(best.r.coords);
       save(next);
       renderResult(next);
     } catch (err) {
@@ -1047,6 +1054,28 @@ export function initRoute(deps: {
     );
   }
 
+  /**
+   * Forget the route entirely: endpoints, the drawn line, the saved copy.
+   *
+   * Exported through the control object because saving a route into a plan has
+   * to do exactly this. The plan then draws its own copy, and leaving Get
+   * there's line up as well would put two lines on the map for one journey —
+   * the same shape in the same overprint magenta, one of which is now owned by
+   * a plan and the other by nothing.
+   */
+  function clearAll() {
+    from = to = null;
+    shown = null;
+    syncRecalc();
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      /* storage unavailable — the in-memory clear is what matters */
+    }
+    clearRoute();
+    renderIdle();
+  }
+
   function wire() {
     // The two endpoint slots each open the unified picker.
     document.getElementById("rt-set-from")?.addEventListener("click", () =>
@@ -1065,18 +1094,7 @@ export function initRoute(deps: {
     document.getElementById("rt-refresh")?.addEventListener("click", () =>
       useMyLocation(() => void go())
     );
-    document.getElementById("rt-clear")?.addEventListener("click", () => {
-      from = to = null;
-      shown = null;
-      syncRecalc();
-      try {
-        localStorage.removeItem(SAVE_KEY);
-      } catch {
-        /* storage unavailable — the in-memory clear is what matters */
-      }
-      clearRoute();
-      renderIdle();
-    });
+    document.getElementById("rt-clear")?.addEventListener("click", clearAll);
     // Re-read pins on the way back: one may have been dropped since the panel
     // opened. Render immediately so the click always responds.
     document.getElementById("rt-again")?.addEventListener("click", () => {
@@ -1087,6 +1105,24 @@ export function initRoute(deps: {
       });
     });
     document.getElementById("rt-go")?.addEventListener("click", () => void go());
+    // Freeze this route into a plan. Everything the Plan panel needs is handed
+    // over here, because `shown` is discarded the moment the route is cleared —
+    // and a route you can't keep is a route you have to recompute on the day
+    // you least can.
+    document.getElementById("rt-save")?.addEventListener("click", () => {
+      if (!shown) return;
+      void saveRouteToPlan({
+        result: {
+          coords: shown.r.coords,
+          meters: shown.r.meters,
+          steps: shown.r.steps,
+          usedTrail: shown.r.usedTrail,
+        },
+        from: { lat: shown.from.lat, lng: shown.from.lng, label: shown.from.label },
+        to: { lat: shown.to.lat, lng: shown.to.lng, label: shown.to.label },
+        pack: deps.activeAbbr?.() ?? "",
+      });
+    });
   }
 
   document.getElementById("route-open")?.addEventListener("click", async () => {
@@ -1143,5 +1179,5 @@ export function initRoute(deps: {
     draw(shown.r.coords, shown.z < 14);
   });
 
-  return { routeTo };
+  return { routeTo, clear: clearAll, hasRoute: () => shown !== null };
 }

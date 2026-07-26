@@ -96,6 +96,9 @@
      uses, so it can never be misread as map data. */
   --overprint: #e8177f;
   --overprint-lift: #ff6fb0;
+  /* The casing drawn under an overprinted line or marker so it stays legible
+     over anything — snow, rock, dark forest. Mirrors OVERPRINT_CASING. */
+  --overprint-casing: #2a0316;
   --overprint-wash: rgba(232, 23, 127, 0.18);
 
   --shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
@@ -138,6 +141,16 @@
      child owns it depends on whether the command bar is there (see #dock and
      #cmdbar), and that choice is only safe while the total is written down here.
      Zero on every device without an inset. */
+  /* The four insets, copied onto :root so script can read them.
+     `env()` is not readable from getComputedStyle, but a custom property that
+     resolves to it is — and fitting a route to the screen needs to know about
+     the notch, which is not an element and which nothing in the DOM reports.
+     Without these the top of a fitted route sits under the status bar. */
+  --sai-top: env(safe-area-inset-top, 0px);
+  --sai-right: env(safe-area-inset-right, 0px);
+  --sai-bottom: env(safe-area-inset-bottom, 0px);
+  --sai-left: env(safe-area-inset-left, 0px);
+
   --home-inset: env(safe-area-inset-bottom);
   --dock-h: calc(var(--collar-h) + var(--cmdbar-h) + var(--home-inset));
 
@@ -451,6 +464,104 @@ h6 {
   pointer-events: auto;
 }
 #route-recalc:hover {
+  background: var(--wash-firm);
+}
+
+/* Clear whatever is drawn, from the map itself.
+   Same band as the recompute button, and steps up by exactly one band when that
+   button is showing — the coupling the legend already uses, so the two never
+   need to measure each other. */
+#clear-map {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 6px);
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--rule-firm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hud);
+  color: var(--type-2);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+#clear-map:hover {
+  background: var(--wash-firm);
+  color: var(--type-loud);
+}
+#route-recalc:not(.hidden) ~ #clear-map {
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 6px + var(--recalc-band));
+}
+/* Placing a stop owns the band outright. */
+body.placing-stop #clear-map {
+  display: none;
+}
+
+/* Placing a plan stop.
+   At the TOP, not in the recompute band at the bottom: the bottom of the map is
+   already the legend, the scale bars, the attribution and where toasts land, and
+   a mode you cannot leave without pressing a button must not have that button
+   behind a toast. The top strip is empty on a phone (the menu is a bottom
+   sheet) and empty between the menu and the zoom control on a desktop. */
+#plan-place {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top));
+  /* Above the panels, unlike the bottom-band controls: this one is a mode, and
+     it stays reachable whatever else is on screen. */
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+/* Only one of the two can be the thing you are doing. Placing a stop takes the
+   band; the recompute button comes back when you are finished. */
+body.placing-stop #route-recalc {
+  display: none;
+}
+#plan-place-hint {
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hud);
+  border: 1px solid var(--rule);
+  color: var(--type-2);
+  font-family: var(--font-prose);
+  font-size: 11.5px;
+  text-align: center;
+}
+#plan-place-row {
+  display: flex;
+  gap: 8px;
+}
+#plan-place-row button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-hotter);
+  background: var(--surface-hud);
+  color: var(--type-loud);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+#plan-place-cancel {
+  border-color: var(--rule-firm);
+  color: var(--type-2);
+}
+#plan-place-row button:hover {
   background: var(--wash-firm);
 }
 /* Mid-recompute: say so, and stop a second tap queueing another one. */
@@ -768,6 +879,45 @@ h6 {
 .hud-grid--primary {
   margin-top: 8px;
   gap: 6px;
+}
+
+/* One button given more weight than a grid cell, because it is the one thing in
+   this menu you open when something has already gone wrong. Full width and two
+   lines: the second says what is inside, which "Handbook" alone does not.
+   Deliberately NOT overprint — that hue means "you put this on the sheet" and
+   nothing else may borrow it (see overprint.ts). */
+.hud-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-hot);
+  background: var(--control-on);
+  color: var(--type-loud);
+  text-align: left;
+  cursor: pointer;
+}
+.hud-feature:hover {
+  background: var(--control-hover);
+  border-color: var(--rule-hotter);
+}
+.hud-feature-name {
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+.hud-feature-sub {
+  font-family: var(--font-prose);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--type-quiet);
 }
 .hud-grid--primary button {
   min-height: 42px;
@@ -1129,6 +1279,623 @@ h6 {
   .mk-rec-dot { animation: none; }
 }
 
+/* ==========================================================================
+   The Plan panel
+   ==========================================================================
+   Structurally the Marks panel — rows, a group heading, an action stack — and
+   deliberately so: both are lists of things you put on the sheet yourself, and
+   a second visual language for the same job would be drift, not hierarchy.
+   What differs is what the overprint marks. A plan's PRIMARY route is the
+   overprint proper; alternates are the lifted hue, the same step tracks take
+   against routes. */
+#plan-body {
+  overflow-y: auto;
+  flex: 1;
+  /* See #marks-content: a flex item's default min-height is `auto`, so without
+     this a long plan pushes the rest out of the panel instead of scrolling. */
+  min-height: 0;
+}
+.pn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+.pn-actions button {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pn-actions button:hover {
+  background: var(--control-hover);
+}
+/* Destructive actions sit alone at the foot, quiet and not stretched. Red is
+   the warning, not the emphasis — a delete button should be findable, never the
+   thing your eye lands on first. */
+.pn-danger-row {
+  margin: 20px 0 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule-faint);
+}
+.pn-danger {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: none;
+  color: var(--bad-soft);
+  font-family: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.pn-danger:hover {
+  border-color: var(--bad);
+  background: rgba(255, 90, 90, 0.1);
+}
+.pn-group {
+  margin: 14px 2px 6px;
+  font-family: var(--font-collar);
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: 600;
+  color: var(--label);
+  text-transform: uppercase;
+  border-top: 1px solid var(--rule-faint);
+  padding-top: 10px;
+}
+.pn-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 2px;
+}
+.pn-empty p {
+  margin: 6px 0 0;
+}
+.pn-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+}
+.pn-row--tap {
+  cursor: pointer;
+}
+.pn-row--tap:hover {
+  background: var(--wash);
+}
+.pn-chev {
+  flex: none;
+  color: var(--type-quiet);
+  font-size: 16px;
+}
+.pn-info {
+  flex: 1;
+  min-width: 0;
+}
+.pn-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pn-sub {
+  font-size: 10px;
+  opacity: 0.6;
+}
+/* Provenance is a measured fact about the route — date, pack, build — so it
+   takes the instrument face, like coordinates and distances do. */
+.pn-prov {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  color: var(--type-quiet);
+  margin-top: 2px;
+}
+.pn-btn {
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pn-del {
+  background: none;
+  border: none;
+  color: var(--bad-soft);
+  cursor: pointer;
+  font-size: 13px;
+}
+/* The way back out of a detail view.
+ *
+ * This was a borderless 12px line of text, and it read as a caption rather than
+ * a control — people could not find it. Two things fix that, and both are
+ * needed: it looks like a button, and it is STICKY, so it is still there when
+ * you are sixty items down a go bag. A back control you have to scroll to find
+ * is one you have to know is there.
+ *
+ * Shared by Plan and Kit — the two panels that have a list-and-detail shape. */
+.pn-back,
+.kt-back {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 12px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-firm);
+  border-radius: var(--radius-sm);
+  /* Opaque: it sits over content that scrolls underneath it. */
+  background: var(--surface-solid);
+  color: var(--type-2);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  text-align: left;
+  cursor: pointer;
+}
+.pn-back:hover,
+.kt-back:hover {
+  background: var(--control-hover);
+  border-color: var(--rule-hot);
+  color: var(--type-loud);
+}
+.pn-back-chev,
+.kt-back-chev {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--label);
+}
+.pn-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pn-route {
+  border: 1px solid var(--rule-faint);
+  border-left: 3px solid var(--overprint-lift);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.pn-route.primary {
+  border-left-color: var(--overprint);
+  background: var(--overprint-wash);
+}
+.pn-route-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pn-route-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pn-route-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+.pn-steps {
+  margin-top: 6px;
+  border-top: 1px dotted var(--rule-faint);
+  padding-top: 5px;
+}
+.pn-step {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  padding: 2px 0;
+  color: var(--type-2);
+}
+.pn-step span:last-child {
+  font-family: var(--font-data);
+  font-size: 10px;
+  color: var(--type-quiet);
+  flex: none;
+}
+.pn-warn {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.pn-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--type-quiet);
+  border: 1px dotted var(--rule);
+  border-radius: var(--radius-sm);
+  padding: 7px 9px;
+  margin-bottom: 8px;
+}
+.pn-notes {
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  padding: 4px 2px;
+}
+.pn-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  margin-bottom: 5px;
+}
+/* A stop, on two rows: what it is, then what you can do with it.
+   One row could not hold a name, a state badge and three controls in a 344px
+   panel without the buttons closing up on each other — and the badge was
+   redundant beside a button that already said the same thing. */
+.pn-stop {
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+}
+.pn-stop-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.pn-stop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+.pn-stop-actions .pn-btn {
+  flex: 1 1 auto;
+  min-height: 34px;
+}
+/* On the route: the overprint, because the stop is now part of the line you
+   drew rather than a mark sitting near it. */
+.pn-btn.on {
+  border-color: var(--overprint);
+  background: var(--overprint-wash);
+  color: var(--type-loud);
+}
+/* Coordinates are a measured value — instrument face, like every other reading
+   in the app. */
+.pn-coord {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+}
+.pn-role {
+  font-family: var(--font-collar);
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--label);
+  border: 1px solid var(--rule-faint);
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  margin-left: 4px;
+}
+/* Medical facts are what a stranger reads off this in a hurry, so they get the
+   weight of a warning rather than the greyed-out treatment of a subtitle. */
+.pn-med {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warn-soft);
+  margin-top: 2px;
+}
+/* A frequency is a measured value — instrument face, like coordinates. */
+.pn-freq {
+  font-family: var(--font-data);
+  font-size: 11px;
+  color: var(--type-2);
+  margin-top: 2px;
+}
+.pn-fine {
+  margin-top: 12px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+
+/* ==========================================================================
+   The Kit panel
+   ==========================================================================
+   Same structural language as Plan and Marks. The one thing it adds is the
+   expiry chip, which is the whole reason the feature exists: a tickbox says you
+   are ready and a lapsed date says you are not, so the date has to be at least
+   as loud as the tick. */
+#kit-body {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0; /* see #marks-content */
+}
+.kt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+.kt-actions button {
+  flex: 1 1 auto;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: var(--control);
+  color: var(--type-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.kt-actions button:hover {
+  background: var(--control-hover);
+}
+.kt-empty {
+  opacity: 0.6;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 4px 2px;
+}
+.kt-empty p {
+  margin: 6px 0 0;
+}
+.kt-fine {
+  margin-top: 10px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--type-quiet);
+}
+.kt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(255, 255, 255, 0.03);
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.kt-row:hover {
+  background: var(--wash);
+}
+.kt-info {
+  flex: 1;
+  min-width: 0;
+}
+.kt-name {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.kt-sub {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+/* A percentage is a measured value, so it takes the instrument face. */
+.kt-pct {
+  font-family: var(--font-data);
+  font-size: 15px;
+  color: var(--type-loud);
+  flex: none;
+}
+.kt-bar {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--wash-firm);
+  overflow: hidden;
+}
+.kt-bar-fill {
+  height: 100%;
+  background: var(--good);
+  border-radius: var(--radius-pill);
+}
+/* Expired kit is not progress. A bar that reads 100% green while four items
+   are out of date is the exact lie this panel exists to stop. */
+.kt-bar-fill.has-expired {
+  background: var(--bad);
+}
+.kt-flags {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.kt-flag {
+  font-size: 9.5px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  letter-spacing: 0.4px;
+}
+.kt-flag.bad {
+  color: var(--bad-soft);
+  background: rgba(255, 90, 90, 0.16);
+}
+.kt-flag.warn {
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+}
+.kt-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.kt-supply {
+  margin: 10px 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-faint);
+  background: rgba(127, 227, 255, 0.08); /* --layer-water, as a wash */
+}
+.kt-section {
+  margin-top: 10px;
+}
+.kt-section-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--rule-faint);
+  padding: 8px 2px;
+  color: var(--label);
+  font-family: var(--font-collar);
+  font-size: 10.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.kt-section-count {
+  font-family: var(--font-data);
+  letter-spacing: 0;
+  color: var(--type-quiet);
+}
+.kt-caret {
+  display: inline-block;
+  margin-left: 6px;
+  transition: transform 0.15s ease;
+}
+.kt-section.collapsed .kt-caret {
+  transform: rotate(-90deg);
+}
+.kt-section.collapsed .kt-section-body {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .kt-caret { transition: none; }
+}
+.kt-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 2px;
+  border-bottom: 1px dotted var(--rule-faint);
+}
+.kt-item-info {
+  flex: 1;
+  min-width: 0;
+}
+.kt-item-name {
+  font-size: 12.5px;
+}
+.kt-item.have .kt-item-name {
+  color: var(--type-quiet);
+}
+.kt-item-meta {
+  font-family: var(--font-data);
+  font-size: 10px;
+  color: var(--type-quiet);
+  margin-top: 2px;
+}
+.kt-note {
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--type-quiet);
+  opacity: 0.85;
+  margin-top: 2px;
+}
+.kt-tick {
+  background: none;
+  border: none;
+  color: var(--type-quiet);
+  font-size: 15px;
+  line-height: 1.1;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+}
+.kt-item.have .kt-tick {
+  color: var(--good);
+}
+.kt-edit {
+  background: none;
+  border: none;
+  color: var(--type-quiet);
+  cursor: pointer;
+  font-size: 14px;
+  flex: none;
+}
+.kt-exp {
+  border-radius: var(--radius-pill);
+  padding: 0 5px;
+}
+.kt-exp.expired {
+  color: var(--bad-soft);
+  background: rgba(255, 90, 90, 0.18);
+}
+.kt-exp.soon {
+  color: var(--warn-soft);
+  background: var(--warn-wash);
+}
+.kt-exp.ok {
+  color: var(--type-quiet);
+}
+
+/* Plan stop markers. Kinds are told apart by glyph first and hue second, so
+   they still read on a greyscale print and in night-vision red. */
+.plan-stop {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  color: #14171b;
+  background: var(--overprint-lift);
+  border: 1.5px solid var(--overprint-casing);
+  box-shadow: var(--shadow-soft);
+}
+.plan-stop--rally {
+  background: var(--overprint);
+  color: #fff;
+}
+/* One hue each. Cache and shelter both sat on --layer-camp, which meant the two
+   markers differed only by a glyph a few pixels across — and "somewhere to
+   sleep" and "the food I buried" are not things to squint at. */
+.plan-stop--cache { background: var(--layer-forage); }
+.plan-stop--fuel { background: var(--warn); }
+.plan-stop--water { background: var(--layer-water); }
+.plan-stop--shelter { background: var(--layer-camp); }
+.plan-stop--medical { background: #fff; }
+.plan-stop--avoid {
+  background: var(--bad);
+  color: #fff;
+}
+
 /* Waypoint pin marker */
 /* Your pins. Overprinted — see src/overprint.ts for what that means and what
    may and may not use it. */
@@ -1458,6 +2225,49 @@ body.nightvis {
 .ask-btn:focus { outline: 2px solid var(--label); outline-offset: 2px; }
 .ask-btn:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
 
+/* Pick-one-of-several. A full-width stack rather than a row: the labels are
+   real names ("Home — 30 days to a year"), they carry a second line of
+   explanation, and a row of six would either wrap into a puzzle or truncate the
+   one word that distinguishes them. */
+.ask-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ask-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: none;
+  color: var(--type);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ask-choice:hover {
+  background: var(--wash-firm);
+  border-color: var(--rule-hot);
+}
+.ask-choice:focus { outline: 2px solid var(--label); outline-offset: 2px; }
+.ask-choice:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.ask-choice-label {
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+.ask-choice-detail {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--type-quiet);
+}
+
 /* --- Welcome overlay --- */
 #welcome {
   position: absolute;
@@ -1593,9 +2403,12 @@ body.nightvis {
 }
 
 .hb-body {
-  padding: 0 12px 10px 12px;
-  font-size: 12px;
-  line-height: 1.6;
+  padding: 0 12px 12px 12px;
+  font-size: 12.5px;
+  /* 1.7 rather than 1.6: these run to several hundred words and are read in bad
+     light, and the extra leading is what stops a wall of bullets closing up. */
+  line-height: 1.7;
+  color: var(--type-2);
 }
 
 .hb-body ul {
@@ -1640,12 +2453,54 @@ body.nightvis {
   padding: 10px;
 }
 .hb-body p {
-  margin: 0 0 8px;
+  margin: 0 0 9px;
 }
+.hb-body p:last-child,
+.hb-bullet:last-child {
+  margin-bottom: 0;
+}
+/* Hanging indent, so a bullet that wraps stays a single block instead of its
+   second line starting under the marker. */
 .hb-bullet {
-  margin: 0 0 5px 6px;
-  text-indent: -8px;
-  padding-left: 8px;
+  margin: 0 0 7px 2px;
+  padding-left: 14px;
+  text-indent: -14px;
+}
+/* Headings inside a guide. The guides run to several hundred words each and are
+   read under stress, so the sections have to be findable by eye. Collar type,
+   like every other section heading in the app. */
+.hb-head {
+  margin: 12px 0 5px;
+  font-family: var(--font-collar);
+  font-size: 10.5px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--label-lift);
+}
+.hb-head:first-child {
+  margin-top: 0;
+}
+/* What this guide is for, so a list of twenty-one titles can be scanned rather
+   than opened one at a time.
+   Indented to the same 12px as the title above and the body below. Without that
+   it ran the full width of the card and butted into both borders, which read as
+   text that had escaped rather than as part of the entry. */
+.hb-summary {
+  /* -4px against the title's 10px bottom padding: the summary belongs to the
+     title, and a full 10px of air made them two separate things. */
+  margin: -4px 0 0;
+  padding: 0 12px 10px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--type-quiet);
+}
+/* Open, it is the standfirst over the guide rather than a label under a title,
+   so it takes the body's colour and sits on the hairline that starts the text. */
+.hb-section:not(.collapsed) .hb-summary {
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--rule-faint);
+  color: var(--type-2);
 }
 
 #handbook-disclaimer {
@@ -1800,7 +2655,13 @@ button {
   #compass-close,
   .mk-del,
   .mesh-route,
-  .rt-back {
+  .rt-back,
+  /* Icon-only controls in Plan and Kit: a ✕ and a tickbox are the smallest
+     targets in either panel, and the tickbox is the one you press sixty times
+     while packing a bag. */
+  .pn-del,
+  .kt-tick,
+  .kt-edit {
     min-width: 44px;
     min-height: 44px;
   }
@@ -1814,7 +2675,11 @@ button {
   .rt-slot,
   .mesh-node,
   .pl-row,
-  .pl-look {
+  .pl-look,
+  .pn-row,
+  .kt-row,
+  .kt-item,
+  .kt-section-head {
     min-height: 44px;
   }
   .hb-title {
@@ -1843,6 +2708,9 @@ button {
   .fish-actions button,
   .search-alt,
   .pl-back,
+  .pn-btn,
+  .pn-actions button,
+  .kt-actions button,
   .mesh-go,
   .mesh-alt,
   .state-dem-btn,
@@ -2278,11 +3146,22 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     --cmdbar-h: 44px;
   }
 
-  /* Find / Get there / Mark already sit in the command bar, permanently, one
-     thumb-reach away. Repeating them at the top of the menu was the same three
-     buttons twice on one screen. */
-  .hud-grid--primary {
+  /* Find / Get there / Plan / Kit already sit in the command bar, permanently,
+     one thumb-reach away. Repeating them at the top of the menu was the same
+     buttons twice on one screen.
+     Hidden one by one rather than by hiding the group, because "Clear route"
+     lives here too and is NOT in the bar — hiding the whole group took the only
+     way to clear a line off the phone, which is the platform that has one. */
+  .hud-grid--primary > button:not(#clear-lines) {
     display: none;
+  }
+  /* With everything else hidden the grid is empty until a line is drawn; don't
+     leave its top margin behind as a gap in the menu. */
+  .hud-grid--primary {
+    margin-top: 0;
+  }
+  .hud-grid--primary > #clear-lines:not([hidden]) {
+    margin-top: 8px;
   }
 
   /* The dock stays up. It only gets out of the way for the software keyboard:
@@ -4224,6 +5103,11 @@ body.battery.nightvis .maplibregl-ctrl {
 .hb-title,
 .state-action,
 .mk-btn,
+.pn-actions button,
+.pn-btn,
+.pn-back,
+.kt-actions button,
+.kt-back,
 .rd-label {
   font-family: var(--font-collar);
   font-weight: 600;

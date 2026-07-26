@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { confirmAction, promptAction } from "../src/dialog";
+import { chooseAction, confirmAction, promptAction } from "../src/dialog";
 
 /**
  * These guard deletions and overwrites, so the case that matters most is the
@@ -87,6 +87,113 @@ describe("confirmAction", () => {
     expect(e.defaultPrevented).toBe(false);
     btn("Cancel").click();
     expect(await p).toBe(false);
+  });
+});
+
+/**
+ * Picking one of a handful of named things. This replaced a text prompt that
+ * listed the options in its message and asked you to type the number — which
+ * is a menu that cannot be misread only if you can still read it, and the
+ * reason this app has any custom dialogs at all is that it runs on a phone.
+ */
+describe("chooseAction", () => {
+  const choice = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>(".ask-choice")].find(
+      (b) => b.textContent?.startsWith(label)
+    )!;
+  const kits = [
+    { label: "Go bag", value: "go-bag-72h", detail: "One person, on foot, three days." },
+    { label: "Vehicle kit", value: "vehicle-kit" },
+    { label: "Comms kit", value: "comms" },
+  ];
+
+  it("resolves the value behind the button that was pressed", async () => {
+    const p = chooseAction("Which checklist?", kits);
+    choice("Vehicle kit").click();
+    expect(await p).toBe("vehicle-kit");
+  });
+
+  it("offers one button per choice, in order", () => {
+    void chooseAction("Which checklist?", kits);
+    const labels = [...document.querySelectorAll(".ask-choice")].map(
+      (b) => b.querySelector(".ask-choice-label")?.textContent
+    );
+    expect(labels).toEqual(["Go bag", "Vehicle kit", "Comms kit"]);
+    btn("Cancel").click();
+  });
+
+  it("shows the detail line under the label, when there is one", () => {
+    void chooseAction("Which checklist?", kits);
+    expect(choice("Go bag").textContent).toContain("One person, on foot, three days.");
+    expect(choice("Vehicle kit").querySelector(".ask-choice-detail")).toBeNull();
+    btn("Cancel").click();
+  });
+
+  it("resolves null on cancel, escape and backdrop", async () => {
+    const cancelled = chooseAction("Which checklist?", kits);
+    btn("Cancel").click();
+    expect(await cancelled).toBeNull();
+
+    const escaped = chooseAction("Which checklist?", kits);
+    key("Escape");
+    expect(await escaped).toBeNull();
+
+    const dismissed = chooseAction("Which checklist?", kits);
+    (overlay() as HTMLElement).click();
+    expect(await dismissed).toBeNull();
+  });
+
+  it("does not resolve until something is picked", async () => {
+    let settled = false;
+    void chooseAction("Which checklist?", kits).then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    btn("Cancel").click();
+  });
+
+  it("shows labels and details as text, never as markup", () => {
+    void chooseAction("Pick", [
+      { label: "<img src=x onerror=boom>", value: "x", detail: "<b>no</b>" },
+    ]);
+    const el = document.querySelector(".ask-choice")!;
+    expect(el.innerHTML).not.toContain("<img");
+    expect(el.innerHTML).not.toContain("<b>");
+    expect(el.textContent).toContain("<img src=x onerror=boom>");
+    btn("Cancel").click();
+  });
+
+  it("cleans up and hands focus back to whatever opened it", async () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const p = chooseAction("Which checklist?", kits);
+    choice("Go bag").click();
+    await p;
+    expect(overlay()).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("settles once, even if two buttons land", async () => {
+    let count = 0;
+    const p = chooseAction("Which checklist?", kits).then((v) => (count++, v));
+    // Both captured before either fires: the first click tears the overlay
+    // down, so a stale reference is the only way a second one can arrive —
+    // which is exactly what a double-tap on a slow phone produces.
+    const first = choice("Go bag");
+    const second = choice("Vehicle kit");
+    first.click();
+    second.click();
+    expect(await p).toBe("go-bag-72h");
+    expect(count).toBe(1);
+  });
+
+  it("survives being given no choices at all", async () => {
+    // A plan with no routes, a kit with no sections — the caller should not
+    // have asked, but a dialog with no way out is worse than a useless one.
+    const p = chooseAction("Which?", []);
+    expect(overlay()).not.toBeNull();
+    btn("Cancel").click();
+    expect(await p).toBeNull();
   });
 });
 

@@ -16,10 +16,10 @@
  * are a transient tool rather than a mark you keep, and the colour split is
  * what tells the two apart at a glance.
  *
- * These mirror --overprint / --overprint-lift in styles.css. Map layers are
- * painted from JS and CSS custom properties cannot reach them, so the values
- * live here and both sides refer to the same documented pair. If you change one,
- * change the other.
+ * These mirror --overprint / --overprint-lift / --overprint-casing in
+ * styles.css. Map layers are painted from JS and CSS custom properties cannot
+ * reach them, so the values live here and both sides refer to the same
+ * documented set. If you change one, change the other.
  */
 
 /** Where you are going, and what you marked. */
