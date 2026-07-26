@@ -95,8 +95,15 @@ jobs:
           # name, so there is exactly one release to look at and no chance of
           # it becoming the repo's "latest" and shadowing the basemap manifest.
           gh release delete mvum-latest --repo "$REPO" --yes --cleanup-tag || true
+          # --latest=false is load-bearing. GitHub moves the repo's "Latest"
+          # pointer to the newest release by default, and the BASEMAP manifest
+          # is served from `releases/latest/download/packs.json` — so publishing
+          # this normally would make every map pack download 404 while leaving
+          # this workflow green. The fixed tag keeps the app asking the right
+          # URL; this keeps GitHub answering the other one.
           gh release create mvum-latest \
             --repo "$REPO" \
+            --latest=false \
             --title "MVUM packs" \
             --notes "Per-state Forest Service Motor Vehicle Use Map overlays, cut from the national shapefiles on data.fs.usda.gov. Built $(date -u +%Y-%m-%d)." \
             dist/mvum/*
