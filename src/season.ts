@@ -73,7 +73,7 @@ export function seasonReport(month: number, lat: number, lng: number): SeasonRep
   } else {
     items.push(
       { icon: "≈", label: "Fishing", note: north
-        ? "Hard-water season — ice fishing where safe; open water is slow."
+        ? "Hard-water season — open water is slow. No ice is safe to judge by eye: 10 cm (4 in) of clear solid ice for one person on foot, and never on moving water."
         : "Slow and deep; trout and catfish still take bait in the cold." },
       { icon: "✿", label: "Foraging", note: "Lean — cattail roots, rosehips, inner bark, and any stored nuts." },
       { icon: "⌖", label: "Hunting", note: "Late seasons and trapping — snares for rabbit and small game." },

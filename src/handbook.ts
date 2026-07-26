@@ -24,7 +24,8 @@ const QUICK: Section[] = [
       "Find it: flowing streams, springs, rain, dew, snow (melt it first).",
       "Prefer clear, moving water. Avoid stagnant water or water near dead animals.",
       "<b>Boil</b> to purify: a rolling boil for 1 minute (3 minutes above ~2,000 m / 6,500 ft).",
-      "No fire? Filter, then chemical treatment (unscented bleach ~2 drops/liter, wait 30 min) or tablets.",
+      "No fire? Filter, then chemical treatment. Unscented bleach: <b>2 drops per litre at 5–6%</b>, 1 drop at 8.25% — check the bottle, they are not the same. Wait 30 minutes, double it if the water is cold or cloudy.",
+      "Chlorine does not kill <b>cryptosporidium</b>. Boiling and a filter rated for cysts do. If the water came off farm or beaver ground, boil it or use chlorine dioxide and give it 4 hours.",
       "Drink when thirsty; dark urine means drink more.",
     ],
   },
@@ -49,16 +50,18 @@ const QUICK: Section[] = [
   {
     title: "First aid — the big ones",
     items: [
-      "<b>Severe bleeding</b>: press hard on the wound. For a limb that won't stop, apply a tourniquet 5–8 cm above it, tighten until bleeding stops, note the time.",
-      "<b>Hypothermia</b>: get dry, insulate from the ground, add layers, share body heat, warm sweet drinks if fully alert.",
-      "<b>Heat illness</b>: shade, cool with water, sip fluids. Hot dry skin + confusion is an emergency — cool aggressively.",
+      "<b>Severe bleeding</b>: press hard on the wound. For a limb that won't stop, apply a tourniquet 5–8 cm above it — never over a joint — tighten until bleeding stops, note the time. If it still bleeds, put a second tourniquet immediately above the first. Once on, it stays on.",
+      "<b>Choking</b>, adult or child: five sharp back blows between the shoulder blades, then five abdominal thrusts, and keep alternating. If they go unconscious, start CPR.",
+      "<b>Not breathing</b>: 30 chest compressions, centre of the chest, 5–6 cm deep, about twice a second. Two breaths if you know how; if not, keep pressing and don't stop.",
+      "<b>Hypothermia</b>: get dry, insulate from the ground, add layers, share body heat, warm sweet drinks if fully alert. <b>Handle them gently</b> — rough movement can stop a cold heart. No rubbing the limbs, no alcohol.",
+      "<b>Heat illness</b>: shade, cool with water, sip fluids. The emergency sign is <b>confusion or collapse in someone hot</b> — sweating or dry skin tells you nothing either way. Cool them hard and fast, in water if you have it, before you move them.",
       "Clean wounds with clean water; cover them; watch for spreading redness.",
     ],
   },
   {
     title: "Navigate without GPS",
     items: [
-      "Sun rises in the <b>east</b>, sets in the <b>west</b>; at midday it's due south (northern hemisphere).",
+      "Sun rises in the <b>east</b>, sets in the <b>west</b>; at solar noon it's due south anywhere north of the tropics. Clock noon isn't solar noon — summer time and the width of a time zone can shift it over an hour.",
       "At night, find <b>Polaris</b> (North Star) off the Big Dipper's pointer stars — it marks true north.",
       "Pick a distant landmark on your bearing, walk to it, repeat — you'll drift less.",
       "Rivers generally lead downhill toward people.",

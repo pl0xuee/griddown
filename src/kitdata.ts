@@ -110,7 +110,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             perPerson: true,
             unit: "tablets",
             grams: 30,
-            note: "The backup for a clogged or frozen filter, and the only thing here that deals with viruses. Cold or cloudy water needs four hours, not the 30 minutes on the packet.",
+            note: "The backup for a clogged or frozen filter, and the only thing here that deals with viruses. The 30 minutes on the packet is for bacteria and viruses. Cryptosporidium needs FOUR HOURS whatever the water looks like — clear and warm off farm or beaver ground is exactly where it lives. Cold water stretches the 30 minutes too.",
             rotateMonths: 48,
           },
           {
@@ -699,7 +699,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Candle lantern or tea lights in a tin",
-            note: "One candle lifts a car interior several degrees for hours and is far safer than idling the engine. Crack a window anyway.",
+            note: "Light, and a couple of degrees in a car interior over hours — nothing like heating. It does not warm a room, and a candle left burning in a vehicle you fall asleep in is a fire in a metal box. Crack a window for the fumes, and put it out before you sleep.",
             rotateMonths: 60,
           },
         ],
@@ -848,13 +848,13 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             note: "A bath is 150 L and costs nothing if you fill it while the mains still has pressure. The moment is when you hear the warning, not when the taps run dry.",
           },
           {
-            name: "Calcium hypochlorite granules (pool shock), 500 g",
-            note: "Keeps for a decade against six months for the liquid, which at household scale is the whole argument. Half a kilo treats thousands of litres. Mix a solution only as you need it and never store the solution.",
+            name: "Calcium hypochlorite granules — 65–70%, no additives, 500 g",
+            note: "Keeps for a decade against six months for the liquid, which at household scale is the whole argument. The label must say 65–70% calcium hypochlorite and NOTHING ELSE — most pool shock carries stabilisers, clarifiers, algaecides or anti-fungals, and none of those are drinkable. Dose: dissolve one heaped teaspoon (about 7 g) in 7.5 L of water to make a stock, then 1 part stock to 100 parts of the water you are treating. Mix stock only as you need it and never keep it. Storage: it is an oxidiser — dry, sealed, cool, and nothing organic, oily or acidic anywhere near it, because that combination self-heats and starts fires.",
             rotateMonths: 120,
           },
           {
             name: "Unscented household bleach, 5 L",
-            note: "Loses roughly a fifth of its strength a year, faster in a warm cupboard, and after a year you can no longer dose with it accurately. Plain sodium hypochlorite only — no scent, no thickener, no detergent.",
+            note: "Loses roughly a fifth of its strength a year, faster in a warm cupboard — call it half in a hot one — and after a year you can no longer dose with it accurately. Plain sodium hypochlorite only: no scent, no thickener, no detergent. Never mix it with ammonia or with any acid, including descaler and some toilet cleaners; that makes chlorine gas in a room you are standing in.",
             rotateMonths: 6,
           },
           {
@@ -867,7 +867,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Gravity filter, 8–12 L/hour, with spare elements",
-            note: "The household workhorse: dirty in the top, clean out the bottom, no pumping and no power. Buy the spare elements now, because they are the part that becomes unobtainable.",
+            note: "The household workhorse: dirty in the top, clean out the bottom, no pumping and no power. Most gravity and ceramic elements do NOT remove viruses — they are sized for bacteria and cysts — so water that may carry sewage needs chlorine or a boil after the filter. Buy the spare elements now, because they are the part that becomes unobtainable.",
             rotateMonths: 60,
           },
           {
@@ -911,9 +911,9 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             name: "Tinned vegetables and fruit — 80 tins",
             qty: 15,
             unit: "days",
-            note: "Tomatoes and anything acidic corrode the can from the inside and are finished in eighteen months; plain vegetables last three years. Write the date on the lid in marker as it comes into the house, because the printed one is where you cannot read it on a shelf.",
+            note: "Tomatoes and anything acidic corrode the can from the inside and are finished in eighteen months; plain vegetables last three years. The rotation below is set to the acidic half, because that is the half that fails. Write the date on the lid in marker as it comes into the house, because the printed one is where you cannot read it on a shelf.",
             supply: "food",
-            rotateMonths: 30,
+            rotateMonths: 18,
           },
           {
             name: "Cooking oil — 10 L",
@@ -927,7 +927,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             name: "Rolled oats — 10 kg",
             qty: 20,
             unit: "days",
-            note: "Breakfast that needs only hot water, and it will be eaten by people who refuse everything else. The oil in the germ caps it at about two years even sealed.",
+            note: "Breakfast that needs only hot water, and it will be eaten by people who refuse everything else. The oil in the germ caps it at about two years in the bag it came in — it goes rancid rather than dangerous. Repacked in mylar with an oxygen absorber, the same oats keep for decades; the rotation below assumes you did not.",
             supply: "food",
             rotateMonths: 24,
           },
@@ -976,7 +976,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             name: "Propane cylinders — 2 × 13 kg",
             qty: 45,
             unit: "days",
-            note: "A 13 kg cylinder is three to four weeks of cooking for a family. The gas itself never goes off; the valve and the hose do, so check the seals and replace the hose every five years.",
+            note: "A 13 kg cylinder is three to four weeks of cooking for a family. Store them OUTSIDE — upright, shaded, never in a cellar, a cupboard or any living space. Propane is heavier than air, so a slow leak indoors collects at floor level and waits. The gas itself never goes off; the valve and the hose do, so check the seals and replace the hose every five years.",
             supply: "fuel",
             rotateMonths: 60,
           },
@@ -1042,8 +1042,8 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             note: "Downhill and at least 30 m from any well or water you drink, and not somewhere the water table is a spade deep. Decide it in daylight, dry, before anybody is desperate.",
           },
           {
-            name: "Hydrated or garden lime — 10 kg",
-            note: "Sprinkled into a latrine it raises the pH, kills the smell and stops flies breeding. It absorbs carbon dioxide from the air and reverts to chalk in an open bag, so keep it sealed.",
+            name: "Hydrated lime (calcium hydroxide) — 10 kg",
+            note: "For the latrine, not for the compost heap, and not the same thing as garden lime — garden lime is chalk, pH 8, and does nothing here. Hydrated lime is caustic at pH 12, so it burns skin, eyes and airway and the dust is how it gets you: gloves, goggles and a mask every time, and keep children away from the bag. Sprinkle it, do not tip it. It also stops the pit rotting down, so cover material is the everyday answer and this is for smell and flies when that is not enough. Absorbs carbon dioxide and reverts to chalk in an open bag — keep it sealed.",
             rotateMonths: 24,
           },
           {
@@ -1140,7 +1140,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             name: "Petrol for the generator — 60 L, treated",
             qty: 60,
             unit: "L",
-            note: "A 2 kW set on half load burns about 0.7 L an hour, so 60 L is 85 hours: six days of running it four hours a day to keep a freezer cold and everything charged. Running one continuously is neither affordable nor quiet, and quiet matters more than people expect.",
+            note: "A 2 kW set on half load burns about 0.7 L an hour, so 60 L is 85 hours: six days of running it four hours a day to keep a freezer cold and everything charged. Check what you may legally keep first — 25–30 L in approved containers is a common domestic cap, and this is double that, so most households will store it somewhere other than the house or hold less. Detached shed or outbuilding, never a cellar: petrol vapour is heavier than air and pools. Never refuel a generator that is hot or running. Running one continuously is neither affordable nor quiet, and quiet matters more than people expect.",
             rotateMonths: 12,
           },
           {
@@ -1451,12 +1451,12 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Loperamide",
-            note: "Stops the symptom so somebody can travel or work. Not with a high fever or blood in the stool — that is dysentery, and slowing the gut down keeps the infection in.",
+            note: "Stops the symptom so somebody can travel or work. Not with a high fever or blood in the stool — that is dysentery, and slowing the gut down keeps the infection in. Never under two years old, and not under six without advice: it can stop a small child's gut entirely, and children have died of it. Fluids and salts are the treatment at that age.",
             rotateMonths: 36,
           },
           {
             name: "Paracetamol and ibuprofen, in household quantities",
-            note: "Fever, pain and inflammation. Ibuprofen is hard on kidneys in someone already dehydrated, so reach for paracetamol first when fluids are short.",
+            note: "Fever, pain and inflammation. Ibuprofen is hard on kidneys in someone already dehydrated, so reach for paracetamol first when fluids are short. Paracetamol has a hard ceiling of 4 g in 24 hours for an adult, less if they are small, unwell or drinking — above it the liver fails days later, with nothing to feel at the time. Watch the cold-and-flu sachets: most of them are paracetamol too, and that is how people overdose by accident.",
             rotateMonths: 36,
           },
           {
@@ -1466,7 +1466,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Adrenaline auto-injectors, if anyone is prescribed one",
-            note: "Short-dated, expensive and without any substitute. Two per person, because roughly a third of anaphylaxis needs a second dose, and everybody in the house should know where they are kept.",
+            note: "Short-dated, expensive and without any substitute. Two per person, because up to a third of anaphylaxis needs a second dose. Everybody in the house should know where they are kept AND how: outer thigh, straight in, through clothing if need be, hold it there. Give it early — waiting to be sure is what kills people. Get help afterwards even if they improve, because it can come back hours later.",
             rotateMonths: 18,
           },
           {
@@ -1511,12 +1511,12 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Burn dressings and cling film",
-            note: "Cool a burn under running water for twenty minutes — that is the treatment, and it still helps up to three hours later. Cling film is the best cover you own: sterile inside the roll, transparent, and it does not stick to the burn.",
+            note: "Cool a burn under running water for twenty minutes — that is the treatment, and it still helps up to three hours later. Keep the REST of them warm while you do it: twenty minutes of cold water on a child, or on a large burn, cools the whole person and hypothermia is the thing that then kills them. No ice, no cold pack, no butter. Cling film is the best cover you own: sterile inside the roll, transparent, and it does not stick to the burn.",
             rotateMonths: 36,
           },
           {
             name: "Instant cold packs",
-            note: "For where there is no cold running water. Cold water is better, and free.",
+            note: "For sprains, stings and bruises. NOT for burns — a chemical cold pack on a burn freezes the tissue and deepens the injury. Burns get cool running water for 20 minutes, and nothing else.",
             rotateMonths: 60,
           },
           {
@@ -1548,7 +1548,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           },
           {
             name: "Insulin — plan for cold, not for quantity",
-            note: "It needs a cold chain and it has a real expiry, so a year of it is not a plan. Work on cooling without power — a cellar, a cool box, an evaporative pot — and know that in-use vials tolerate room temperature for a few weeks.",
+            note: "It needs a cold chain and it has a real expiry, so a year of it is not a plan. Work on cooling without power — a cellar, a cool box, an evaporative pot — and know that in-use vials tolerate room temperature (up to about 28 days) but insulin that has FROZEN is finished and must be thrown away, however it looks. In an unheated house that is the likelier accident.",
           },
           {
             name: "Drugs that must not be stopped abruptly",
@@ -1855,8 +1855,8 @@ export const KIT_TEMPLATES: KitTemplate[] = [
             note: "The same model throughout, so there is one manual, one battery, one charger and one set of instructions to teach. A mixed set means somebody always has the radio nobody else can fix.",
           },
           {
-            name: "Licence-free radios for the household (PMR446, FRS, GMRS)",
-            note: "No licence and no exam, and one to two kilometres in real terrain whatever the box claims. Fine for the garden, the street and a convoy; useless over a hill.",
+            name: "Short-range radios for the household (PMR446, FRS licence-free; GMRS needs a licence)",
+            note: "PMR446 and FRS need no licence and no exam. GMRS does — in the US it is an FCC licence, currently $35 for ten years, no exam, and it covers your whole immediate family on the one licence. All of them make one to two kilometres in real terrain whatever the box claims: fine for the garden, the street and a convoy, useless over a hill.",
           },
           {
             name: "Amateur radio licence, and radios to match",

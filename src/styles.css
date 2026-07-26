@@ -3633,6 +3633,23 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   line-height: 1.45;
   color: var(--type-quiet);
 }
+/* What will hurt you, per plant on the card. Warning colour rather than the
+   quiet grey the caveat uses: this is the lookalike that kills, and it has to
+   read differently from the standing disclaimer above it. */
+.card-hazard {
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--warn-soft);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--warn-soft);
+}
+.card-hazard b {
+  color: var(--type-2);
+}
+.card-chip-warn {
+  color: var(--warn-soft);
+}
 .card-actions {
   display: flex;
   gap: 8px;

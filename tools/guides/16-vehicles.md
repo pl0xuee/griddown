@@ -34,6 +34,6 @@ Water, warm and dry layers, sturdy boots, a torch with spare cells, a jump pack 
 ## When the fuel is gone
 
 - **The bicycle is the answer most people overlook.** 25–60 km a day is unremarkable, it needs no fuel, it carries 20–40 kg with panniers and far more with a trailer, and it's quiet. Keep tubes, patches, a pump, a spare chain, brake pads and cables, and learn to fix a puncture properly before you need to.
-- **On foot**: 4–5 km/h on a road, about 3 km/h off it, plus an hour for every 600 m of ascent. Most people carry 20 kg without ruining themselves; well-fitted boots and blister care decide your range more than fitness does.
+- **On foot**: 4–5 km/h on a road, about 3 km/h off it, plus an hour for every 600 m of ascent. A load of a fifth to a quarter of your body weight is what most people carry day after day without breaking down — 14 to 18 kg for a 70 kg adult, and 20 kg is already at the top of that; well-fitted boots and blister care decide your range more than fitness does.
 - A handcart, a wheelbarrow or a child's trailer moves water and firewood daily, and in a world without fuel that is more useful than a car in the drive.
 - Look after feet the way you would look after an engine. Dry socks, trimmed nails, blisters covered before they burst, boots broken in long before the day you need them.

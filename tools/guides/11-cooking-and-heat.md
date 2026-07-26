@@ -19,7 +19,8 @@ More people die of carbon monoxide and house fires after a power cut than of col
 - Lid on the pot. A lid alone can halve the fuel to boil.
 - A windshield outdoors saves more than any stove upgrade.
 - Simmer, don't boil hard. A rolling boil is not hotter, just faster to empty.
-- **Retained-heat cooking**: bring beans, grain or stew to the boil for 10–15 minutes, then seal the pot in a well-insulated box — a haybox, a duvet, a sleeping bag in a crate — for 2–4 hours. It saves 50–80% of the fuel and can't burn the food.
+- **Retained-heat cooking**: bring grain or stew to a rolling boil for 10–15 minutes, then seal the pot in a well-insulated box — a haybox, a duvet, a sleeping bag in a crate — for 2–4 hours. It saves 50–80% of the fuel and can't burn the food.
+- **Red kidney beans are the exception, and it matters.** They carry a toxin that a long warm soak makes *worse* rather than better — held around 80 °C, which is exactly what a haybox does, they can end up several times more poisonous than raw. Soak them at least five hours, **throw the soaking water away**, then boil hard for a full 30 minutes in fresh water before they go anywhere near an insulated box. Cannellini and broad beans want the same treatment. Lentils, split peas and chickpeas do not.
 - A pressure cooker turns a two-hour pot of beans into 30 minutes and pays for its weight in fuel within a week.
 - Soak dried beans and grains overnight; it cuts cooking time by a third or more.
 - Cook once a day for the whole household. One fire, one pot, less smoke and less smell for anyone to notice.

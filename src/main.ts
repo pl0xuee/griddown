@@ -24,7 +24,7 @@ import { initMvum } from "./mvum";
 import { initMesh } from "./mesh";
 import { initHandbook, openHandbook } from "./handbook";
 import { likelyFish, FISHABLE_KINDS } from "./fish";
-import { likelyForage } from "./forage";
+import { likelyForage, plantHazard } from "./forage";
 import { landInfo, type LandInfo } from "./publicland";
 import { seasonReport } from "./season";
 import { scoreCamp, type CampInputs } from "./campsite";
@@ -45,7 +45,7 @@ import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
 /** Set by start(); called whenever a panel opens or closes so the on-map
  *  controls can decide whether they are still the thing you would reach for. */
 let onPanelChange: (() => void) | null = null;
-import { initPlantPanel, openPlant, findPlant } from "./plantpanel";
+import { initPlantPanel, openPlant, openPlants, findPlant } from "./plantpanel";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
 import { fmtMgrs } from "./paper";
@@ -1455,10 +1455,23 @@ async function start() {
     const plants = g.plants
       .map((s) => {
         const sym = findPlant(s);
+        // A hazard marker on the chip itself, so the warning is attached to the
+        // name rather than sitting somewhere below it. See forage.ts: this card
+        // emits names that have deadly lookalikes and no plant entry, and an
+        // unmarked chip reading "Chanterelles" is the exact failure the plant
+        // dataset's pairing rule exists to prevent.
+        const hz = plantHazard(s);
+        const mark = hz ? ' <span class="card-chip-warn">&#9888;&#65038;</span>' : "";
+        const title = hz ? ` title="${esc(hz)}"` : "";
         return sym
-          ? `<button class="card-chip card-chip--link" type="button" data-plant="${esc(sym)}">${esc(s)} &#8250;</button>`
-          : `<span class="card-chip">${esc(s)}</span>`;
+          ? `<button class="card-chip card-chip--link" type="button" data-plant="${esc(sym)}"${title}>${esc(s)}${mark} &#8250;</button>`
+          : `<span class="card-chip"${title}>${esc(s)}${mark}</span>`;
       })
+      .join("");
+    const hazards = g.plants
+      .map((s) => [s, plantHazard(s)] as const)
+      .filter(([, hz]) => hz)
+      .map(([s, hz]) => `<div class="card-hazard"><b>${esc(s)}</b> — ${esc(hz)}</div>`)
       .join("");
     const game = g.game.map((s) => `<span class="card-chip">${esc(s)}</span>`).join("");
     forageBox.innerHTML = `
@@ -1469,8 +1482,10 @@ async function start() {
       <div class="card-sub">${elevLabel}${esc(g.seasonNote)}</div>
       <div class="card-label">Wild plants</div>
       <div class="card-chips">${plants}</div>
+      ${hazards ? `<div class="card-label">Before you eat any of these</div>${hazards}` : ""}
       <div class="card-label">Game</div>
       <div class="card-chips">${game}</div>
+      <div class="card-hazard">Seasons, licences and bag limits still apply to every animal on that list, and they are enforced. Check before you take anything.</div>
       <div class="card-caveat">${esc(g.caution)}</div>
       <div class="card-actions">
         <button id="forage-route" type="button">&#10148; Get there</button>
@@ -1491,9 +1506,17 @@ async function start() {
         if (sym) openPlant(sym);
       });
     });
-    document.getElementById("forage-book")?.addEventListener("click", () =>
-      openHandbook("survival use of plants")
-    );
+    // The plant panel, NOT the field manual's chapter 9. That chapter contains
+    // the Universal Edibility Test — touch it, taste it, chew it, swallow it,
+    // wait eight hours — and the app's own doctrine (plants.ts) is the exact
+    // opposite: never eat anything you have not identified with certainty. The
+    // test does not work on the very things in this dataset. Amatoxins take
+    // 6–24 hours to show, so the eight-hour wait clears a lethal dose of
+    // Amanita; water hemlock seizes at a taste; foxglove, yew and hemlock
+    // parsley kill below the dose at which anything tastes wrong. The chapter
+    // stays in the manual, because it is a public-domain document and editing
+    // it would be dishonest — but the foraging card must not route to it.
+    document.getElementById("forage-book")?.addEventListener("click", () => openPlants());
   }
 
   /**

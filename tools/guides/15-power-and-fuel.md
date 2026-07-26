@@ -24,6 +24,7 @@ Most of what you'd like to power, you don't need. Start by separating the loads 
 - Size it to charge batteries and run the fridge for a couple of hours, then switch it off. Running a generator continuously to power a lamp burns a tank a day.
 - Fuel burn is roughly 0.5–1 litre an hour for a 2 kW inverter set at half load.
 - **Outdoors only** — never in a garage, porch, basement or within 6 m (20 ft) of any window, door or vent, yours or a neighbour's. Carbon monoxide from generators kills people every storm season.
+- **Never refuel a generator that is running or still hot.** Petrol spilled on a hot exhaust is the commonest way these catch fire. Stop it, give it ten minutes, then fill it.
 - **Never backfeed** through a wall socket. It can electrocute line workers and start a fire. A transfer switch or interlock fitted by an electrician is the only safe way to feed a house.
 - A generator is audible for a kilometre and tells everybody who has power. Run it in daylight, when other noise exists, and only when it's earning its fuel.
 

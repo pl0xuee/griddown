@@ -10,7 +10,7 @@ A year in, stores are a memory and the question is whether you produce anything.
 
 - A garden does not feed you in year one, and anybody who says otherwise has never weighed a harvest. Grow calories, not salad: potatoes, maize, beans, squash, sweet potato.
 - Rough scale: a well-run intensive bed yields around 3 kg of potatoes per square metre, roughly 2,300 kcal. Feeding one adult for a year is therefore hundreds of square metres of beds even before losses, storms and pests. Plan for a meaningful supplement, not self-sufficiency.
-- Animals: hens are the best return — four to six birds give around twenty eggs a week on scraps and forage, and need almost no infrastructure. Rabbits breed fast on greens. A goat needs grazing and a year of learning. Anything larger needs winter feed you probably can't grow.
+- Animals: hens are the best return — four to six birds give around twenty eggs a week through spring and summer, and need almost no infrastructure. Expect that to fall away sharply in winter without extra light, and scraps alone will not sustain it — laying hens need real protein, so plan on grain or a way of growing insects. Rabbits breed fast on greens. A goat needs grazing and a year of learning. Anything larger needs winter feed you probably can't grow.
 - Fishing, trapping and foraging fill gaps but rarely carry a household. Trade labour for food long before you go hungry.
 
 ## Work the whole year at once

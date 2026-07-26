@@ -145,7 +145,7 @@ const BY_DESIGNATION: Record<Designation, Profile> = {
     notes: [
       "No vehicles, no bicycles, no carts, no motors or chainsaws of any kind — this is the rule people most often break by accident.",
       "Permits and group-size limits are common, and quotas apply on popular units in summer.",
-      "Dispersed camping is normally allowed well away from trails and water — commonly 100–200 ft.",
+      "Dispersed camping is normally allowed well away from trails and water — 200 ft (60 m) is the standard, and the figure the rest of this app uses.",
       "No maintained facilities. Assume no water caches, no bridges, and no signage past the boundary.",
     ],
   },
@@ -161,7 +161,7 @@ const BY_DESIGNATION: Record<Designation, Profile> = {
       r("Fire", "Check bans", null),
     ],
     notes: [
-      "Dispersed camping is typically allowed away from roads and water — commonly 100–200 ft — with a 14-day stay limit.",
+      "Dispersed camping is typically allowed away from roads and water — 200 ft (60 m) — with a 14-day stay limit.",
       "Fire restrictions are seasonal and can be a total ban in late summer.",
       "Check the Forest roads overlay for which roads you may actually drive.",
     ],

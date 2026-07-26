@@ -56,8 +56,103 @@ function habitatFor(landuseKind: string, elevationFt: number | null, west: boole
 
 const CAUTION =
   "Never eat a wild plant or mushroom unless you have identified it with total " +
-  "certainty — deadly lookalikes exist. This is a habitat guess, not " +
-  "identification. Cross-check the Poisonous Plants chapter before you forage.";
+  "certainty — deadly lookalikes exist, and some of these are poisonous raw even " +
+  "when you have named them right. This is a habitat guess, not identification. " +
+  "Cross-check the Plants panel before you forage.";
+
+/**
+ * What will hurt you, per plant name this module can emit.
+ *
+ * plants.ts states the rule the whole plant dataset is built on: NOTHING EDIBLE
+ * APPEARS ALONE — every edible entry names the thing it is confused with, and
+ * checkPairing enforces it inside plants.json. This card sits OUTSIDE that
+ * boundary. It emits 43 names of which only a handful have a plant entry, so
+ * "Chanterelles" and "Wild grape" used to render as inert text with no lookalike
+ * attached anywhere — which is precisely the shape plants.ts says gets people
+ * poisoned.
+ *
+ * So every name has to be listed here, and the test enumerates every habitat,
+ * season and region to prove it. An empty string is a deliberate "reviewed, no
+ * lookalike or preparation worth the warning", not a gap: adding a name without
+ * a decision about it fails the suite.
+ */
+const HAZARD: Record<string, string> = {
+  // --- Deadly lookalikes ---------------------------------------------------
+  "Wild grape":
+    "Moonseed grows in the same hedges and its fruit passes for wild grape. It is deadly. Grape seeds are 2–4 and round; moonseed has ONE flat crescent seed. Grapes climb by tendrils, moonseed has none. Split a berry before you eat any of them.",
+  Grapes:
+    "Moonseed grows in the same hedges and its fruit passes for a wild grape. It is deadly. Grape seeds are 2–4 and round; moonseed has ONE flat crescent seed.",
+  Chanterelles:
+    "Jack-o'-lantern is the killer of appetites here and is toxic. Chanterelle has blunt forking RIDGES running down the stem and grows from soil, usually singly; jack-o'-lantern has true knife-edge gills and grows in clumps on wood or buried roots.",
+  Ramps:
+    "Lily of the valley and false hellebore come up in the same woods at the same time and are both dangerous. Ramps smell strongly of onion when crushed — no onion smell, not a ramp, put it down.",
+  "Wild onion":
+    "Death camas grows with it and looks like it until it flowers. The smell is the test and it is one-way: no onion smell means not an onion. Crush each bulb with clean hands, because handling one real onion contaminates everything you touch afterwards.",
+  Huckleberry:
+    "Baneberry grows in the same woods and its white or red berries are deadly. Baneberry carries its fruit in an upright cluster on a single stalk; huckleberries hang singly off the twigs of a woody shrub.",
+  Blueberry:
+    "Baneberry grows in the same woods and its white or red berries are deadly. Baneberry carries its fruit in an upright cluster on a single stalk; blueberries hang singly off the twigs of a woody shrub.",
+  Watercress:
+    "It grows in the same still water as water hemlock, which is the most poisonous plant on this continent — check what else is in the patch before you reach into it. Water below livestock also carries liver fluke, so cook it unless you know the ground upstream.",
+
+  // --- Correctly identified and still poisonous raw -------------------------
+  "Morel mushrooms":
+    "Toxic RAW even when correctly identified — cook them through, and never with alcohol. False morels are a separate and worse problem: a true morel is completely hollow from tip to stem base when cut lengthways.",
+  Elderberry:
+    "Cook it. Raw fruit, and every leaf, stem and bit of bark, are cyanogenic, and a batch of raw juice has poisoned a whole party before now. Red elderberry — the common one in the West — is the one to be strictest with.",
+  "Fiddlehead ferns":
+    "Ostrich fern only, and boiled 15 minutes or steamed 12 — raw or lightly cooked fiddleheads cause outbreaks of violent illness every spring. Bracken fiddleheads are carcinogenic and are not food at any preparation.",
+  "Acorns (leach first)":
+    "Leach the tannins out in repeated changes of water until the water runs clear and the meat is no longer bitter. Unleached acorns are hard on the kidneys and taste of it.",
+  "Acorns & nuts": "Acorns need leaching in changes of water until they no longer taste bitter.",
+  Cattail:
+    "It takes up whatever is in the water it stands in, including road salt, farm runoff and metals. Take it from clean water or not at all.",
+  "Cattail (near water)":
+    "It takes up whatever is in the water it stands in, including road salt, farm runoff and metals. Take it from clean water or not at all.",
+  "Gleaned grain & corn":
+    "Look at the heads. Ergot shows as a hard dark purple-black spur where a grain should be, and eating it does permanent damage — discard the whole lot rather than pick through it.",
+
+  // --- Named too vaguely to be identification ------------------------------
+  Berries: "A chip that just says \"berries\" is not identification. Name the species before you pick it.",
+  "Wild greens": "Not identification. Name the species before you pick it.",
+  "Young greens": "Not identification. Name the species before you pick it.",
+
+  // --- Reviewed, no lookalike or preparation worth the warning -------------
+  "Pine nuts": "",
+  "Wild strawberry": "",
+  "Miner's lettuce": "",
+  Blackberry: "",
+  "Blackberry (margins)": "",
+  Pawpaw: "",
+  "Hickory nuts": "",
+  Dandelion: "",
+  Clover: "",
+  Plantain: "",
+  "Lamb's quarters": "",
+  "Wild rose (hips)": "",
+  "Manzanita berries": "",
+  Yucca: "",
+  "Arrowhead (wapato)": "",
+  Tule: "",
+  "Wild rice": "",
+  "Root vegetables": "",
+  "Wild mustard": "",
+  Amaranth: "",
+  Apples: "",
+  Pears: "",
+  Plums: "",
+  Walnuts: "",
+};
+
+/** What will hurt you if you get this one wrong; "" when nothing will. */
+export function plantHazard(name: string): string {
+  return HAZARD[name] ?? "";
+}
+
+/** Every name this module can emit — the test enumerates against this. */
+export function knownPlantNames(): string[] {
+  return Object.keys(HAZARD);
+}
 
 export function likelyForage(w: {
   landuseKind: string;

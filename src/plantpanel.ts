@@ -46,7 +46,9 @@ const CAUTION =
   "This is a reference, not an identification. It cannot tell you what plant you " +
   "are holding. Deadly lookalikes exist for most edible plants — never eat anything " +
   "you have not identified with total certainty from a field guide and, ideally, a " +
-  "person who knows it.";
+  "person who knows it. And identification is only half of it: morels, elderberry, " +
+  "fiddleheads, acorns and pokeweed are all poisonous raw even when you have named " +
+  "them correctly, so know how a thing is prepared before you eat it.";
 
 function imgHtml(p: Plant, max = 1): string {
   if (!p.images.length) return "";
@@ -347,6 +349,11 @@ export function initPlantPanel(getState: () => string) {
  */
 export function openPlant(symbol: string) {
   void openPanel(symbol);
+}
+
+/** Open the plant list with nothing selected — the Wild food card's guide. */
+export function openPlants() {
+  void openPanel();
 }
 
 /** Free-text plant name -> symbol, for the Wild food card. See matchCommonName. */

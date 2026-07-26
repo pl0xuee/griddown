@@ -22,7 +22,7 @@ Toothache is one of the most common serious problems in any long emergency, and 
 ## Toothache
 
 - Over-the-counter painkillers taken to the label. For most adults who can take both, paracetamol (acetaminophen) and ibuprofen alternated control dental pain better than either alone.
-- Clove oil (eugenol) on a scrap of cotton wool held against the tooth gives real relief. Keep it off the gum and tongue, where it burns.
+- Clove oil (eugenol) on a scrap of cotton wool held against the tooth gives real relief. Keep it off the gum and tongue, where it burns, and keep the bottle away from children — swallowed in quantity it damages the liver, and a very small amount is a large dose for a small child.
 - Cold compress on the outside of the cheek. Never heat over a swollen face — warmth spreads infection.
 - Sleep propped up; lying flat increases the throbbing. Keep temperature extremes and sugar off that side.
 

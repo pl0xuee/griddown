@@ -326,8 +326,14 @@ export function initReadiness(terrainAvailable: () => boolean) {
       : checks.some((c) => c.level === "warn")
         ? "warn"
         : "ok";
+    // "You're ready to go dark" was the one line in this app that asserted
+    // overall readiness from a partial signal. This panel can see map packs,
+    // saved marks, a plan, a checklist percentage, a backup date and whether
+    // location works. It cannot see water, medication, fuel, skills or anybody's
+    // legs. Everywhere else the rule is that absence of data must not read as
+    // absence of risk, and this has to follow it.
     const verdict = {
-      ok: "You're ready to go dark.",
+      ok: "Nothing left that this app can check. It cannot check water, medicine, fuel or practice — those are on you.",
       warn: "Mostly ready — a few things worth doing.",
       bad: "Not ready yet. Fix these while you still have a connection.",
     }[worst];

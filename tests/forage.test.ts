@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { likelyForage, seasonOf } from "../src/forage";
+import { likelyForage, seasonOf,
+  knownPlantNames,
+  plantHazard,
+} from "../src/forage";
 
 describe("seasonOf", () => {
   it("maps months to northern-hemisphere seasons", () => {
@@ -63,5 +66,59 @@ describe("likelyForage", () => {
     const g = likelyForage({ landuseKind: "wood", elevationFt: null, lat: 46, lng: -122, month: 7 });
     expect(g.elevationKnown).toBe(false);
     expect(g.plants.length).toBeGreaterThan(0);
+  });
+});
+
+describe("nothing edible appears alone", () => {
+  // plants.ts states the rule and checkPairing enforces it INSIDE plants.json.
+  // This card is outside that boundary: it emits names as plain text, and the
+  // ones with deadly lookalikes — wild grape and moonseed, chanterelle and
+  // jack-o'-lantern — had nothing attached to them anywhere. This is the same
+  // invariant, held at this boundary.
+  const LANDUSE = [
+    "forest", "wood", "meadow", "grassland", "scrub", "wetland",
+    "farmland", "farmyard", "orchard", "vineyard", "", "quarry",
+  ];
+
+  function everyNameEmitted(): Set<string> {
+    const seen = new Set<string>();
+    for (const landuseKind of LANDUSE) {
+      for (const month of [0, 3, 6, 9]) {
+        for (const lng of [-122, -80]) {
+          for (const elevationFt of [null, 200, 3500, 6000]) {
+            const g = likelyForage({ landuseKind, elevationFt, lat: 44, lng, month });
+            g.plants.forEach((p) => seen.add(p));
+          }
+        }
+      }
+    }
+    return seen;
+  }
+
+  it("has a decision recorded for every plant name it can emit", () => {
+    const missing = [...everyNameEmitted()].filter(
+      (n) => !knownPlantNames().includes(n)
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("names the lookalike for the ones that kill", () => {
+    expect(plantHazard("Wild grape")).toMatch(/moonseed/i);
+    expect(plantHazard("Chanterelles")).toMatch(/jack-o'-lantern/i);
+    expect(plantHazard("Ramps")).toMatch(/hellebore|lily of the valley/i);
+    expect(plantHazard("Watercress")).toMatch(/hemlock/i);
+    expect(plantHazard("Blueberry")).toMatch(/baneberry/i);
+  });
+
+  it("says how to prepare the ones that are poisonous raw", () => {
+    expect(plantHazard("Morel mushrooms")).toMatch(/raw/i);
+    expect(plantHazard("Elderberry")).toMatch(/cook/i);
+    expect(plantHazard("Fiddlehead ferns")).toMatch(/boil|steam/i);
+  });
+
+  it("refuses to let a vague name pass as identification", () => {
+    for (const vague of ["Berries", "Wild greens", "Young greens"]) {
+      expect(plantHazard(vague)).toMatch(/not identification|name the species/i);
+    }
   });
 });

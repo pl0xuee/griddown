@@ -18,7 +18,7 @@ Calories keep you alive; the rest keeps you working.
 
 - **Fat** runs out first and is hardest to replace. Ration cooking oil harder than you want to.
 - **Protein**: pulses, tinned fish, eggs, nuts. Weakness and slow-healing wounds are the early signs of running short.
-- **Vitamin C**: deficiency shows at roughly one to three months without any — bleeding gums, old wounds reopening, exhaustion. Sprouted pulses, potatoes, fresh greens, rosehips and pine needle tea all supply it. Sprouting a jar of dried beans or lentils takes three days and no equipment.
+- **Vitamin C**: deficiency shows at roughly one to three months without any — bleeding gums, old wounds reopening, exhaustion. Potatoes, fresh greens, rosehips and sprouted pulses all supply it, and sprouting a jar of dried beans or lentils takes three days and no equipment. Two warnings on that list. **Cook sprouted beans** — raw sprouted kidney beans in particular still carry the toxin that makes raw beans dangerous, and raw sprouts of any kind are among the most outbreak-prone foods there are, which matters more when the water is doubtful. And **pine needle tea is only safe if you are certain what tree it came from**: yew is planted around houses, churchyards and car parks everywhere, its needles look near enough, and it stops the heart with little warning and no antidote. Yew needles are flat and soft with a pale green underside and grow in two ranks off the twig; pines carry theirs in bundles of two to five in a papery sheath. If you cannot tell, do not make the tea. Pine needle tea is also avoided in pregnancy.
 - A daily multivitamin is trivial to store and covers most of this. Iodised salt covers another gap.
 
 ## Fix what week one improvised

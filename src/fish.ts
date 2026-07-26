@@ -95,7 +95,13 @@ function methodFor(regime: Regime, moving: boolean): string {
 
 const CAVEAT =
   "A habitat guess from water type, elevation, and region — not a stocking survey. " +
-  "Check local regulations, seasons, and licensing before you fish.";
+  "Check local regulations, seasons, and licensing before you fish. " +
+  "Every state also issues fish consumption advisories: mercury and PCBs build up " +
+  "in the big predators and the bottom feeders — bass, pike, walleye, catfish, carp " +
+  "— and the limits are strictest for children and anyone pregnant. Small fish from " +
+  "moving water are the safer meal. " +
+  "GAR AND BOWFIN ROE IS POISONOUS to people even though the flesh is not: throw " +
+  "the eggs away and do not feed them to anyone.";
 
 /**
  * Likely species for a water body. `kind` is the OSM/basemap water kind

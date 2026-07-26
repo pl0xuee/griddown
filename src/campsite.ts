@@ -93,7 +93,9 @@ export function scoreCamp(i: CampInputs): CampResult {
   // --- Cover ---
   if (i.treeCover) {
     score += 1;
-    reasons.push("Tree cover for shelter, shade, and firewood.");
+    reasons.push(
+      "Tree cover for shelter, shade, and firewood — look up before you pitch: standing dead trees and hanging limbs fall in the night and kill people in their sleep."
+    );
   } else {
     reasons.push("Open ground — exposed to wind; pitch behind what break you can find.");
   }

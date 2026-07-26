@@ -263,7 +263,7 @@
       "habitat": "Meadows, open woods, grassland, damp ground.",
       "season": "Spring and early summer.",
       "edibleParts": "Bulb and leaves.",
-      "tell": "It MUST smell of onion or garlic when crushed — that smell is the whole test, and it is decisive. Death camas grows in the same meadows, looks similar, and has no smell at all.",
+      "tell": "It MUST smell of onion or garlic when crushed. The test runs ONE WAY: no smell means not an onion, so put it down. A smell does not on its own prove the bulb in your hand is the one that made it — crush each bulb separately with clean hands, because handling one real onion leaves the scent on your fingers and on everything you touch afterwards. Death camas grows in the same meadows, looks similar, and has no smell at all.",
       "confusedWith": [
         "ZIGAD"
       ]
@@ -323,7 +323,7 @@
       "symbol": "VACCI",
       "scientific": "Vaccinium spp.",
       "common": "Huckleberry, blueberry, bilberry",
-      "verdict": "edible",
+      "verdict": "edible-with-care",
       "family": "Heath (Ericaceae)",
       "description": "Low to medium shrubs with small oval alternate leaves and round berries, blue-black to red, carrying a five-pointed crown at the blossom end.",
       "habitat": "Acid soils — conifer forest, mountain slopes, bogs, burns and clearings.",
@@ -359,7 +359,7 @@
       "description": "Tall strap-like leaves from a rhizome in shallow water, topped by the unmistakable brown cigar-shaped seed head.",
       "habitat": "Marshes, pond and ditch margins, slow water.",
       "season": "Shoots spring, pollen early summer, rhizomes autumn and winter.",
-      "edibleParts": "Young inner shoots, green flower spikes, pollen, and rhizome starch.",
+      "edibleParts": "Young inner shoots, green flower spikes, pollen, and rhizome starch. Cattail concentrates whatever is in the water it stands in — road salt, farm runoff, heavy metals — so take it from clean water or not at all.",
       "tell": "Before the brown seed head forms, cattail shoots resemble iris and false hellebore. Cattail leaves are flat and round-tipped and come from a spongy shoot in water; iris leaves are flattened in a fan and its rhizome is poisonous. Only gather where the old brown seed heads are visible.",
       "confusedWith": [
         "IRIS",
@@ -376,7 +376,7 @@
       "habitat": "Pasture, lawns, meadows, woodland edges.",
       "season": "Late summer and autumn.",
       "edibleParts": "Cap and stem, cooked.",
-      "tell": "Gills must be pink or brown, never white, and there must be NO cup-like sac at the base. Dig the whole base out to check — a destroying angel has white gills and a buried volva, and it kills.",
+      "tell": "Gills must be pink or brown, never white, and there must be NO cup-like sac at the base. Dig the whole base out to check — a destroying angel has white gills and a buried volva, and it kills. That rules out the deadly one but not the common one: cut the stem base and watch it. A yellow-stainer flushes bright chrome yellow there within seconds and smells of ink or disinfectant rather than mushroom. It has pink gills and no volva like the good ones, and it is the mushroom most people in North America and Europe are actually poisoned by.",
       "confusedWith": [
         "AMANI"
       ],
@@ -395,7 +395,7 @@
       "habitat": "Marshes, slow streams, pond edges — the same water as water hemlock.",
       "season": "Roots autumn and spring; flowers midsummer.",
       "edibleParts": "Root, cooked. Widely eaten historically, and widely regretted by people who got the identification wrong.",
-      "tell": "Leaves are divided ONCE, into a single row of leaflets. Water hemlock's leaves are divided two or three times, and its root is chambered. Both grow in the same ditch. If you cannot see the root, do not take the plant.",
+      "tell": "Leaves are divided ONCE, into a single row of leaflets. Water hemlock's leaves are divided two or three times, and its root is chambered. That difference is less reliable than it sounds: water hemlock's lower leaves can look barely divided, and water parsnip's submerged leaves are finely divided. Both grow in the same ditch, and getting it wrong kills within the hour. If you cannot dig the root and see inside it, do not take the plant — and if you are not certain even then, this is not the plant to be uncertain about.",
       "confusedWith": [
         "CIMA2"
       ]
@@ -482,7 +482,7 @@
       "symbol": "VETH",
       "scientific": "Verbascum thapsus",
       "common": "Common mullein",
-      "verdict": "edible",
+      "verdict": "edible-with-care",
       "family": "Figwort (Scrophulariaceae)",
       "description": "First year a large rosette of thick, pale, FELTED leaves like flannel; second year a single stout spike 3–7 ft with small yellow flowers.",
       "habitat": "Dry disturbed ground, roadsides, burns, gravel.",
