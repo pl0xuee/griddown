@@ -1347,7 +1347,10 @@ async function start() {
   // Assigned further down, once the overlay is initialised — switchToSource is
   // declared before it but only ever runs after.
   let mvumCtl: { packChanged(): void } | null = null;
-  let routeCtl: { routeTo(lng: number, lat: number, label: string): void } | null = null;
+  let routeCtl: {
+    routeTo(lng: number, lat: number, label: string): void;
+    clear(): void;
+  } | null = null;
 
   // --- Map info cards: tap water (Fishing) or land (Wild food) to identify it
   // and its likely food, plus the Camp-check and In-season tools. Everything
@@ -2157,6 +2160,8 @@ async function start() {
     activeAbbr: () => activePackAbbr,
     // Routing a plan through a stop reads the same pack Get there does.
     sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
+    // Saving a route into a plan hands the map over to the plan.
+    clearRoute: () => routeCtl?.clear(),
   });
   initKit();
   initPrint({

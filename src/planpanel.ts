@@ -61,6 +61,8 @@ interface Deps {
   activeAbbr?: () => string;
   /** Current pmtiles URL without the prefix, for routing through a stop. */
   sourceUrl: () => string;
+  /** Drop the route Get there is showing, once a plan has taken it over. */
+  clearRoute?: () => void;
 }
 
 let deps: Deps | null = null;
@@ -880,6 +882,16 @@ function revealPlan(id: string) {
   closeAllPanels();
   document.getElementById("plan-panel")?.classList.remove("hidden");
   render();
+
+  // Get there's line and the plan's copy of it are the same journey drawn
+  // twice, in the same overprint magenta, one of them now owned by nothing.
+  // Hand the map over: clear theirs, draw ours.
+  deps?.clearRoute?.();
+  const p = findPlan(id);
+  if (p) {
+    drawPlan(p);
+    fitPlan(p);
+  }
 }
 
 // --- Wiring ------------------------------------------------------------------

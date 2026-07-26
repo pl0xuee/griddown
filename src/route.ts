@@ -1054,6 +1054,28 @@ export function initRoute(deps: {
     );
   }
 
+  /**
+   * Forget the route entirely: endpoints, the drawn line, the saved copy.
+   *
+   * Exported through the control object because saving a route into a plan has
+   * to do exactly this. The plan then draws its own copy, and leaving Get
+   * there's line up as well would put two lines on the map for one journey —
+   * the same shape in the same overprint magenta, one of which is now owned by
+   * a plan and the other by nothing.
+   */
+  function clearAll() {
+    from = to = null;
+    shown = null;
+    syncRecalc();
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch {
+      /* storage unavailable — the in-memory clear is what matters */
+    }
+    clearRoute();
+    renderIdle();
+  }
+
   function wire() {
     // The two endpoint slots each open the unified picker.
     document.getElementById("rt-set-from")?.addEventListener("click", () =>
@@ -1072,18 +1094,7 @@ export function initRoute(deps: {
     document.getElementById("rt-refresh")?.addEventListener("click", () =>
       useMyLocation(() => void go())
     );
-    document.getElementById("rt-clear")?.addEventListener("click", () => {
-      from = to = null;
-      shown = null;
-      syncRecalc();
-      try {
-        localStorage.removeItem(SAVE_KEY);
-      } catch {
-        /* storage unavailable — the in-memory clear is what matters */
-      }
-      clearRoute();
-      renderIdle();
-    });
+    document.getElementById("rt-clear")?.addEventListener("click", clearAll);
     // Re-read pins on the way back: one may have been dropped since the panel
     // opened. Render immediately so the click always responds.
     document.getElementById("rt-again")?.addEventListener("click", () => {
@@ -1168,5 +1179,5 @@ export function initRoute(deps: {
     draw(shown.r.coords, shown.z < 14);
   });
 
-  return { routeTo };
+  return { routeTo, clear: clearAll };
 }
