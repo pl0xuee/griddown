@@ -107,6 +107,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Chlorine dioxide tablets — 30",
             qty: 30,
+            perPerson: true,
             unit: "tablets",
             grams: 30,
             note: "The backup for a clogged or frozen filter, and the only thing here that deals with viruses. Cold or cloudy water needs four hours, not the 30 minutes on the packet.",
@@ -157,6 +158,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Electrolyte sachets × 6",
             qty: 6,
+            perPerson: true,
             unit: "sachets",
             grams: 60,
             note: "A headache and cramp on day two is usually salt rather than water. Weightless, and the difference between walking and sitting down.",
@@ -335,6 +337,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Nitrile gloves × 2 pairs",
             qty: 2,
+            perPerson: true,
             unit: "pairs",
             grams: 20,
             note: "Nitrile rather than latex: latex perishes in a hot bag and some people react badly to it.",
@@ -349,6 +352,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Personal medication — 7 days",
             qty: 7,
+            perPerson: true,
             unit: "days",
             grams: 60,
             note: "Seven days rather than three, because 72 hours is a hope and not a guarantee. Rotate it against your repeat prescription so the bag never holds the old bottle.",
@@ -470,6 +474,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Wet wipes × 20",
             qty: 20,
+            perPerson: true,
             unit: "wipes",
             grams: 130,
             note: "A wash when there is no water to spare. They dry out in the packet, so check the seal every time you rotate the bag.",
@@ -499,6 +504,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Spare socks × 2 pairs",
             qty: 2,
+            perPerson: true,
             unit: "pairs",
             grams: 160,
             note: "Dry feet are a mobility problem, not a comfort one. Change at midday and dry the wet pair against your body while you walk.",
@@ -675,6 +681,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Wool blankets × 2",
             qty: 2,
+            perPerson: true,
             unit: "blankets",
             note: "Warm when damp and they will not melt near a flame. Two, so one goes underneath you — a car seat pulls heat out of you all night.",
           },
@@ -810,6 +817,9 @@ export const KIT_TEMPLATES: KitTemplate[] = [
   // purpose — see the note at the top of this file.
   {
     key: "home-30d",
+    // The quantities below are written for four people for thirty days, so a
+    // household of any other size scales from four, not from one.
+    basePeople: 4,
     name: "Home — 30 days to a year",
     blurb:
       "Sheltering in place, where weight stops mattering and rotation starts. Quantities are for a household of four for thirty days; multiply by the people and the months you are actually planning for.",
@@ -850,6 +860,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Water treatment tablets — 200",
             qty: 200,
+            perPerson: true,
             unit: "tablets",
             note: "The per-bottle answer, for water carried in rather than water in a drum. Chlorine dioxide deals with cryptosporidium; ordinary chlorine does not.",
             rotateMonths: 48,
@@ -1038,6 +1049,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Heavy-duty rubble sacks — 100",
             qty: 100,
+            perPerson: true,
             unit: "sacks",
             note: "Double-bagged waste, stored well away from the house until it can be buried or collected. Ordinary bin bags split under the weight and you only learn that indoors.",
             rotateMonths: 60,
@@ -1045,6 +1057,7 @@ export const KIT_TEMPLATES: KitTemplate[] = [
           {
             name: "Bar soap — 20 bars",
             qty: 20,
+            perPerson: true,
             unit: "bars",
             note: "Handwashing after the toilet and before food is the single intervention that prevents dysentery. Not sanitiser, which does nothing against norovirus and nothing at all on dirty hands. Bar soap keeps for years and barters well.",
           },

@@ -82,6 +82,79 @@ describe("instantiate", () => {
   });
 });
 
+/**
+ * Household scaling. A go bag is written for one person and the home list for
+ * four; neither is the number of people actually standing in your hallway, and
+ * a checklist that says "9 L of water" when there are five of you is not a
+ * checklist, it is a wrong answer with tickboxes.
+ */
+describe("instantiate — household size", () => {
+  const household: KitTemplate = {
+    key: "home",
+    name: "Home",
+    blurb: "For four, for thirty days.",
+    basePeople: 4,
+    sections: [
+      {
+        title: "Water",
+        items: [
+          { name: "Stored water", qty: 360, unit: "L", supply: "water", perPerson: true },
+          { name: "Gravity filter", qty: 1, unit: "unit" },
+        ],
+      },
+    ],
+  };
+
+  it("scales a per-person quantity to the household you gave it", () => {
+    const k = instantiate(household, { id: "k1", now: NOW, people: 2 });
+    expect(k.sections[0].items[0].qty).toBe(180);
+  });
+
+  it("leaves shared equipment alone — two people do not need two filters", () => {
+    const k = instantiate(household, { id: "k1", now: NOW, people: 8 });
+    expect(k.sections[0].items[1].qty).toBe(1);
+  });
+
+  it("scales up as well as down", () => {
+    expect(
+      instantiate(household, { id: "k1", now: NOW, people: 6 }).sections[0].items[0].qty
+    ).toBe(540);
+  });
+
+  it("rounds a fraction UP, because being short is the failure that matters", () => {
+    const t: KitTemplate = {
+      key: "t", name: "T", blurb: "", basePeople: 4,
+      sections: [{ title: "Food", items: [{ name: "Tins", qty: 10, unit: "cans", perPerson: true }] }],
+    };
+    // 10 × 3/4 = 7.5 → 8, not 7.
+    expect(instantiate(t, { id: "k1", now: NOW, people: 3 }).sections[0].items[0].qty).toBe(8);
+  });
+
+  it("remembers who the kit is for", () => {
+    expect(instantiate(household, { id: "k1", now: NOW, people: 3 }).people).toBe(3);
+  });
+
+  it("uses the template's own baseline when not told otherwise", () => {
+    const k = instantiate(household, { id: "k1", now: NOW });
+    expect(k.people).toBe(4);
+    expect(k.sections[0].items[0].qty).toBe(360);
+  });
+
+  it("treats a household of one as one, not as nothing", () => {
+    const k = instantiate(household, { id: "k1", now: NOW, people: 1 });
+    expect(k.people).toBe(1);
+    expect(k.sections[0].items[0].qty).toBe(90);
+  });
+
+  it("refuses a nonsense household rather than producing nonsense quantities", () => {
+    for (const bad of [0, -3, Number.NaN]) {
+      const k = instantiate(household, { id: "k1", now: NOW, people: bad });
+      expect(k.people).toBe(4);
+      expect(k.sections[0].items[0].qty).toBe(360);
+    }
+  });
+});
+
 describe("kitProgress", () => {
   it("counts what is packed and what it weighs", () => {
     const p = kitProgress(

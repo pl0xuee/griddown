@@ -40,6 +40,8 @@ export interface Kit {
   name: string;
   /** Which template it came from, if any. */
   template?: string;
+  /** How many people this kit is for. The quantities are scaled to it. */
+  people?: number;
   sections: KitSection[];
   t: number;
 }
@@ -55,6 +57,15 @@ export interface TemplateItem {
   supply?: Supply;
   /** Shelf life in months, turned into a real date when the kit is created. */
   rotateMonths?: number;
+  /**
+   * This quantity is per head, so it scales with the household.
+   *
+   * Implied by `supply` — water, food and fuel are consumed by people and
+   * always scale. Set it by hand for the rest: four people need four sleeping
+   * bags but one stove, and a checklist that scales the stove is as wrong as
+   * one that doesn't scale the water.
+   */
+  perPerson?: boolean;
 }
 
 export interface KitTemplateSection {
@@ -66,6 +77,8 @@ export interface KitTemplate {
   key: string;
   name: string;
   blurb: string;
+  /** How many people the quantities as written are for. Defaults to 1. */
+  basePeople?: number;
   sections: KitTemplateSection[];
 }
 
@@ -115,16 +128,38 @@ function addMonths(ms: number, months: number): number {
   return target.getTime();
 }
 
+/**
+ * Scale a per-head quantity, rounding UP.
+ *
+ * Up, always: three people out of a list written for four need 7.5 tins, and
+ * the failure that matters is being short. The toFixed first is float hygiene —
+ * without it a quantity that lands on 180.00000000000003 becomes 181.
+ */
+function scaleQty(qty: number, factor: number): number {
+  const scaled = Number((qty * factor).toFixed(6));
+  return Number.isInteger(qty) ? Math.ceil(scaled) : Math.ceil(scaled * 10) / 10;
+}
+
 /** Build a working kit from a template. Nothing starts ticked — claiming you
  *  already own the contents is the one lie this feature must not tell. */
 export function instantiate(
   t: KitTemplate,
-  opts: { id: string; now: number }
+  opts: { id: string; now: number; people?: number }
 ): Kit {
+  const base = t.basePeople && t.basePeople > 0 ? t.basePeople : 1;
+  // A household of zero, or of NaN, is a typo rather than an answer. Fall back
+  // to what the template was written for instead of producing 0 L of water.
+  const people =
+    typeof opts.people === "number" && Number.isFinite(opts.people) && opts.people >= 1
+      ? Math.floor(opts.people)
+      : base;
+  const factor = people / base;
+
   return {
     id: opts.id,
     name: t.name,
     template: t.key,
+    people,
     t: opts.now,
     sections: t.sections.map((sec, si) => ({
       title: sec.title,
@@ -132,7 +167,14 @@ export function instantiate(
         id: `s${si}-i${ii}`,
         name: it.name,
         have: false,
-        ...(it.qty !== undefined ? { qty: it.qty } : {}),
+        // supply implies per-person: water, food and fuel are consumed by
+        // people. Everything else scales only if it says so.
+        ...(it.qty !== undefined
+          ? {
+              qty:
+                it.perPerson || it.supply ? scaleQty(it.qty, factor) : it.qty,
+            }
+          : {}),
         ...(it.unit !== undefined ? { unit: it.unit } : {}),
         ...(it.grams !== undefined ? { grams: it.grams } : {}),
         ...(it.note !== undefined ? { note: it.note } : {}),
@@ -291,6 +333,7 @@ export function isKit(v: any): v is Kit {
     isId(v.id) &&
     isStr(v.name) &&
     (v.template === undefined || isStr(v.template)) &&
+    (v.people === undefined || isNum(v.people)) &&
     Array.isArray(v.sections) &&
     v.sections.every(
       (s: any) => s && isStr(s.title) && Array.isArray(s.items) && s.items.every(isKitItem)

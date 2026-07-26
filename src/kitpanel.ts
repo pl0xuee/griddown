@@ -137,7 +137,7 @@ function renderList() {
   el.innerHTML = `
     <div class="kt-actions">
       <button id="kt-add" type="button">＋ Add a checklist</button>
-      <button id="kt-people" type="button">Household: ${people()}</button>
+      <button id="kt-people" type="button" title="Used as the default when you add a checklist">Household default: ${people()}</button>
     </div>
     ${
       rows ||
@@ -179,7 +179,9 @@ function renderDetail(k: Kit) {
   if (!el) return;
   const now = Date.now();
   const prog = kitProgress(k);
-  const n = people();
+  // The kit's own household, not the global default — a go bag for one and a
+  // home list for four can sit side by side.
+  const n = k.people && k.people >= 1 ? k.people : people();
   const cov = supplyCoverage(k, n);
   const target = supplyTargets(n, 3);
 
@@ -228,7 +230,7 @@ function renderDetail(k: Kit) {
         <div class="kt-name">▤ ${esc(k.name)}</div>
         <div class="kt-sub">${prog.have} of ${prog.total} packed${
           prog.grams ? ` · ${(prog.grams / 1000).toFixed(1)} kg carried` : ""
-        }</div>
+        } · for ${n} ${n === 1 ? "person" : "people"}</div>
       </div>
       <div class="kt-pct">${prog.pct}%</div>
     </div>
@@ -290,7 +292,21 @@ async function addFromTemplate() {
     KIT_TEMPLATES.map((tpl) => ({ label: tpl.name, value: tpl, detail: tpl.blurb }))
   );
   if (!t) return;
-  const k = instantiate(t, { id: rid(), now: Date.now() });
+
+  // Asked here, not left to a setting somebody has to find: the quantities are
+  // written for a particular number of people (one for a go bag, four for the
+  // home list) and are wrong for every other number until this is answered.
+  const base = t.basePeople ?? 1;
+  const answer = await promptAction("How many people is this kit for?", {
+    value: String(people() || base),
+    okLabel: "Add",
+  });
+  if (answer == null) return;
+  const n = Number(answer.trim());
+  const forPeople = Number.isFinite(n) && n >= 1 ? Math.floor(n) : base;
+  setPeople(forPeople);
+
+  const k = instantiate(t, { id: rid(), now: Date.now(), people: forPeople });
   kits = kits.concat(k);
   await persist();
   openId = k.id;
