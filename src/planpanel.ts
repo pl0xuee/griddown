@@ -11,10 +11,12 @@ import {
   freezeRoute,
   makePrimary,
   planBounds,
+  joinLegs,
   planSummary,
   routeSaveTarget,
   STOP_KINDS,
   type FrozenRoute,
+  type Leg,
   type LL,
   type Plan,
   type PlanStop,
@@ -26,6 +28,7 @@ import {
   type CommsPlan,
   type Person,
 } from "./roster";
+import { computeLeg } from "./route";
 import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { printPlan } from "./planprint";
 import { OVERPRINT, OVERPRINT_CASING, OVERPRINT_LIFT } from "./overprint";
@@ -56,6 +59,8 @@ interface Deps {
   map: () => maplibregl.Map;
   /** Which pack is active — recorded on a route so we can say what it came from. */
   activeAbbr?: () => string;
+  /** Current pmtiles URL without the prefix, for routing through a stop. */
+  sourceUrl: () => string;
 }
 
 let deps: Deps | null = null;
@@ -429,10 +434,21 @@ function renderDetail(p: Plan) {
     .map(
       (s) => `<div class="pn-row" data-stop="${esc(s.id)}">
         <div class="pn-info">
-          <div class="pn-name">${KIND_GLYPH[s.kind]} ${esc(s.name)}</div>
+          <div class="pn-name">${KIND_GLYPH[s.kind]} ${esc(s.name)}${
+            s.via ? ` <span class="pn-via">on the route</span>` : ""
+          }</div>
           <div class="pn-sub">${KIND_LABEL[s.kind]} · ${s.lat.toFixed(4)}, ${s.lng.toFixed(4)}</div>
           ${s.note ? `<div class="pn-sub">${esc(s.note)}</div>` : ""}
         </div>
+        ${
+          // Avoid stops are the one kind with nothing to offer here: routing
+          // through ground you marked as ground to stay off is backwards.
+          canRouteThrough(s) && p.routes.length
+            ? `<button class="pn-btn" data-via="${esc(s.id)}" type="button">${
+                s.via ? "Take off route" : "Route through"
+              }</button>`
+            : ""
+        }
         <button class="pn-btn" data-gostop="${esc(s.id)}" type="button">Show</button>
         <button class="pn-del" data-delstop="${esc(s.id)}" type="button" aria-label="Delete stop">✕</button>
       </div>`
@@ -596,6 +612,116 @@ async function addStopAtCrosshair(p: Plan) {
   await persist();
   render();
   if (shownId === p.id) drawPlan(findPlan(p.id)!);
+
+  // Offer to put the route through it. Offered rather than done, because the
+  // rebuild needs the map pack and takes seconds — and a frozen route is not
+  // something to replace behind someone's back.
+  const fresh = findPlan(p.id);
+  if (!fresh || !canRouteThrough(stop) || !fresh.routes.length) return;
+  const ok = await confirmAction(
+    `Route "${fresh.routes[0].name}" through ${stop.name}?`
+  );
+  if (!ok) return;
+  await rebuildThroughVias(fresh.id, fresh.routes[0].id, [...viaIds(fresh), stop.id]);
+}
+
+/** Ground to stay off is the one kind that must never become a via. */
+function canRouteThrough(s: PlanStop): boolean {
+  return s.kind !== "avoid";
+}
+
+/** The stops a route already goes through, in order. */
+function viaIds(p: Plan): string[] {
+  return p.stops.filter((s) => s.via && canRouteThrough(s)).map((s) => s.id);
+}
+
+/**
+ * Rebuild a route so it passes through the given stops, in order.
+ *
+ * One leg per span — start to the first via, via to via, last via to the
+ * destination — joined into a single route (see joinLegs). The endpoints are
+ * the ones the route was originally asked for, not where it snapped to, so a
+ * rebuild starts the same question it started with.
+ */
+async function rebuildThroughVias(
+  planId: string,
+  routeId: string,
+  wantVias: string[]
+): Promise<void> {
+  const p = findPlan(planId);
+  const route = p?.routes.find((r) => r.id === routeId);
+  if (!p || !route) return;
+  if (!deps?.sourceUrl) {
+    toast("No map source to route from.", "error");
+    return;
+  }
+
+  const order = new Map(wantVias.map((id, i) => [id, i]));
+  const vias = p.stops
+    .filter((s) => order.has(s.id) && canRouteThrough(s))
+    .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+
+  const points = [
+    { lng: route.from.lng, lat: route.from.lat },
+    ...vias.map((s) => ({ lng: s.lng, lat: s.lat })),
+    { lng: route.to.lng, lat: route.to.lat },
+  ];
+
+  const legs: Leg[] = [];
+  let coarsest = 14;
+  let approx = false;
+  let missing = 0;
+  try {
+    for (let i = 0; i < points.length - 1; i++) {
+      toast(`Working out leg ${i + 1} of ${points.length - 1}…`, "info", 2500);
+      const leg = await computeLeg(points[i], points[i + 1], deps.sourceUrl());
+      legs.push({
+        coords: leg.r.coords,
+        meters: leg.r.meters,
+        steps: leg.r.steps,
+        usedTrail: leg.r.usedTrail,
+      });
+      coarsest = Math.min(coarsest, leg.z);
+      approx = approx || leg.approx;
+      missing += leg.missing;
+    }
+  } catch (e) {
+    // The old route is untouched. A failed rebuild must never leave you with
+    // less than you had — same rule Get there follows.
+    toast(
+      e instanceof Error ? e.message : "Couldn't work out that route.",
+      "error",
+      8000
+    );
+    return;
+  }
+
+  const joined = joinLegs(legs);
+  const rebuilt = freezeRoute(joined, {
+    id: route.id,
+    name: route.name,
+    from: route.from,
+    to: route.to,
+    pack: deps?.activeAbbr?.() ?? route.pack,
+    appVersion,
+    now: Date.now(),
+  });
+
+  const viaSet = new Set(vias.map((s) => s.id));
+  replacePlan({
+    ...p,
+    routes: p.routes.map((r) => (r.id === route.id ? rebuilt : r)),
+    stops: p.stops.map((s) => (viaSet.has(s.id) ? { ...s, via: true } : s)),
+  });
+  await persist();
+  render();
+  if (shownId === p.id) drawPlan(findPlan(p.id)!);
+  toast(
+    `"${route.name}" now goes via ${vias.length} stop${vias.length === 1 ? "" : "s"}` +
+      `${approx ? " (approximate in places)" : ""}${missing ? ` — ${missing} tile(s) missing` : ""}.`,
+    "success",
+    7000
+  );
 }
 
 /** Copy the plan's stops into the Marks panel, so they draw with the pins and
@@ -986,6 +1112,31 @@ function onBodyClick(e: MouseEvent) {
       await persist();
       render();
       if (shownId === p.id) drawPlan(findPlan(p.id)!);
+    })();
+    return;
+  }
+  const viaStop = t.dataset.via;
+  if (viaStop) {
+    const s = p.stops.find((x) => x.id === viaStop);
+    if (!s || !p.routes.length) return;
+    // Rebuild against the list this toggle produces, so taking a stop off the
+    // route re-routes without it rather than leaving a line that still bends
+    // towards somewhere you removed.
+    const next = s.via
+      ? viaIds(p).filter((id) => id !== s.id)
+      : [...viaIds(p), s.id];
+    void (async () => {
+      if (!s.via) {
+        const ok = await confirmAction(`Route "${p.routes[0].name}" through ${s.name}?`);
+        if (!ok) return;
+      }
+      // Un-via first, so a rebuild that fails still leaves the flag honest.
+      replacePlan({
+        ...p,
+        stops: p.stops.map((x) => (x.id === s.id ? { ...x, via: !s.via } : x)),
+      });
+      await persist();
+      await rebuildThroughVias(p.id, p.routes[0].id, next);
     })();
     return;
   }

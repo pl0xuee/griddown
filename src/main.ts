@@ -2155,6 +2155,8 @@ async function start() {
   initPlan({
     map: () => map,
     activeAbbr: () => activePackAbbr,
+    // Routing a plan through a stop reads the same pack Get there does.
+    sourceUrl: () => PMTILES_URL.replace(/^pmtiles:\/\//, ""),
   });
   initKit();
   initPrint({

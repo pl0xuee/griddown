@@ -29,6 +29,19 @@ lifted hue. It also holds **stops** (rally points, caches, fuel, water, shelter,
 medical, and ground to avoid), the **go/no-go conditions** decided while calm
 rather than at 3am, and one sentence for what happens if you are not together.
 
+**Stops can be on the route rather than beside it.** Add a fuel stop, a cache or
+a rally point and the plan offers to rebuild the route through it; accept and it
+is routed start → via → destination, one leg per span, joined into a single
+route with the road either side of the stop shown once rather than twice. Stops
+stay in the order you added them and can be taken back off the route, which
+re-routes without them. **Avoid** stops are never offered — that kind names
+ground to stay off, and routing through it would be precisely backwards.
+
+It offers rather than does. The rebuild needs the map pack and takes seconds,
+and a rebuild that fails leaves the old route exactly where it was — the same
+rule Get there already follows, for the same reason: you must never end up with
+less than you had a moment ago.
+
 Routes are always made by **Get there** — the plan's **Add a route** opens it,
 and the route you work out comes back to the plan you started from without
 asking which one. There is no hand-drawing: a line laid down with a fingertip

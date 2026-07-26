@@ -1414,6 +1414,20 @@ h6 {
   border: 1px solid var(--rule-faint);
   margin-bottom: 5px;
 }
+/* A stop the route actually goes through, as opposed to one merely marked
+   near it. The overprint, because it is now part of the line you drew. */
+.pn-via {
+  font-family: var(--font-collar);
+  font-size: 9.5px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--overprint-lift);
+  border: 1px solid var(--overprint-lift);
+  border-radius: var(--radius-pill);
+  padding: 1px 6px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
 .pn-role {
   font-family: var(--font-collar);
   font-size: 9.5px;

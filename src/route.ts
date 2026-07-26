@@ -17,6 +17,7 @@ import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
 import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
+import { haversine } from "./geo";
 import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { saveRouteToPlan } from "./planpanel";
 
@@ -318,6 +319,78 @@ function miles(m: number) {
 function shortDist(m: number) {
   const ft = m * 3.28084;
   return ft < 1000 ? `${Math.round(ft).toLocaleString()} ft` : `${miles(m)} mi`;
+}
+
+export interface LegOutcome {
+  r: RouteResult;
+  z: number;
+  missing: number;
+  approx: boolean;
+}
+
+/**
+ * Work out one span of road, from a point to a point.
+ *
+ * Lifted out of the Get there panel's own `go()` so the Plan panel can route
+ * through a stop with the same machinery. There is only one router in this app
+ * and there should only ever be one: a second one would drift, and a route that
+ * disagrees with itself depending on which panel asked for it is worse than no
+ * route at all.
+ *
+ * Throws with a human sentence rather than returning null for the two failures
+ * a caller has to say something about — too far apart to plan tiles for, and no
+ * connected road found at any zoom.
+ */
+export async function computeLeg(
+  from: { lng: number; lat: number },
+  to: { lng: number; lat: number },
+  sourceUrl: string,
+  onProgress?: (msg: string) => void
+): Promise<LegOutcome> {
+  // The shared implementation, not the panel's private copy — see geo.ts.
+  const direct = haversine([from.lng, from.lat], [to.lng, to.lat]);
+  const plans = planTiles({ ...from, label: "" }, { ...to, label: "" }, direct);
+  if (!plans.length) {
+    throw new Error(
+      "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
+    );
+  }
+
+  let best: LegOutcome | null = null;
+  // Finest zoom first, and at each zoom the stitch distance that zoom's tiles
+  // actually need. Only if a zoom cannot produce a route at all do we try a
+  // looser pass over the same, already-loaded segments — a route that needed
+  // loose bridging is marked `approx` because loose bridging can join roads
+  // that do not meet on the ground.
+  outer: for (const plan of plans) {
+    const { segs, missing } = await loadRoads(sourceUrl, plan, (d, t) =>
+      onProgress?.(`Reading roads… ${d}/${t} tiles`)
+    );
+    if (!segs.length) continue;
+    onProgress?.("Working out the way…");
+    const tight = stitchFor(plan.z);
+    for (const stitch of [tight, tight * 4]) {
+      const graph = buildRouteGraph(segs, { stitchMeters: stitch });
+      const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], {
+        snapMeters: 2000,
+      });
+      if (r) {
+        best = { r, z: plan.z, missing, approx: stitch !== tight };
+        break outer;
+      }
+    }
+  }
+
+  if (!best) {
+    // Be explicit that this is a limit of the data, not a claim that no road
+    // exists — the network in these tiles is not fully connected.
+    throw new Error(
+      `No connected road route found at any detail level. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
+        direct
+      )} mi.`
+    );
+  }
+  return best;
 }
 
 export function initRoute(deps: {
@@ -833,69 +906,23 @@ export function initRoute(deps: {
       renderIdle("Set both a start and a destination first.");
       return;
     }
-    const direct = haversineLL(from, to);
-    const plans = planTiles(from, to, direct);
-    if (!plans.length) {
-      fail(
-        "That's too far apart for an offline route overview. Try a closer destination, or route it in shorter legs."
-      );
-      return;
-    }
     busy = true;
     syncRecalc();
     if (body) body.innerHTML = `<div class="rt-msg">Reading roads from the pack&hellip;</div>`;
     try {
-      const roadsFor = async (plan: (typeof plans)[number]) =>
-        // Not cached by zoom any more. The old loop visited every plan twice
-        // (all zooms strict, then all zooms loose) so a cache paid for itself;
-        // this one visits each plan once, so the map only ever pinned up to
-        // five zooms' worth of decoded geometry — MAX_TILES tiles each — live
-        // at once on a phone, for no hit.
-        loadRoads(deps.sourceUrl(), plan, (d, t) => {
-          if (body) body.innerHTML = `<div class="rt-msg">Reading roads&hellip; ${d}/${t} tiles</div>`;
-        });
-
-      let best: { r: RouteResult; plan: (typeof plans)[number]; missing: number; approx: boolean } | null = null;
-      // Finest zoom first, and at each zoom the stitch distance that zoom's
-      // tiles actually need. Only if a zoom cannot produce a route at all do we
-      // try a looser pass over the same, already-loaded segments — a route that
-      // needed loose bridging is marked `approx` because loose bridging can join
-      // roads that do not meet on the ground.
-      outer: for (const plan of plans) {
-        const { segs, missing } = await roadsFor(plan);
-        if (!segs.length) continue;
-        if (body) body.innerHTML = `<div class="rt-msg">Working out the way&hellip;</div>`;
-        const tight = stitchFor(plan.z);
-        for (const stitch of [tight, tight * 4]) {
-          const graph = buildRouteGraph(segs, { stitchMeters: stitch });
-          const r = findRoute(graph, [from.lng, from.lat], [to.lng, to.lat], { snapMeters: 2000 });
-          if (r) {
-            best = { r, plan, missing, approx: stitch !== tight };
-            break outer;
-          }
-        }
-      }
-
-      if (!best) {
-        // Be explicit that this is a limit of the data, not a claim that no
-        // road exists — the network in these tiles is not fully connected.
-        fail(
-          `No connected road route found at any detail level. The map pack's road network can have gaps, so this doesn't prove there's no way through. Straight-line distance is ${miles(
-            direct
-          )} mi.`
-        );
-        return;
-      }
+      const best = await computeLeg(from, to, deps.sourceUrl(), (msg) => {
+        if (body) body.innerHTML = `<div class="rt-msg">${escapeHtml(msg)}</div>`;
+      });
       const next: Shown = {
         r: best.r,
-        z: best.plan.z,
+        z: best.z,
         missing: best.missing,
         approx: best.approx,
         from,
         to,
         at: Date.now(),
       };
-      draw(best.r.coords, best.plan.z < 14);
+      draw(best.r.coords, best.z < 14);
       shown = next;
       // Before fit, not after: syncRecalc is what puts the on-map recompute
       // button on screen, and fit measures it. Fitting first measured a screen

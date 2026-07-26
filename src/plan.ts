@@ -46,6 +46,15 @@ export interface PlanStop {
    * exists so the panel can say "this one is on your map too".
    */
   wpId?: string;
+  /**
+   * Route through here, rather than merely marking it.
+   *
+   * Never true for an `avoid` stop: that one names ground to stay off, and
+   * routing through it would be the exact opposite of what it was put there
+   * for. Set when you accept the offer to rebuild a route through the stop, so
+   * a later rebuild keeps passing through the same places in the same order.
+   */
+  via?: boolean;
 }
 
 export interface FrozenRoute {
@@ -274,6 +283,51 @@ export function planSummary(p: Plan): PlanSummary {
   };
 }
 
+/** One computed span of road, before it becomes a FrozenRoute. */
+export interface Leg {
+  coords: LL[];
+  meters: number;
+  steps: { name: string; meters: number }[];
+  usedTrail: boolean;
+}
+
+/** Below this, the end of one leg and the start of the next are the same place
+ *  and one of them is a duplicate. Above it, they are genuinely apart and
+ *  dropping either would draw a gap in the line. */
+const JOIN_TOLERANCE_DEG = 1e-6;
+
+/**
+ * Lay legs end to end into a single route.
+ *
+ * A route through a stop is two routes joined at it, and everything downstream —
+ * the map layer, the turn list, the printed page — treats what comes out as one
+ * route. So the seam has to disappear: no duplicated point where they meet, and
+ * no road named twice because you stopped for fuel halfway along it.
+ */
+export function joinLegs(legs: Leg[]): Leg {
+  const out: Leg = { coords: [], meters: 0, steps: [], usedTrail: false };
+  for (const leg of legs) {
+    out.meters += leg.meters;
+    out.usedTrail = out.usedTrail || leg.usedTrail;
+
+    const prev = out.coords[out.coords.length - 1];
+    const first = leg.coords[0];
+    const sameSpot =
+      prev &&
+      first &&
+      Math.abs(prev[0] - first[0]) < JOIN_TOLERANCE_DEG &&
+      Math.abs(prev[1] - first[1]) < JOIN_TOLERANCE_DEG;
+    out.coords.push(...(sameSpot ? leg.coords.slice(1) : leg.coords));
+
+    for (const s of leg.steps) {
+      const last = out.steps[out.steps.length - 1];
+      if (last && last.name === s.name) last.meters += s.meters;
+      else out.steps.push({ ...s });
+    }
+  }
+  return out;
+}
+
 export type SaveTarget =
   | { kind: "create" }
   | { kind: "use"; planId: string }
@@ -438,7 +492,8 @@ function isPlanStop(v: any): v is PlanStop {
     isLatLng(v.lat, v.lng) &&
     STOP_KINDS.includes(v.kind) &&
     isOptStr(v.note) &&
-    (v.wpId === undefined || isId(v.wpId))
+    (v.wpId === undefined || isId(v.wpId)) &&
+    (v.via === undefined || typeof v.via === "boolean")
   );
 }
 

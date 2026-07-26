@@ -7,8 +7,10 @@ import {
   planBounds,
   makePrimary,
   routeSaveTarget,
+  joinLegs,
   isPlan,
   type FrozenRoute,
+  type Leg,
   type Plan,
 } from "../src/plan";
 
@@ -278,6 +280,76 @@ describe("routeSaveTarget", () => {
   it("ignores a stale origin whose plan has since been deleted", () => {
     expect(routeSaveTarget([p1], "gone")).toEqual({ kind: "ask" });
     expect(routeSaveTarget([], "gone")).toEqual({ kind: "create" });
+  });
+});
+
+/**
+ * A route through a stop is two routes end to end. Joining them has to produce
+ * something indistinguishable from one route, because everything downstream —
+ * the map layer, the turn list, the printed page — treats it as one.
+ */
+describe("joinLegs", () => {
+  const leg = (over: Partial<Leg> = {}): Leg => ({
+    coords: [
+      [-120, 45],
+      [-119.5, 45],
+    ],
+    meters: 1000,
+    steps: [{ name: "US-97", meters: 1000 }],
+    usedTrail: false,
+    ...over,
+  });
+
+  it("joins the lines without repeating the point they share", () => {
+    const a = leg({ coords: [[-120, 45], [-119.5, 45]] });
+    const b = leg({ coords: [[-119.5, 45], [-119, 45]] });
+    expect(joinLegs([a, b]).coords).toEqual([
+      [-120, 45],
+      [-119.5, 45],
+      [-119, 45],
+    ]);
+  });
+
+  it("keeps both points when the legs do not quite meet", () => {
+    // The router snaps each leg to the nearest road, so the end of one and the
+    // start of the next can be metres apart. Dropping one would draw a gap.
+    const a = leg({ coords: [[-120, 45], [-119.5, 45]] });
+    const b = leg({ coords: [[-119.4, 45], [-119, 45]] });
+    expect(joinLegs([a, b]).coords).toHaveLength(4);
+  });
+
+  it("adds the distances up", () => {
+    expect(joinLegs([leg({ meters: 1000 }), leg({ meters: 250 })]).meters).toBe(1250);
+  });
+
+  it("merges the road either side of a via into one step", () => {
+    // Stopping for fuel on the same highway should not list it twice.
+    const a = leg({ steps: [{ name: "US-97", meters: 1000 }] });
+    const b = leg({ steps: [{ name: "US-97", meters: 500 }] });
+    expect(joinLegs([a, b]).steps).toEqual([{ name: "US-97", meters: 1500 }]);
+  });
+
+  it("keeps different roads apart", () => {
+    const a = leg({ steps: [{ name: "US-97", meters: 1000 }] });
+    const b = leg({ steps: [{ name: "Forest Rd 46", meters: 500 }] });
+    expect(joinLegs([a, b]).steps).toEqual([
+      { name: "US-97", meters: 1000 },
+      { name: "Forest Rd 46", meters: 500 },
+    ]);
+  });
+
+  it("is honest about a trail anywhere along the way", () => {
+    expect(joinLegs([leg(), leg({ usedTrail: true })]).usedTrail).toBe(true);
+    expect(joinLegs([leg(), leg()]).usedTrail).toBe(false);
+  });
+
+  it("hands a single leg back unchanged", () => {
+    const only = leg();
+    expect(joinLegs([only])).toEqual(only);
+  });
+
+  it("survives being given nothing", () => {
+    expect(joinLegs([])).toEqual({ coords: [], meters: 0, steps: [], usedTrail: false });
   });
 });
 
