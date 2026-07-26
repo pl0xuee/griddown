@@ -129,14 +129,22 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
  */
 export function moonGlyph(phase: number): string {
   const p = ((phase % 1) + 1) % 1;
-  if (p < 0.03 || p > 0.97) return "\u{1F311}"; // new
-  if (p < 0.22) return "\u{1F312}";
-  if (p < 0.28) return "\u{1F313}"; // first quarter
-  if (p < 0.47) return "\u{1F314}";
-  if (p < 0.53) return "\u{1F315}"; // full
-  if (p < 0.72) return "\u{1F316}";
-  if (p < 0.78) return "\u{1F317}"; // last quarter
-  return "\u{1F318}";
+  // Filled fraction, not a picture of the moon. These used to be the U+1F31x
+  // moon emoji, which carry Emoji_Presentation=Yes — so on iOS they rendered as
+  // full-colour Apple Color Emoji in the HUD icon row, ignoring the button's
+  // colour, refusing to dim with `.off` and staying bright yellow under night
+  // vision. index.html says it in as many words: icons are typographic glyphs,
+  // never emoji. The quarter-filled circles say the same thing — how much moon
+  // there will be — in the app's own ink. Waxing and waning are named in the
+  // panel and in the button's title; the glyph carries the amount.
+  if (p < 0.03 || p > 0.97) return "\u25CB"; // new — empty
+  if (p < 0.22) return "\u25D4"; // waxing crescent — a quarter lit
+  if (p < 0.28) return "\u25D0"; // first quarter — half
+  if (p < 0.47) return "\u25D5"; // waxing gibbous — three quarters
+  if (p < 0.53) return "\u25CF"; // full
+  if (p < 0.72) return "\u25D5"; // waning gibbous
+  if (p < 0.78) return "\u25D0"; // last quarter
+  return "\u25D4"; // waning crescent
 }
 
 /** Put tonight's phase on the HUD icon. */

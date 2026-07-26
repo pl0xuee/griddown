@@ -353,8 +353,8 @@ function renderRoster(): string {
       const med = medicalLine(p);
       return `<div class="pn-row">
         <div class="pn-info">
-          <div class="pn-name">● ${esc(p.name)}${
-            p.role ? ` <span class="pn-role">${esc(p.role)}</span>` : ""
+          <div class="pn-name"><span class="pn-name-text">● ${esc(p.name)}</span>${
+            p.role ? `<span class="pn-role">${esc(p.role)}</span>` : ""
           }</div>
           ${med ? `<div class="pn-med">${esc(med)}</div>` : ""}
           ${p.contact ? `<div class="pn-sub">${esc(p.contact)}</div>` : ""}

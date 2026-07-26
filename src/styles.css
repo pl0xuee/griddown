@@ -550,7 +550,19 @@ body.placing-stop #clear-map {
   align-items: center;
   gap: 6px;
   width: max-content;
-  max-width: calc(100vw - 24px);
+  /* 24px of margin, plus the column MapLibre's zoom stack occupies on the
+     right. Without the second term the bar reached x=294 on a 320pt screen and
+     sat over both zoom buttons at z-index 21 — and zooming is exactly what you
+     do to put the crosshair on the right spot. */
+  max-width: calc(100vw - 24px - 56px);
+}
+/* On a phone a panel covers the map completely, so the crosshair this bar is
+   about is not on screen. It comes back when the panel closes; the mode is not
+   cancelled. Desktop panels sit beside the map, so there the bar stays. */
+@media (max-width: 700px) {
+  body.panel-open #plan-place {
+    display: none;
+  }
 }
 /* Only one of the two can be the thing you are doing. Placing a stop takes the
    band; the recompute button comes back when you are finished. */
@@ -1409,9 +1421,21 @@ body.placing-stop #route-recalc {
   flex: 1;
   min-width: 0;
 }
+/* Name and role pill side by side, each truncating inside its own box. The
+   pill used to sit inside the truncating text run, so at 320pt the ellipsis
+   fell through the middle of it and you got a badge with a rounded left edge, a
+   square-cut right edge and most of "Driver / navigator" missing. */
 .pn-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
+}
+.pn-name-text {
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1600,9 +1624,17 @@ body.placing-stop #route-recalc {
   gap: 6px;
   margin-top: 7px;
 }
+/* Compact only where a fine pointer is driving. `.pn-stop-actions .pn-btn` is
+   two classes and beat the coarse-pointer 44px floor, which is one — so the via
+   toggle and Show, the newest controls in this panel, were 34px tall on a
+   phone. Media queries add no specificity, so the fix is to stop competing. */
+@media (pointer: fine) {
+  .pn-stop-actions .pn-btn {
+    min-height: 34px;
+  }
+}
 .pn-stop-actions .pn-btn {
   flex: 1 1 auto;
-  min-height: 34px;
 }
 /* On the route: the overprint, because the stop is now part of the line you
    drew rather than a mark sitting near it. */
@@ -1626,7 +1658,13 @@ body.placing-stop #route-recalc {
   border: 1px solid var(--rule-faint);
   border-radius: var(--radius-pill);
   padding: 1px 6px;
-  margin-left: 4px;
+  /* Shrinks only after the name has, and truncates inside its own border so the
+     pill keeps its shape whatever it is holding. */
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* Medical facts are what a stranger reads off this in a hurry, so they get the
    weight of a warning rather than the greyed-out treatment of a subtitle. */
@@ -2750,6 +2788,7 @@ button {
   .search-alt,
   .pl-back,
   .pn-btn,
+  .pn-danger,
   .pn-actions button,
   .kt-actions button,
   .mesh-go,
@@ -2768,6 +2807,7 @@ button {
   }
   .mk-btn,
   .ms-actions button,
+  .pn-btn,
   #hud-toggle {
     min-width: 44px;
   }
@@ -2793,8 +2833,14 @@ button {
   }
 }
 
-/* Phones: panels take the full screen, HUD is a touch narrower */
-@media (max-width: 640px) {
+/* Phones: panels take the full screen, HUD is a touch narrower.
+   700px, not 640: it has to be the same number as the sheet breakpoint below
+   and as PHONE in main.ts. When this said 640 and the sheet said 700, every
+   viewport in between got the sheet layout — which hides #hud-toggle — with no
+   command bar to raise the sheet with, and the sheet rests off-screen. That is
+   667x375: an iPhone 6/7/8/SE2/SE3 turned sideways, with no way to reach any
+   menu at all until you turned it back. */
+@media (max-width: 700px) {
   /* One rule, one breakpoint. This used to be four rules split across two
      breakpoints, so Route and Team mesh went full-width at 560px while the
      rest went at 640 — on a 600px-wide screen you got a mix of both. */
@@ -2893,6 +2939,16 @@ body .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
 body .maplibregl-ctrl-bottom-left,
 body .maplibregl-ctrl-bottom-right {
   bottom: var(--dock-h);
+}
+/* The side insets too, which the top-anchored pair above already gets. Without
+   them a phone turned sideways puts the scale bars under the sensor housing on
+   one edge and the attribution button under the rounded corner on the other —
+   measured 59px inside the inset at 844x390. */
+body .maplibregl-ctrl-bottom-left {
+  left: env(safe-area-inset-left);
+}
+body .maplibregl-ctrl-bottom-right {
+  right: env(safe-area-inset-right);
 }
 
 /* Scale bars, themed to match instead of the default white-on-nothing. */
@@ -3172,7 +3228,10 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   display: none;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 700px) {
+  /* Same breakpoint as the sheet and as PHONE in main.ts — see the note above
+     the panel rules. This bar carries More, which is the only control that
+     raises the sheet once #hud-toggle is hidden. */
   /* 44px — Apple's floor exactly, which for a bar whose glyph and label come to
      under 30px is all the room they need. With the collar at 38 that puts the
      dock at 38 + 44 + 34 = 116pt, against 128 at the last pass and 137 before
@@ -3287,6 +3346,23 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     letter-spacing: 0.1em;
     font-size: 11px;
     line-height: 1;
+    /* One line, always. The button's height is fixed by the bar, so a second
+       line does not make the button taller — it pushes the label off the
+       bottom of the screen, which is what "GET THERE" did at 320pt. */
+    white-space: nowrap;
+  }
+  /* 320pt — iPhone SE 1st gen, iPhone 5, and any phone in Display Zoom. Five
+     buttons across 320 leaves 59px of content each, and GET THERE measures 61
+     at the tracking above. The size stays at 11px, which is the readability
+     floor for this app; the tracking and the padding are what give way. */
+  @media (max-width: 340px) {
+    .cmd {
+      padding-left: 1px;
+      padding-right: 1px;
+    }
+    .cmd-label {
+      letter-spacing: 0.03em;
+    }
   }
   /* Lit while the thing it opens is showing, so the bar reports state rather
      than just issuing commands. Deliberately NOT the overprint: that hue means
@@ -4694,8 +4770,14 @@ body.battery.nightvis .maplibregl-ctrl {
        exactly at the last item; the rest positions below are self-relative, so
        they still land right whatever the content height turns out to be. */
     height: auto;
-    max-height: 88vh;
-    max-height: 88dvh;
+    /* Everything between the top of the screen and the top of the dock, less a
+       12px breath — the same arithmetic the desktop rule does. It was a flat
+       88vh, which does not know the sheet already starts `bottom: var(--dock-h)`
+       up: with a 116pt dock on a 844pt phone the sheet ran 15px off the top of
+       the screen, putting the drag grip out of reach and the GRIDDOWN title
+       under the Dynamic Island. The taller the dock, the worse it got. */
+    max-height: calc(100vh - var(--dock-h) - env(safe-area-inset-top) - 12px);
+    max-height: calc(100dvh - var(--dock-h) - env(safe-area-inset-top) - 12px);
     padding: 0 12px 8px;
     border-width: 1px 0 0;
     border-radius: var(--radius-lg) 16px 0 0;

@@ -457,7 +457,7 @@ export async function initWaypoints(map: maplibregl.Map) {
           <div class="mk-sub">${w.lat.toFixed(4)}, ${w.lng.toFixed(4)}</div></div>
           <button class="mk-btn" data-fly="${esc(w.id)}">Go</button>
           <button class="mk-btn" data-ren="${esc(w.id)}">✎</button>
-          <button class="mk-del" data-delwp="${esc(w.id)}">🗑</button></div>`
+          <button class="mk-del" data-delwp="${esc(w.id)}" title="Delete" aria-label="Delete pin">✕</button></div>`
       )
       .join("");
     const trRows = tracks
@@ -468,7 +468,7 @@ export async function initWaypoints(map: maplibregl.Map) {
           <div class="mk-info"><div class="mk-name">〜 ${esc(t.name)}</div>
           <div class="mk-sub">${len} · ${t.pts.length} points${when}</div></div>
           <button class="mk-btn" data-flytr="${esc(t.id)}">View</button>
-          <button class="mk-del" data-deltr="${esc(t.id)}">🗑</button></div>`;
+          <button class="mk-del" data-deltr="${esc(t.id)}" title="Delete" aria-label="Delete track">✕</button></div>`;
       })
       .join("");
     el.innerHTML =

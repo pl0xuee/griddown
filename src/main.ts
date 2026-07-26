@@ -2189,6 +2189,11 @@ async function start() {
     // The on-map one has the extra condition the recompute button has: it is
     // only the thing you would reach for when nothing is covering the map.
     clearOnMap?.classList.toggle("hidden", !anyLine || anyPanelOpen());
+    // Whether anything is covering the map, for the CSS that has to know. On a
+    // phone a panel is the whole screen, and "Save stop here" reads the
+    // crosshair at the centre of a map you cannot see — so the placement bar
+    // steps aside until the panel closes rather than offering a blind save.
+    document.body.classList.toggle("panel-open", anyPanelOpen());
   };
   const clearEverything = () => {
     routeCtl?.clear();

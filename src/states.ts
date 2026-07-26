@@ -288,7 +288,7 @@ function rowHtml(s: StateEntry): string {
   const extras = isInstalled && !isDownloading
     ? `<button class="state-refresh" data-refresh="${s.abbr}" title="Update this pack (re-download)">↻</button>` +
       `<button class="state-refresh" data-share="${s.abbr}" title="Export to Downloads (share via USB/SD)">⇪</button>` +
-      `<button class="state-delete" data-del="${s.abbr}" title="Delete">🗑</button>`
+      `<button class="state-delete" data-del="${s.abbr}" title="Delete">✕</button>`
     : "";
 
   // Terrain: its own sub-row so the big optional download is a clear choice.
