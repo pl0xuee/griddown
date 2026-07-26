@@ -1271,14 +1271,50 @@ h6 {
   cursor: pointer;
   font-size: 13px;
 }
-.pn-back {
-  background: none;
-  border: none;
-  color: var(--label-lift);
-  font-family: inherit;
-  font-size: 12px;
+/* The way back out of a detail view.
+ *
+ * This was a borderless 12px line of text, and it read as a caption rather than
+ * a control — people could not find it. Two things fix that, and both are
+ * needed: it looks like a button, and it is STICKY, so it is still there when
+ * you are sixty items down a go bag. A back control you have to scroll to find
+ * is one you have to know is there.
+ *
+ * Shared by Plan and Kit — the two panels that have a list-and-detail shape. */
+.pn-back,
+.kt-back {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  margin: 0 0 12px;
+  padding: 0 12px;
+  border: 1px solid var(--rule-firm);
+  border-radius: var(--radius-sm);
+  /* Opaque: it sits over content that scrolls underneath it. */
+  background: var(--surface-solid);
+  color: var(--type-2);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  text-align: left;
   cursor: pointer;
-  padding: 4px 0;
+}
+.pn-back:hover,
+.kt-back:hover {
+  background: var(--control-hover);
+  border-color: var(--rule-hot);
+  color: var(--type-loud);
+}
+.pn-back-chev,
+.kt-back-chev {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--label);
 }
 .pn-title-row {
   display: flex;
@@ -1518,15 +1554,6 @@ h6 {
   color: var(--warn-soft);
   background: var(--warn-wash);
 }
-.kt-back {
-  background: none;
-  border: none;
-  color: var(--label-lift);
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 0;
-}
 .kt-title-row {
   display: flex;
   align-items: flex-start;
@@ -1670,7 +1697,10 @@ h6 {
   background: var(--overprint);
   color: #fff;
 }
-.plan-stop--cache { background: var(--layer-camp); }
+/* One hue each. Cache and shelter both sat on --layer-camp, which meant the two
+   markers differed only by a glyph a few pixels across — and "somewhere to
+   sleep" and "the food I buried" are not things to squint at. */
+.plan-stop--cache { background: var(--layer-forage); }
 .plan-stop--fuel { background: var(--warn); }
 .plan-stop--water { background: var(--layer-water); }
 .plan-stop--shelter { background: var(--layer-camp); }
@@ -2008,6 +2038,49 @@ body.nightvis {
 .ask-btn:hover { background: var(--wash-firm); }
 .ask-btn:focus { outline: 2px solid var(--label); outline-offset: 2px; }
 .ask-btn:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+
+/* Pick-one-of-several. A full-width stack rather than a row: the labels are
+   real names ("Home — 30 days to a year"), they carry a second line of
+   explanation, and a row of six would either wrap into a puzzle or truncate the
+   one word that distinguishes them. */
+.ask-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ask-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-firm);
+  background: none;
+  color: var(--type);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ask-choice:hover {
+  background: var(--wash-firm);
+  border-color: var(--rule-hot);
+}
+.ask-choice:focus { outline: 2px solid var(--label); outline-offset: 2px; }
+.ask-choice:focus-visible { outline: 2px solid var(--label); outline-offset: 2px; }
+.ask-choice-label {
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+.ask-choice-detail {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--type-quiet);
+}
 
 /* --- Welcome overlay --- */
 #welcome {
@@ -2429,10 +2502,8 @@ button {
   .fish-actions button,
   .search-alt,
   .pl-back,
-  .pn-back,
   .pn-btn,
   .pn-actions button,
-  .kt-back,
   .kt-actions button,
   .mesh-go,
   .mesh-alt,

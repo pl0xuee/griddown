@@ -12,7 +12,7 @@ import {
   type KitItem,
 } from "./kit";
 import { KIT_TEMPLATES } from "./kitdata";
-import { confirmAction, promptAction } from "./dialog";
+import { chooseAction, confirmAction, promptAction } from "./dialog";
 import { esc } from "./esc";
 import { toast } from "./toast";
 
@@ -220,7 +220,9 @@ function renderDetail(k: Kit) {
          } ${target.waterL} L for three days.</div>`;
 
   el.innerHTML = `
-    <button id="kt-back" class="kt-back" type="button">‹ All checklists</button>
+    <button id="kt-back" class="kt-back" type="button">
+      <span class="kt-back-chev" aria-hidden="true">‹</span> All checklists
+    </button>
     <div class="kt-title-row">
       <div>
         <div class="kt-name">▤ ${esc(k.name)}</div>
@@ -280,17 +282,14 @@ function render() {
 // --- Actions -----------------------------------------------------------------
 
 async function addFromTemplate() {
-  const list = KIT_TEMPLATES.map((t, i) => `${i + 1}. ${t.name}`).join("  ");
-  const choice = await promptAction(`Which checklist? ${list}`, {
-    value: "1",
-    okLabel: "Add",
-  });
-  if (choice == null) return;
-  const t = KIT_TEMPLATES[Number(choice.trim()) - 1];
-  if (!t) {
-    toast("No checklist with that number.", "error");
-    return;
-  }
+  const t = await chooseAction(
+    "Which checklist?",
+    // The blurb is the detail line: "Go bag" alone does not tell you it is one
+    // person on foot for three days, and that is the whole basis for what goes
+    // in it.
+    KIT_TEMPLATES.map((tpl) => ({ label: tpl.name, value: tpl, detail: tpl.blurb }))
+  );
+  if (!t) return;
   const k = instantiate(t, { id: rid(), now: Date.now() });
   kits = kits.concat(k);
   await persist();
@@ -331,16 +330,17 @@ async function editItem(k: Kit, itemId: string) {
 async function addItem(k: Kit) {
   const name = await promptAction("What is it?", { placeholder: "Spare glasses" });
   if (!name?.trim()) return;
-  const titles = k.sections.map((s, i) => `${i + 1}. ${s.title}`).join("  ");
-  const where = await promptAction(`Which section? ${titles}`, { value: "1" });
-  if (where == null) return;
-  const idx = Number(where.trim()) - 1;
-  if (!k.sections[idx]) {
-    toast("No section with that number.", "error");
-    return;
-  }
-  const sections = k.sections.map((s, i) =>
-    i === idx
+  const title = await chooseAction(
+    "Which section?",
+    k.sections.map((s) => ({
+      label: s.title,
+      value: s.title,
+      detail: `${s.items.length} item${s.items.length === 1 ? "" : "s"}`,
+    }))
+  );
+  if (title == null) return;
+  const sections = k.sections.map((s) =>
+    s.title === title
       ? { ...s, items: s.items.concat({ id: rid(), name: name.trim(), have: false }) }
       : s
   );

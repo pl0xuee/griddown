@@ -28,7 +28,7 @@ import {
 import { computePadding, visibleBox } from "./fitmap";
 import { printPlan } from "./planprint";
 import { OVERPRINT, OVERPRINT_CASING, OVERPRINT_LIFT } from "./overprint";
-import { confirmAction, promptAction } from "./dialog";
+import { chooseAction, confirmAction, promptAction } from "./dialog";
 import { esc } from "./esc";
 import { toast } from "./toast";
 
@@ -106,10 +106,34 @@ const KIND_LABEL: Record<StopKind, string> = {
   avoid: "Avoid",
 };
 
+/** What each kind is for, shown under its name when you pick one. The words
+ *  are the point: "cache" means nothing until you are told it is a thing you
+ *  left behind on purpose. */
+const KIND_DETAIL: Record<StopKind, string> = {
+  rally: "Where you meet if you get separated.",
+  cache: "Something you left here on purpose.",
+  fuel: "Petrol, diesel, gas, charging.",
+  water: "A source you have actually seen.",
+  shelter: "Somewhere you could stop the night.",
+  medical: "Clinic, pharmacy, someone who can help.",
+  avoid: "Ground to stay off. Bridges, chokepoints, floodplain.",
+};
+
+/**
+ * One monochrome glyph per kind.
+ *
+ * Every one of these is a plain geometric character with no emoji presentation.
+ * U+26FD ⛽ is the obvious mark for fuel and is the one thing here that must not
+ * be used: it is emoji-presentation by default, so it arrives as a red-and-white
+ * colour pictograph in a chrome that is achromatic on purpose (see the top of
+ * styles.css) — and colour in this app is reserved for things that mean
+ * something. A hexagon says nothing on its own, which is the point; the colour
+ * of the marker and the label beside it carry the meaning.
+ */
 const KIND_GLYPH: Record<StopKind, string> = {
   rally: "◎",
   cache: "▣",
-  fuel: "⛽",
+  fuel: "⬢",
   water: "≈",
   shelter: "⌂",
   medical: "✚",
@@ -421,7 +445,9 @@ function renderDetail(p: Plan) {
     .join("");
 
   el.innerHTML = `
-    <button id="pn-back" class="pn-back" type="button">‹ All plans</button>
+    <button id="pn-back" class="pn-back" type="button">
+      <span class="pn-back-chev" aria-hidden="true">‹</span> All plans
+    </button>
     <div class="pn-title-row">
       <div>
         <div class="pn-name">◈ ${esc(p.name)}</div>
@@ -555,13 +581,15 @@ async function addStopAtCrosshair(p: Plan) {
   const c = map.getCenter();
   const name = await promptAction("What is here?", { placeholder: "Trailhead" });
   if (!name?.trim()) return;
-  const kindStr = await promptAction(
-    `What kind? ${STOP_KINDS.join(", ")}`,
-    { value: "rally", placeholder: "rally" }
+  const kind = await chooseAction(
+    "What kind of stop?",
+    STOP_KINDS.map((k) => ({
+      label: `${KIND_GLYPH[k]}  ${KIND_LABEL[k]}`,
+      value: k,
+      detail: KIND_DETAIL[k],
+    }))
   );
-  const kind = (STOP_KINDS as readonly string[]).includes((kindStr || "").trim())
-    ? ((kindStr || "").trim() as StopKind)
-    : "rally";
+  if (!kind) return;
   const stop: PlanStop = {
     id: rid(),
     name: name.trim(),
@@ -722,22 +750,19 @@ export async function saveRouteToPlan(h: {
     target = (await newPlan()) ?? undefined;
     if (!target) return;
   } else {
-    const menu = plans.map((p, i) => `${i + 1}. ${p.name}`).join("   ");
-    const choice = await promptAction(`Add to which plan?   0. New plan   ${menu}`, {
-      value: "1",
-      okLabel: "Choose",
-    });
-    if (choice == null) return;
-    if (choice.trim() === "0") {
-      target = (await newPlan()) ?? undefined;
-      if (!target) return;
-    } else {
-      target = plans[Number(choice.trim()) - 1];
-      if (!target) {
-        toast("No plan with that number.", "error");
-        return;
-      }
-    }
+    const picked = await chooseAction<Plan | "new">("Add this route to which plan?", [
+      ...plans.map((p) => ({
+        label: p.name,
+        value: p as Plan | "new",
+        detail: p.routes.length
+          ? `${p.routes.length} route${p.routes.length === 1 ? "" : "s"} already`
+          : "no route yet",
+      })),
+      { label: "＋ New plan", value: "new" as const },
+    ]);
+    if (picked == null) return;
+    target = picked === "new" ? ((await newPlan()) ?? undefined) : picked;
+    if (!target) return;
   }
   const suggested = target.routes.length ? `Alternate ${target.routes.length}` : "Primary";
   const name = await promptAction("Name this route", { value: suggested, okLabel: "Save" });
