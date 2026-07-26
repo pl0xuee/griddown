@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter, Manager};
 
 mod mesh;
@@ -698,6 +698,104 @@ const MVUM_TOLERANCE: &str = "0.0001";
 
 const MVUM_PAGE: usize = 1000;
 
+/// The manifest CI publishes for the per-state MVUM overlays.
+///
+/// A fixed tag, not `latest`: the basemap packs resolve through
+/// `releases/latest/download/packs.json`, and an MVUM release published
+/// normally would become that repo's "latest" and answer to that URL instead.
+const MVUM_MANIFEST_URL: &str =
+    "https://github.com/pl0xuee/griddown-packs/releases/download/mvum-latest/mvum.json";
+
+#[derive(serde::Deserialize)]
+struct MvumPack {
+    bytes: u64,
+    sha256: String,
+    url: String,
+}
+
+#[derive(serde::Deserialize)]
+struct MvumManifest {
+    states: std::collections::HashMap<String, MvumPack>,
+}
+
+/// Fetch a state's forest roads as a pre-built pack.
+///
+/// Tried before the Forest Service's own service, and the reason is the whole
+/// point of the packs: their ArcGIS host is the single point of failure for
+/// this feature, and when it is down — as it is now, for its entire catalogue —
+/// there is no other way to get forest roads at all. A pack is one request to a
+/// host we control, already split by state and already generalised, so the work
+/// their server does for us is work CI did last month instead.
+///
+/// Errors are ordinary here rather than fatal: every one of them falls back to
+/// the live download, because a state nobody has cut a pack for still has to
+/// work.
+fn mvum_from_pack(
+    app: &AppHandle,
+    client: &reqwest::blocking::Client,
+    abbr: &str,
+    path: &Path,
+) -> Result<u64, String> {
+    let manifest: MvumManifest = client
+        .get(MVUM_MANIFEST_URL)
+        .timeout(std::time::Duration::from_secs(20))
+        .send()
+        .and_then(|r| r.error_for_status())
+        .and_then(|r| r.text())
+        .map_err(|e| e.to_string())
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| e.to_string()))?;
+
+    let key = abbr.to_uppercase();
+    let pack = manifest
+        .states
+        .get(&key)
+        .ok_or_else(|| format!("no pre-built pack for {key}"))?;
+
+    let mut res = client
+        .get(&pack.url)
+        .timeout(std::time::Duration::from_secs(600))
+        .send()
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| e.to_string())?;
+
+    // Hashed on the way past rather than re-read afterwards: these run to tens
+    // of megabytes and the file is about to be renamed into place regardless.
+    let tmp = path.with_extension("part");
+    let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut got: u64 = 0;
+    loop {
+        let n = std::io::Read::read(&mut res, &mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        sha2::Digest::update(&mut hasher, &buf[..n]);
+        std::io::Write::write_all(&mut out, &buf[..n]).map_err(|e| e.to_string())?;
+        got += n as u64;
+        let _ = app.emit(
+            "mvum-progress",
+            serde_json::json!({ "abbr": abbr, "done": got, "total": pack.bytes }),
+        );
+    }
+    drop(out);
+
+    // Verified before it is allowed to become the overlay. A truncated pack
+    // still parses far enough to draw, and would show as forest roads that
+    // simply stop — which is the one failure this data must never present,
+    // since "no road here" is a thing people act on.
+    let sum = format!("{:x}", <sha2::Sha256 as sha2::Digest>::finalize(hasher));
+    if got != pack.bytes || sum != pack.sha256 {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
+            "pack for {key} arrived damaged ({got} bytes, expected {})",
+            pack.bytes
+        ));
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(got)
+}
+
 /// Path of a state's MVUM overlay file.
 fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
     let dir = app
@@ -919,6 +1017,15 @@ async fn download_mvum(app: AppHandle, abbr: String, bbox: String) -> Result<u64
             .user_agent("griddown-mvum/1.0")
             .build()
             .map_err(|e| e.to_string())?;
+
+        // The pack first. Anything at all going wrong with it — no manifest, no
+        // pack for this state, a damaged download — falls through to the live
+        // service below, which is still the only way to get a state nobody has
+        // cut a pack for.
+        match mvum_from_pack(&app, &client, &abbr, &path) {
+            Ok(bytes) => return Ok(bytes),
+            Err(why) => eprintln!("[griddown] mvum pack unavailable ({why}); asking the Forest Service"),
+        }
 
         let mut total = 0usize;
         for (layer, _) in MVUM_LAYERS {
