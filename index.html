@@ -228,6 +228,27 @@
       &#8635; Recalculate
     </button>
 
+    <!-- Take whatever line is drawn off the map, without first working out
+         which panel drew it. Must follow #route-recalc in the DOM: the CSS
+         steps this up a band when that button is showing, the same way the
+         legend does. -->
+    <button id="clear-map" class="hidden" type="button" title="Take the route currently drawn off the map">
+      &#10005; Clear route
+    </button>
+
+    <!-- Placing a stop. "Add at crosshair" used to read the crosshair the
+         instant you pressed it, from behind a panel that was covering the map —
+         so the spot it took was wherever the map happened to be sitting, not
+         one you had chosen. The panel now gets out of the way and this bar
+         waits while you move the map. -->
+    <div id="plan-place" class="hidden">
+      <div id="plan-place-hint">Move the map so the crosshair is on the spot</div>
+      <div id="plan-place-row">
+        <button id="plan-place-cancel" type="button">Cancel</button>
+        <button id="plan-place-save" type="button">&#9678; Save stop here</button>
+      </div>
+    </div>
+
     <!-- Legend: a collapsible card ON the map, not buried in the menu.
          Set like the key on a printed quad — specimens in a fixed gutter, terse
          labels, a hairline where one overlay's block ends and the next begins.

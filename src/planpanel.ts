@@ -79,6 +79,8 @@ let appVersion = "dev";
  * a route computed later, off your own bat, should still ask.
  */
 let awaitingRouteFor: string | null = null;
+/** The plan a stop is being placed for, while the map is showing. */
+let placingStopFor: string | null = null;
 // The roster and comms plan belong to the household, not to any one plan — the
 // same people and the same radio channel apply whichever way you leave.
 let roster: Person[] = [];
@@ -601,10 +603,36 @@ async function newPlan(): Promise<Plan | null> {
   return p;
 }
 
-async function addStopAtCrosshair(p: Plan) {
+/**
+ * Begin placing a stop: show the map, and wait.
+ *
+ * This used to read the crosshair the instant you pressed the button — from
+ * behind a panel that was covering the map. So the coordinate it took was
+ * wherever the map happened to be sitting when you opened the plan, which is
+ * never the place you meant. Now the panel gets out of the way and the on-map
+ * bar waits while you move the map.
+ */
+function beginPlacingStop(p: Plan) {
+  placingStopFor = p.id;
+  document.getElementById("plan-panel")?.classList.add("hidden");
+  document.body.classList.add("placing-stop");
+  document.getElementById("plan-place")?.classList.remove("hidden");
+}
+
+function endPlacingStop() {
+  placingStopFor = null;
+  document.body.classList.remove("placing-stop");
+  document.getElementById("plan-place")?.classList.add("hidden");
+}
+
+async function saveStopAtCrosshair(p: Plan) {
   const map = deps?.map();
   if (!map) return;
+  // Read the crosshair BEFORE the first dialog: the map cannot move while a
+  // modal is up, but reading it first means the coordinate is unambiguously
+  // the one that was on screen when the button was pressed.
   const c = map.getCenter();
+  endPlacingStop();
   const name = await promptAction("What is here?", { placeholder: "Trailhead" });
   if (!name?.trim()) return;
   const kind = await chooseAction(
@@ -625,7 +653,9 @@ async function addStopAtCrosshair(p: Plan) {
   };
   replacePlan({ ...p, stops: p.stops.concat(stop) });
   await persist();
-  render();
+  // Back to the plan, so you can see what you just added to it. Not revealPlan:
+  // adding a stop must not clear a route you still have drawn.
+  showPlanPanel(p.id);
   if (shownId === p.id) drawPlan(findPlan(p.id)!);
 
   // Offer to put the route through it. Offered rather than done, because the
@@ -890,15 +920,25 @@ export async function saveRouteToPlan(h: {
  * the one moment you want to see the plan it went into — if only to check it
  * went into the right one.
  */
-function revealPlan(id: string) {
+function showPlanPanel(id: string) {
   openId = id;
   closeAllPanels();
   document.getElementById("plan-panel")?.classList.remove("hidden");
   render();
+}
 
-  // Get there's line and the plan's copy of it are the same journey drawn
-  // twice, in the same overprint magenta, one of them now owned by nothing.
-  // Hand the map over: clear theirs, draw ours.
+/**
+ * Show a plan AND give it the map — for when the plan has just taken ownership
+ * of what is drawn there.
+ *
+ * Only for saving a route. Get there's line and the plan's copy of it are the
+ * same journey drawn twice, in the same overprint magenta, one of them now
+ * owned by nothing — so that one goes. Anything else that merely wants the
+ * panel back should call showPlanPanel, which does not touch a route the user
+ * may still be using.
+ */
+function revealPlan(id: string) {
+  showPlanPanel(id);
   deps?.clearRoute?.();
   const p = findPlan(id);
   if (p) {
@@ -1023,6 +1063,10 @@ function onBodyClick(e: MouseEvent) {
   }
   if (t.id === "pn-show") {
     drawPlan(p);
+    // Close the panel first, then fit: on a phone the panel IS the screen, so
+    // showing a plan behind it framed the route into a map nobody could see —
+    // and fit measures the chrome, so it has to measure it already gone.
+    document.getElementById("plan-panel")?.classList.add("hidden");
     fitPlan(p);
     return;
   }
@@ -1066,7 +1110,7 @@ function onBodyClick(e: MouseEvent) {
     return;
   }
   if (t.id === "pn-addstop") {
-    void addStopAtCrosshair(p);
+    beginPlacingStop(p);
     return;
   }
   if (t.id === "pn-tomarks") {
@@ -1214,6 +1258,19 @@ export function initPlan(d: Deps) {
   });
   document.getElementById("plan-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");
+  });
+
+  // The on-map placement bar. Both ways out put the panel back, so you never
+  // end up on a bare map wondering where the plan went.
+  document.getElementById("plan-place-save")?.addEventListener("click", () => {
+    const p = findPlan(placingStopFor);
+    if (p) void saveStopAtCrosshair(p);
+    else endPlacingStop();
+  });
+  document.getElementById("plan-place-cancel")?.addEventListener("click", () => {
+    const id = placingStopFor;
+    endPlacingStop();
+    if (id) showPlanPanel(id);
   });
   panelBody()?.addEventListener("click", onBodyClick);
 

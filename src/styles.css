@@ -466,6 +466,104 @@ h6 {
 #route-recalc:hover {
   background: var(--wash-firm);
 }
+
+/* Clear whatever is drawn, from the map itself.
+   Same band as the recompute button, and steps up by exactly one band when that
+   button is showing — the coupling the legend already uses, so the two never
+   need to measure each other. */
+#clear-map {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 6px);
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--rule-firm);
+  border-radius: var(--radius-sm);
+  background: var(--surface-hud);
+  color: var(--type-2);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+#clear-map:hover {
+  background: var(--wash-firm);
+  color: var(--type-loud);
+}
+#route-recalc:not(.hidden) ~ #clear-map {
+  bottom: calc(var(--dock-h) + var(--attrib-h) + 6px + var(--recalc-band));
+}
+/* Placing a stop owns the band outright. */
+body.placing-stop #clear-map {
+  display: none;
+}
+
+/* Placing a plan stop.
+   At the TOP, not in the recompute band at the bottom: the bottom of the map is
+   already the legend, the scale bars, the attribution and where toasts land, and
+   a mode you cannot leave without pressing a button must not have that button
+   behind a toast. The top strip is empty on a phone (the menu is a bottom
+   sheet) and empty between the menu and the zoom control on a desktop. */
+#plan-place {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: calc(12px + env(safe-area-inset-top));
+  /* Above the panels, unlike the bottom-band controls: this one is a mode, and
+     it stays reachable whatever else is on screen. */
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+}
+/* Only one of the two can be the thing you are doing. Placing a stop takes the
+   band; the recompute button comes back when you are finished. */
+body.placing-stop #route-recalc {
+  display: none;
+}
+#plan-place-hint {
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hud);
+  border: 1px solid var(--rule);
+  color: var(--type-2);
+  font-family: var(--font-prose);
+  font-size: 11.5px;
+  text-align: center;
+}
+#plan-place-row {
+  display: flex;
+  gap: 8px;
+}
+#plan-place-row button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-hotter);
+  background: var(--surface-hud);
+  color: var(--type-loud);
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+}
+#plan-place-cancel {
+  border-color: var(--rule-firm);
+  color: var(--type-2);
+}
+#plan-place-row button:hover {
+  background: var(--wash-firm);
+}
 /* Mid-recompute: say so, and stop a second tap queueing another one. */
 #route-recalc[disabled] {
   opacity: 0.6;
@@ -2280,9 +2378,12 @@ body.nightvis {
 }
 
 .hb-body {
-  padding: 0 12px 10px 12px;
-  font-size: 12px;
-  line-height: 1.6;
+  padding: 0 12px 12px 12px;
+  font-size: 12.5px;
+  /* 1.7 rather than 1.6: these run to several hundred words and are read in bad
+     light, and the extra leading is what stops a wall of bullets closing up. */
+  line-height: 1.7;
+  color: var(--type-2);
 }
 
 .hb-body ul {
@@ -2327,12 +2428,18 @@ body.nightvis {
   padding: 10px;
 }
 .hb-body p {
-  margin: 0 0 8px;
+  margin: 0 0 9px;
 }
+.hb-body p:last-child,
+.hb-bullet:last-child {
+  margin-bottom: 0;
+}
+/* Hanging indent, so a bullet that wraps stays a single block instead of its
+   second line starting under the marker. */
 .hb-bullet {
-  margin: 0 0 5px 6px;
-  text-indent: -8px;
-  padding-left: 8px;
+  margin: 0 0 7px 2px;
+  padding-left: 14px;
+  text-indent: -14px;
 }
 /* Headings inside a guide. The guides run to several hundred words each and are
    read under stress, so the sections have to be findable by eye. Collar type,
@@ -2348,16 +2455,27 @@ body.nightvis {
 .hb-head:first-child {
   margin-top: 0;
 }
-/* Shown while the section is collapsed: what this guide is for, so a list of
-   twenty-one titles can be scanned rather than opened one at a time. */
+/* What this guide is for, so a list of twenty-one titles can be scanned rather
+   than opened one at a time.
+   Indented to the same 12px as the title above and the body below. Without that
+   it ran the full width of the card and butted into both borders, which read as
+   text that had escaped rather than as part of the entry. */
 .hb-summary {
-  margin: -2px 0 8px;
-  font-size: 11px;
-  line-height: 1.45;
+  /* -4px against the title's 10px bottom padding: the summary belongs to the
+     title, and a full 10px of air made them two separate things. */
+  margin: -4px 0 0;
+  padding: 0 12px 10px;
+  font-size: 11.5px;
+  line-height: 1.55;
   color: var(--type-quiet);
 }
+/* Open, it is the standfirst over the guide rather than a label under a title,
+   so it takes the body's colour and sits on the hairline that starts the text. */
 .hb-section:not(.collapsed) .hb-summary {
-  margin-bottom: 10px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--rule-faint);
+  color: var(--type-2);
 }
 
 #handbook-disclaimer {

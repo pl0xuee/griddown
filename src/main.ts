@@ -41,6 +41,10 @@ import { initKit } from "./kitpanel";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
 import { initPanels, closeAllPanels, anyPanelOpen } from "./panels";
+
+/** Set by start(); called whenever a panel opens or closes so the on-map
+ *  controls can decide whether they are still the thing you would reach for. */
+let onPanelChange: (() => void) | null = null;
 import { initPlantPanel, openPlant, findPlant } from "./plantpanel";
 import { initReadiness } from "./readiness";
 import { initPrint } from "./print";
@@ -2178,16 +2182,24 @@ async function start() {
    * nobody can observe.
    */
   const clearBtn = document.getElementById("clear-lines") as HTMLButtonElement | null;
+  const clearOnMap = document.getElementById("clear-map");
   const syncClearLines = () => {
-    if (clearBtn) clearBtn.hidden = !(routeCtl?.hasRoute() || hasShownPlan());
+    const anyLine = !!routeCtl?.hasRoute() || hasShownPlan();
+    if (clearBtn) clearBtn.hidden = !anyLine;
+    // The on-map one has the extra condition the recompute button has: it is
+    // only the thing you would reach for when nothing is covering the map.
+    clearOnMap?.classList.toggle("hidden", !anyLine || anyPanelOpen());
   };
-  clearBtn?.addEventListener("click", () => {
+  const clearEverything = () => {
     routeCtl?.clear();
     clearShownPlan();
     syncClearLines();
     toast("Route cleared.", "success");
-  });
+  };
+  clearBtn?.addEventListener("click", clearEverything);
+  clearOnMap?.addEventListener("click", clearEverything);
   document.getElementById("hud-toggle")?.addEventListener("click", syncClearLines);
+  onPanelChange = syncClearLines;
   syncClearLines();
   initKit();
   initPrint({
@@ -2198,7 +2210,7 @@ async function start() {
   });
   // Opening any panel drops the phone menu out of the way — peekSheet is
   // already exactly that, and is a no-op on a desktop.
-  initPanels(peekSheet);
+  initPanels(peekSheet, () => onPanelChange?.());
 
   void initStateLibrary(switchToSource);
 }
