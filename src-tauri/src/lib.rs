@@ -736,13 +736,20 @@ fn mvum_from_pack(
     abbr: &str,
     path: &Path,
 ) -> Result<u64, String> {
-    // Cache-busted, and it has to be. The release asset sits behind a CDN that
-    // serves a stale copy for ~20 minutes and ignores Cache-Control: no-cache —
-    // measured at Age: 1210 on a file replaced moments earlier. The manifest is
-    // replaced wholesale on every rebuild, so a stale one lists sha256s for
-    // packs that no longer exist: every download would fail its integrity check
-    // and fall back to the live service, for the whole TTL, right after a
-    // rebuild. A query string is enough to get past it.
+    // Cache-busted, and it has to be. A release download URL is a redirect, and
+    // it is the REDIRECT that goes stale: GitHub caches it for around twenty
+    // minutes and ignores Cache-Control, so for that long after a rebuild it
+    // still points at the previous manifest. That matters because the manifest
+    // is replaced wholesale each time — a stale one lists sha256s for packs
+    // that no longer exist, so every download fails its integrity check and
+    // falls back to the live Forest Service service, which is the thing these
+    // packs exist to route around.
+    //
+    // The parameter never reaches the asset; it is stripped on the way through
+    // and every request lands on the same signed object URL. It forces a fresh
+    // redirect, which is the part that has to change. Measured, not assumed:
+    // fetching a replaced manifest with and without it, at the same moment,
+    // returned two different files.
     let bust = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())

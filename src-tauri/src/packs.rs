@@ -129,8 +129,22 @@ pub fn fetch_manifest() -> Result<Manifest, String> {
         .build()
         .map_err(|e| format!("could not create HTTP client: {e}"))?;
 
+    // Cache-busted. `releases/latest/download/…` is a redirect, and it is the
+    // REDIRECT that goes stale: GitHub caches it for around twenty minutes, so
+    // for that long after CI publishes a new dated release the app is still
+    // pointed at the previous one's packs.json. The query string never reaches
+    // the asset — it is stripped on the way through, and every request lands on
+    // the same signed object URL — but it does force a fresh redirect, which is
+    // the part that has to change.
+    //
+    // Measured rather than assumed: fetching a replaced asset with and without
+    // the parameter, at the same moment, returned two different files.
+    let bust = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let resp = client
-        .get(MANIFEST_URL)
+        .get(format!("{MANIFEST_URL}?t={bust}"))
         .send()
         .map_err(|e| format!("could not reach the pack index: {e}"))?
         .error_for_status()
