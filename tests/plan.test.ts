@@ -371,6 +371,20 @@ describe("makePrimary", () => {
     makePrimary(p, "b");
     expect(p.routes.map((r) => r.id)).toEqual(["a", "b"]);
   });
+
+  it("clears the via flags, which described the route that was primary before", () => {
+    // Vias are rebuilt into routes[0] only. Promoting an alternate makes a
+    // different line primary, and that line was never routed through these
+    // stops — leaving the flags set would claim it was.
+    const p = plan({
+      routes: [route({ id: "a" }), route({ id: "b" })],
+      stops: [
+        { id: "s1", name: "Barn", lat: 45, lng: -120, kind: "cache", via: true },
+        { id: "s2", name: "Well", lat: 45, lng: -120, kind: "water" },
+      ],
+    });
+    expect(makePrimary(p, "b").stops.some((s) => s.via)).toBe(false);
+  });
 });
 
 describe("planBounds", () => {

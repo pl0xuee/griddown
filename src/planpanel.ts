@@ -801,15 +801,31 @@ async function rebuildThroughVias(
     now: Date.now(),
   });
 
+  // Re-read the plan. `p` was fetched before the awaits above, and a rebuild
+  // across several legs takes long enough to rename the plan, add a stop or
+  // edit a trigger while it runs — writing the captured object back would
+  // silently undo all of it. Only the route and the via flags belong to this
+  // operation; everything else has to come from whatever is current now.
+  const now = findPlan(planId);
+  if (!now || !now.routes.some((r) => r.id === route.id)) {
+    // Deleted while we were routing. Nothing to write it back into.
+    toast("That route was removed while it was being worked out.", "error");
+    return;
+  }
+
+  // This function is the only writer of via flags, and it writes the whole set:
+  // true for the stops the rebuilt line now passes through, false for the rest.
+  // Setting the flag before the rebuild — which is what this used to do — left
+  // a stop marked "on the route" after a rebuild that failed and never ran.
   const viaSet = new Set(vias.map((s) => s.id));
   replacePlan({
-    ...p,
-    routes: p.routes.map((r) => (r.id === route.id ? rebuilt : r)),
-    stops: p.stops.map((s) => (viaSet.has(s.id) ? { ...s, via: true } : s)),
+    ...now,
+    routes: now.routes.map((r) => (r.id === route.id ? rebuilt : r)),
+    stops: now.stops.map((s) => ({ ...s, via: viaSet.has(s.id) || undefined })),
   });
   await persist();
   render();
-  if (shownId === p.id) drawPlan(findPlan(p.id)!);
+  if (shownId === now.id) drawPlan(findPlan(now.id)!);
   toast(
     `"${route.name}" now goes via ${vias.length} stop${vias.length === 1 ? "" : "s"}` +
       `${approx ? " (approximate in places)" : ""}${missing ? ` — ${missing} tile(s) missing` : ""}.`,
@@ -1251,12 +1267,9 @@ function onBodyClick(e: MouseEvent) {
         const ok = await confirmAction(`Route "${p.routes[0].name}" through ${s.name}?`);
         if (!ok) return;
       }
-      // Un-via first, so a rebuild that fails still leaves the flag honest.
-      replacePlan({
-        ...p,
-        stops: p.stops.map((x) => (x.id === s.id ? { ...x, via: !s.via } : x)),
-      });
-      await persist();
+      // The flag is not written here. rebuildThroughVias writes the whole set
+      // once the new line exists, so a rebuild that fails or is cancelled
+      // leaves every stop describing the route that is actually saved.
       await rebuildThroughVias(p.id, p.routes[0].id, next);
     })();
     return;

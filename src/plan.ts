@@ -366,7 +366,15 @@ export function makePrimary(p: Plan, routeId: string): Plan {
   const routes = p.routes.slice();
   const [r] = routes.splice(i, 1);
   routes.unshift(r);
-  return { ...p, routes };
+  // Via flags belong to the primary route — that is the only line a rebuild
+  // ever routes through them. A different route is primary now, and it was
+  // never built through these stops, so the flags no longer describe anything
+  // true. Clearing beats leaving a stop marked "on the route" against a line
+  // that goes nowhere near it.
+  const stops = p.stops.some((s) => s.via)
+    ? p.stops.map((s) => (s.via ? { ...s, via: undefined } : s))
+    : p.stops;
+  return { ...p, routes, stops };
 }
 
 /** Bounding box over everything in the plan, as [[w, s], [e, n]] for fitBounds. */

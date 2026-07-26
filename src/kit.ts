@@ -167,31 +167,56 @@ export function instantiate(
     template: t.key,
     people,
     t: opts.now,
-    sections: t.sections.map((sec, si) => ({
-      title: sec.title,
-      items: sec.items.map((it, ii) => ({
-        id: `s${si}-i${ii}`,
-        name: it.name,
-        have: false,
-        // supply implies per-person: water, food and fuel are consumed by
-        // people. Everything else scales only if it says so.
-        ...(it.qty !== undefined
-          ? {
-              qty:
-                it.perPerson || it.supply ? scaleQty(it.qty, factor) : it.qty,
-            }
-          : {}),
-        ...(it.unit !== undefined ? { unit: it.unit } : {}),
-        ...(it.grams !== undefined ? { grams: it.grams } : {}),
-        ...(it.note !== undefined ? { note: it.note } : {}),
-        ...(it.supply !== undefined ? { supply: it.supply } : {}),
-        ...(it.perPerson ? { perPerson: true } : {}),
-        ...(it.rotateMonths
-          ? { expires: isoDate(addMonths(opts.now, it.rotateMonths)) }
-          : {}),
-      })),
-    })),
+    sections: t.sections.map((sec, si) => {
+      return {
+        title: sec.title,
+        items: sec.items.map((it, ii) => {
+          // supply implies per-person: water, food and fuel are consumed by
+          // people. Everything else scales only if it says so.
+          const scales = Boolean(it.perPerson || it.supply);
+          const qty =
+            it.qty !== undefined && scales ? scaleQty(it.qty, factor) : it.qty;
+          return {
+            id: `s${si}-i${ii}`,
+            name: it.name,
+            have: false,
+            ...(qty !== undefined ? { qty } : {}),
+            ...(it.unit !== undefined ? { unit: it.unit } : {}),
+            ...(it.grams !== undefined
+              ? { grams: scaleGrams(it.grams, it.qty, qty, scales ? factor : 1) }
+              : {}),
+            ...(it.note !== undefined ? { note: it.note } : {}),
+            ...(it.supply !== undefined ? { supply: it.supply } : {}),
+            ...(it.perPerson ? { perPerson: true } : {}),
+            ...(it.rotateMonths
+              ? { expires: isoDate(addMonths(opts.now, it.rotateMonths)) }
+              : {}),
+          };
+        }),
+      };
+    }),
   };
+}
+
+/**
+ * Weight of a scaled quantity.
+ *
+ * `grams` in a template is the weight of the quantity written next to it — "2 ×
+ * 1 L bottles, 2100 g" — not the weight of one unit. So it has to move with the
+ * quantity, and it has to move by the SAME ratio the quantity actually took,
+ * not by the raw household factor: qty rounds up to whole units, and a bag that
+ * says 5 tins but weighs 4.7 is a number nobody can check against a scale.
+ */
+function scaleGrams(
+  grams: number,
+  fromQty: number | undefined,
+  toQty: number | undefined,
+  factor: number
+): number {
+  if (fromQty !== undefined && toQty !== undefined && fromQty > 0) {
+    return Math.round(grams * (toQty / fromQty));
+  }
+  return factor === 1 ? grams : Math.round(grams * factor);
 }
 
 /**
@@ -217,11 +242,22 @@ export function rescale(k: Kit, people: number): Kit {
     people: to,
     sections: k.sections.map((s) => ({
       ...s,
-      items: s.items.map((i) =>
-        (i.perPerson || i.supply) && i.qty !== undefined
-          ? { ...i, qty: scaleQty(i.qty, factor) }
-          : i
-      ),
+      items: s.items.map((i) => {
+        if (!(i.perPerson || i.supply)) return i;
+        if (i.qty === undefined) {
+          return i.grams === undefined
+            ? i
+            : { ...i, grams: scaleGrams(i.grams, undefined, undefined, factor) };
+        }
+        const qty = scaleQty(i.qty, factor);
+        return {
+          ...i,
+          qty,
+          ...(i.grams === undefined
+            ? {}
+            : { grams: scaleGrams(i.grams, i.qty, qty, factor) }),
+        };
+      }),
     })),
   };
 }

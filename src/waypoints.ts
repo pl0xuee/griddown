@@ -384,12 +384,14 @@ export async function initWaypoints(map: maplibregl.Map) {
       return;
     }
     const restored = normalize(data);
-    const had = currentMarks().plans.length;
+    const now = currentMarks();
     if (
       !restored.waypoints.length &&
       !restored.tracks.length &&
       !restored.plans.length &&
-      !restored.kits.length
+      !restored.kits.length &&
+      !restored.roster.length &&
+      !restored.comms
     ) {
       toast("No marks found in that backup.", "error");
       return;
@@ -399,11 +401,27 @@ export async function initWaypoints(map: maplibregl.Map) {
     // named too: a backup taken before plans existed restores zero of them, and
     // silently trading your bug-out plan for nothing is the worst thing this
     // button could do.
+    // Every slice this is about to overwrite has to be named, including the
+    // ones a backup taken before they existed restores as nothing. The first
+    // version of this listed pins, tracks and plans and then silently wrote
+    // roster, kits and comms as well — so restoring a March backup to recover a
+    // deleted pin also deleted every person's blood group, allergies and
+    // medication, with the dialog saying nothing about it.
+    const line = (label: string, from: number, to: number) =>
+      from || to ? `${from} → ${to} ${label}` : "";
+    const changes = [
+      line("pin(s)", waypoints.length, restored.waypoints.length),
+      line("track(s)", tracks.length, restored.tracks.length),
+      line("plan(s)", now.plans.length, restored.plans.length),
+      line("checklist(s)", now.kits.length, restored.kits.length),
+      line("person/people", now.roster.length, restored.roster.length),
+      line("comms plan", now.comms ? 1 : 0, restored.comms ? 1 : 0),
+    ].filter(Boolean);
+    const losing = changes.length
+      ? `\n\n${changes.join("\n")}`
+      : "";
     const ok = await confirmAction(
-      `Replace your current ${waypoints.length} pin(s), ${tracks.length} track(s) ` +
-        `and ${had} plan(s) with ${restored.waypoints.length} pin(s), ` +
-        `${restored.tracks.length} track(s) and ${restored.plans.length} plan(s) ` +
-        `from this backup?`
+      `Replace everything saved on this device with the contents of this backup?${losing}`
     );
     if (!ok) return;
     waypoints = restored.waypoints;

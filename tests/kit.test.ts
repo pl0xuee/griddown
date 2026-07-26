@@ -161,6 +161,31 @@ describe("instantiate — household size", () => {
  * a child arrives — and a checklist built for two that still says two is wrong
  * from the day it changes, silently, in the direction of not having enough.
  */
+describe("weight follows quantity", () => {
+  // grams in the templates is the weight of the stated quantity — "2 x 1 L
+  // bottles, 2100 g" — not the weight of one unit. Scaling qty for a household
+  // and leaving grams alone reports a four-person go bag at one person's
+  // weight, which is the one number this feature exists to get right.
+  it("scales grams with qty when the household grows", () => {
+    const k = instantiate(template, { id: "k1", now: NOW, people: 4 });
+    const bottles = k.sections[0].items[0];
+    expect(bottles.qty).toBe(12);
+    expect(bottles.grams).toBe(12000);
+  });
+
+  it("leaves the weight of shared gear alone", () => {
+    const k = instantiate(template, { id: "k1", now: NOW, people: 4 });
+    expect(k.sections[1].items[0].grams).toBe(15);
+  });
+
+  it("scales grams on resize too", () => {
+    const k = rescale(instantiate(template, { id: "k1", now: NOW, people: 2 }), 6);
+    const bottles = k.sections[0].items[0];
+    expect(bottles.qty).toBe(18);
+    expect(bottles.grams).toBe(18000);
+  });
+});
+
 describe("rescale", () => {
   const forTwo = (): Kit => ({
     id: "k1",

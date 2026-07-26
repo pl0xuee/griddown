@@ -80,6 +80,27 @@ fn marks_path(app: &AppHandle) -> Result<PathBuf, String> {
 fn read_marks(app: AppHandle) -> Result<String, String> {
     let p = marks_path(&app)?;
     match std::fs::read_to_string(&p) {
+        // A file that exists but holds nothing is NOT a first run. A crash or a
+        // dead battery just after the rename below can leave exactly that, and
+        // reading it as "no marks yet" is the worst possible answer: the caller
+        // renders an empty app, the user drops one pin, and the save that
+        // follows copies the empty file straight over the .bak. Both copies of
+        // the one thing that cannot be regenerated, gone, in two taps.
+        Ok(s) if s.trim().is_empty() => match std::fs::read_to_string(p.with_extension("bak")) {
+            Ok(b) if !b.trim().is_empty() => Ok(b),
+            // No usable backup either. If the file is genuinely zero bytes we
+            // cannot tell "never written" from "lost", so refuse rather than
+            // guess — marksUnreadable() then blocks every write.
+            _ => {
+                if std::fs::metadata(&p).map(|m| m.len() == 0).unwrap_or(false) {
+                    Err("your saved marks are empty and the backup is too — \
+                         restart the app before adding anything, and restore a backup if you have one"
+                        .into())
+                } else {
+                    Ok(s)
+                }
+            }
+        },
         Ok(s) => Ok(s),
         // Fall back to the previous good copy if the main file is unreadable.
         Err(e) => match std::fs::read_to_string(p.with_extension("bak")) {
@@ -109,10 +130,28 @@ fn write_marks(app: AppHandle, json: String) -> Result<(), String> {
     // previous version as .bak — cheap insurance for the one thing we can't
     // regenerate from the map packs.
     let tmp = p.with_extension("tmp");
-    std::fs::write(&tmp, json.as_bytes()).map_err(|e| e.to_string())?;
-    if p.exists() {
-        let _ = std::fs::copy(&p, p.with_extension("bak"));
+    std::fs::write(&tmp, json.as_bytes()).map_err(|e| {
+        // Don't leave the scratch file behind for a write that never happened.
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })?;
+
+    // Refresh the backup, but only from a file worth backing up, and only via a
+    // rename. fs::copy truncates its destination first, so a copy interrupted
+    // by a full disk or a kill used to leave marks.bak truncated or empty —
+    // silently, since the result was discarded — and the next corruption of the
+    // main file then had nothing to fall back to.
+    if let Ok(prev) = std::fs::read_to_string(&p) {
+        if !prev.trim().is_empty() {
+            let bak_tmp = p.with_extension("bak.tmp");
+            if std::fs::write(&bak_tmp, prev.as_bytes()).is_ok() {
+                let _ = std::fs::rename(&bak_tmp, p.with_extension("bak"));
+            } else {
+                let _ = std::fs::remove_file(&bak_tmp);
+            }
+        }
     }
+
     std::fs::rename(&tmp, &p).map_err(|e| e.to_string())?;
     Ok(())
 }

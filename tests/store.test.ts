@@ -81,6 +81,43 @@ describe("normalize — plans", () => {
   });
 });
 
+/**
+ * These guards are the boundary against a restored backup, which is a file
+ * someone else may have written. The bar is not "does it parse" — it is "can
+ * every renderer downstream draw it", because a value that gets through and
+ * then throws takes a panel out permanently, in every session after.
+ */
+describe("normalize — values that would break a renderer", () => {
+  it("drops a waypoint with no name", () => {
+    // waypoints.ts escapes names with s.replace(), which throws on undefined —
+    // and it throws inside renderList, so the Marks panel never opens again.
+    expect(normalize({ waypoints: [{ id: "abcd1234", lat: 45, lng: -120, t: 1 }] }).waypoints)
+      .toEqual([]);
+  });
+
+  it("drops a waypoint that is not on Earth", () => {
+    // maplibregl.LngLat throws on |lat| > 90, which kills refreshMarkers and
+    // with it the whole waypoints module at startup.
+    const off = { id: "abcd1234", name: "Nowhere", lat: 200, lng: -120, t: 1 };
+    expect(normalize({ waypoints: [off] }).waypoints).toEqual([]);
+    expect(normalize({ waypoints: [{ ...off, lat: 45, lng: 999 }] }).waypoints).toEqual([]);
+  });
+
+  it("keeps a waypoint at the extremes, which are legitimate", () => {
+    const poles = [
+      { id: "n", name: "North", lat: 90, lng: 180, t: 1 },
+      { id: "s", name: "South", lat: -90, lng: -180, t: 1 },
+    ];
+    expect(normalize({ waypoints: poles }).waypoints).toHaveLength(2);
+  });
+
+  it("drops a track with an unnamed or off-world point", () => {
+    const t = (over: object) => ({ id: "t1", name: "Walk", pts: [[-120, 45]], t: 1, ...over });
+    expect(normalize({ tracks: [t({ name: undefined })] }).tracks).toEqual([]);
+    expect(normalize({ tracks: [t({ pts: [[-120, 200]] })] }).tracks).toEqual([]);
+  });
+});
+
 describe("normalize — kits", () => {
   const goodKit = {
     id: "k1",

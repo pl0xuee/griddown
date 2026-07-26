@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { isPlan, type Plan } from "./plan";
 import { isKit, type Kit } from "./kit";
 import { isComms, isPerson, type CommsPlan, type Person } from "./roster";
-import { ID_RE } from "./valid";
+import { isId, isLatLng, isOptStr, isStr } from "./valid";
 
 // Durable storage for the user's own data — waypoints, recorded tracks, and the
 // bug-out plans made before any of this was needed.
@@ -144,22 +144,37 @@ export function normalize(v: any): Marks {
 // a numeric `name` reaches `.replace()` and throws, which takes out the Marks
 // panel entirely, and a malformed `pts` produces NaN coordinates that make
 // fitBounds throw. Rejecting the entry is better than a panel that won't open.
+// The bar is not "does it parse". It is "can every renderer downstream draw
+// it" — because a value that gets through here and then throws does not fail
+// once, it takes a panel out for good.
+//
+// Two holes were open for exactly that long:
+//
+//   `name` was optional, and waypoints.ts escapes names with s.replace(), which
+//   throws on undefined *inside renderList* — so one nameless pin in a restored
+//   backup meant the Marks panel never opened again, in that session or any
+//   after it, and GPX export was dead too.
+//
+//   Coordinates were only checked for finiteness, so lat: 200 was accepted.
+//   maplibregl.LngLat throws above 90, which kills refreshMarkers and takes the
+//   whole waypoints module down at startup.
+//
+// Both are what isStr and isLatLng in valid.ts exist for; gpx.ts was already
+// range-checking its input, so the importer was stricter than the restorer.
 function isWaypoint(w: any): w is Waypoint {
   return (
-    w && typeof w.id === "string" && ID_RE.test(w.id) &&
-    Number.isFinite(w.lat) && Number.isFinite(w.lng) &&
-    (w.name === undefined || typeof w.name === "string") &&
-    (w.note === undefined || typeof w.note === "string")
+    w && isId(w.id) &&
+    isStr(w.name) &&
+    isLatLng(w.lat, w.lng) &&
+    isOptStr(w.note)
   );
 }
 function isTrack(t: any): t is Track {
   return (
-    t && typeof t.id === "string" && ID_RE.test(t.id) &&
-    (t.name === undefined || typeof t.name === "string") &&
+    t && isId(t.id) &&
+    isStr(t.name) &&
     Array.isArray(t.pts) &&
-    t.pts.every(
-      (p: any) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])
-    )
+    t.pts.every((p: any) => Array.isArray(p) && isLatLng(p[1], p[0]))
   );
 }
 
