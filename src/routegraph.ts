@@ -34,6 +34,15 @@ export interface RouteResult {
   /** Distance from the requested start/end to the road the route actually uses. */
   snappedFromM: number;
   snappedToM: number;
+  /**
+   * Metres of this route that are bridged gaps rather than road in the pack.
+   *
+   * The stitch pass joins pieces of road the tiles cut apart, and those links
+   * carry no segment, so they never appear in `steps` — a route could be 42%
+   * absent from its own turn list with nothing saying why. `usedTrail` is
+   * disclosed; invented road has to be too.
+   */
+  bridgedMeters: number;
 }
 
 // Cost multipliers per road class: lower = preferred. A vehicle route should
@@ -289,6 +298,24 @@ export function buildRouteGraph(
   // segments, so this must accumulate rather than record only the last one.
   const MAJOR = 1;
   const kindMask: number[] = [];
+  // One-way roles per node, for the stitch pass below. A divided highway is two
+  // opposing one-way carriageways with no geometry joining them, so they are two
+  // components 40 m apart — and the stitcher's job is to join components. It
+  // needs to be able to tell "the same road continuing across a tile seam" from
+  // "the other side of the median", and head-versus-tail is what does it.
+  const onOneway: number[] = [];
+  const onTwoWay: number[] = [];
+  const owTail: number[] = [];
+  const owHead: number[] = [];
+  // Direction of travel where a one-way segment ends and where it begins, so a
+  // bridge can be required to CONTINUE rather than double back. Head and tail
+  // alone are not enough: two opposing carriageways put a head and a tail at
+  // each end of the divided section, so a rule that only checks the roles still
+  // lets a route drive to the end, cross the median and come back.
+  const headDx: number[] = [];
+  const headDy: number[] = [];
+  const tailDx: number[] = [];
+  const tailDy: number[] = [];
   const maskOf = (kind: string) => (kind === "major_road" ? MAJOR : kind === "minor_road" ? 2 : 4);
   const usable = (s: RoadSeg) => isRoutable(s.kind, s.detail) && s.coords.length >= 2;
 
@@ -313,7 +340,27 @@ export function buildRouteGraph(
     for (let i = 0; i < s.coords.length; i++) {
       const id = idOf(s.coords[i]);
       kindMask[id] = (kindMask[id] ?? 0) | km;
+      if (s.oneway) onOneway[id] = 1;
+      else onTwoWay[id] = 1;
       vids[vp++] = id;
+    }
+    if (s.oneway) {
+      const t = vids[first];
+      const h = vids[vp - 1];
+      owTail[t] = 1;
+      owHead[h] = 1;
+      // Unit-ish direction, longitude scaled so the comparison is geographic
+      // rather than a function of latitude. Only the sign of a dot product is
+      // read from these, so exact normalisation does not matter.
+      const dir = (a: number, b: number): [number, number] => {
+        const kx = Math.cos(((lats[a] + lats[b]) / 2) * (Math.PI / 180));
+        const dx = (lngs[b] - lngs[a]) * kx;
+        const dy = lats[b] - lats[a];
+        const n = Math.hypot(dx, dy) || 1;
+        return [dx / n, dy / n];
+      };
+      [tailDx[t], tailDy[t]] = dir(t, vids[first + 1]);
+      [headDx[h], headDy[h]] = dir(vids[vp - 2], h);
     }
     endpoints.push(vids[first], vids[vp - 1]);
   }
@@ -357,6 +404,8 @@ export function buildRouteGraph(
   const linkFrom: number[] = [];
   const linkTo: number[] = [];
   const linkM: number[] = [];
+  /** 1 when the link may only be driven linkFrom -> linkTo. */
+  const linkOneway: number[] = [];
   const extraDeg = new Int32Array(nodeCount);
 
   if (stitchMeters > 0 && endpoints.length) {
@@ -457,7 +506,7 @@ export function buildRouteGraph(
       const latA = lats[id];
       const preA = pre[id];
       const maskA = kindMask[id] ?? 0;
-      const near: { id: number; m: number }[] = [];
+      const near: { id: number; m: number; dir: number }[] = [];
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
           for (const other of grid.get(`${bx + dx},${by + dy}`) ?? []) {
@@ -474,7 +523,34 @@ export function buildRouteGraph(
             const dLng = lngs[other] - lngA;
             if (dLng > boxLng[major] || -dLng > boxLng[major]) continue;
             const m = haversine([lngA, latA], [lngs[other], lats[other]]);
-            if (m <= (major ? MAJOR_STITCH : stitchMeters)) near.push({ id: other, m });
+            if (m > (major ? MAJOR_STITCH : stitchMeters)) continue;
+            // Between two pieces of road that are ONLY one-way, the bridge has
+            // to run head-to-tail — the same direction both pieces already go.
+            // Anything else is the other side of a median, and a bidirectional
+            // link there fuses a divided highway into one two-way road: measured
+            // on two carriageways 40 m apart, 16 stitch edges and a route that
+            // crossed the median twice to travel north up the southbound side.
+            // Junctions where a two-way road also touches the node keep the
+            // permissive rule; it is the carriageway-to-carriageway case that
+            // has to be directed.
+            let dir = 0;
+            if (
+              onOneway[id] &&
+              onOneway[other] &&
+              !onTwoWay[id] &&
+              !onTwoWay[other]
+            ) {
+              // ...and it has to keep going the same way. The dot product of
+              // the two directions is positive only when the bridge continues
+              // the road; at the end of a divided section, where a head and a
+              // tail sit beside each other, it is negative.
+              const cont = (a: number, b: number) =>
+                (headDx[a] ?? 0) * (tailDx[b] ?? 0) + (headDy[a] ?? 0) * (tailDy[b] ?? 0) > 0;
+              if (owHead[id] && owTail[other] && cont(id, other)) dir = 1;
+              else if (owHead[other] && owTail[id] && cont(other, id)) dir = -1;
+              else continue;
+            }
+            near.push({ id: other, m, dir });
           }
         }
       }
@@ -485,11 +561,14 @@ export function buildRouteGraph(
         linked.add(pair);
         // Free to traverse: this models one road continuing across a tile seam,
         // not a new piece of road.
-        linkFrom.push(id);
-        linkTo.push(cand.id);
+        const from = cand.dir === -1 ? cand.id : id;
+        const to = cand.dir === -1 ? id : cand.id;
+        linkFrom.push(from);
+        linkTo.push(to);
         linkM.push(cand.m);
-        extraDeg[id]++;
-        extraDeg[cand.id]++;
+        linkOneway.push(cand.dir === 0 ? 0 : 1);
+        extraDeg[from]++;
+        if (cand.dir === 0) extraDeg[to]++;
       }
     }
   }
@@ -552,11 +631,13 @@ export function buildRouteGraph(
     eCost[k] = m;
     eMet[k] = m;
     eSeg[k] = -1;
-    k = cursor[b]++;
-    eTo[k] = a;
-    eCost[k] = m;
-    eMet[k] = m;
-    eSeg[k] = -1;
+    if (!linkOneway[j]) {
+      k = cursor[b]++;
+      eTo[k] = a;
+      eCost[k] = m;
+      eMet[k] = m;
+      eSeg[k] = -1;
+    }
   }
 
   const { comp, compSize } = labelComponents(start, eTo, nodeCount);
@@ -795,12 +876,14 @@ export function findRoute(
   const coords: [number, number][] = nodes.map((i) => [g.lng[i], g.lat[i]]);
   let meters = 0;
   let usedTrail = false;
+  let bridgedMeters = 0;
   const steps: RouteStep[] = [];
   for (let i = 1; i < nodes.length; i++) {
     const m = haversine(coords[i - 1], coords[i]);
     meters += m;
     const segIdx = cameEdge[nodes[i]];
     const meta = segIdx >= 0 ? g.segs[segIdx] : null;
+    if (segIdx < 0) bridgedMeters += m;
     if (meta && meta.kind === "path") usedTrail = true;
     const label = meta?.name ?? "";
     if (!label) continue;
@@ -819,5 +902,6 @@ export function findRoute(
     // when it's a long walk from where you asked to where the route starts.
     snappedFromM: pair.startM,
     snappedToM: pair.goalM,
+    bridgedMeters,
   };
 }

@@ -90,6 +90,43 @@ everything**. Note that a backup now contains the roster — names, and the
 medical facts a stranger would need — so treat that file like a document rather
 than like a map.
 
+### And a review of the whole app before shipping it
+
+**Restoring a backup destroyed things it never mentioned.** The confirmation
+named pins, tracks and plans, and the restore also wrote the roster, both
+checklists and the comms plan — so recovering a deleted pin from a March backup
+silently deleted every person's blood group, allergies and medication. It now
+names every slice it is about to overwrite, with counts both ways. A corrupt
+entry in a restored file could also brick the Marks panel permanently; bad
+entries are dropped now, not the panel.
+
+**Turning an iPhone 8 sideways removed the entire menu.** The bottom-sheet
+layout switched on at one screen width and the command bar that raises it at
+another, and between the two there was no way to reach anything. The sheet also
+overshot the top of the screen on a notched phone, putting its drag handle out
+of reach, and GET THERE was cut off by the bottom edge at 320pt. All measured,
+all fixed.
+
+**The elevation profile bridged gaps by counting samples rather than measuring
+ground.** Over a hundred-mile line of sight that was 1.9 km of invented ridge
+presented as a measurement. The router treated the rare "one-way, the other
+way" tag as a two-way street, and fused the two carriageways of a divided
+highway into one road you could drive the wrong way up. Area was 1,799x too
+large for anything drawn across the antimeridian, which in the US means the
+Aleutians.
+
+**And a pass over every word of survival content.** The foraging card's plant
+button opened the field manual's Universal Edibility Test — taste it and wait
+eight hours — which contradicts this app's own standing rule and does not work
+on the things in its own dataset. It opens the plant panel now. Every wild food
+the card names carries what will hurt you if you get it wrong, held by a test
+the way the plant dataset's own pairing rule is. Heat stroke was described by
+the wrong sign; the tourniquet card omitted "never over a joint"; hypothermia
+omitted "handle them gently"; choking and CPR were missing from the card headed
+"the big ones"; pool shock had no purity spec, dose or oxidiser warning; and
+Readiness said "You're ready to go dark" on the strength of map packs and a
+backup date. It now says what it actually checked, and what it cannot.
+
 ## v1.1.8
 
 **Terrain that half-downloaded no longer claims to be there.** If a terrain

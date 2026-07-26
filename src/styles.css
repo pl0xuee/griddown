@@ -928,7 +928,12 @@ body.placing-stop #route-recalc {
 .hud-feature {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  /* Centre, not flex-start: the two spans are shrink-to-fit boxes in a column,
+     so `text-align: center` below could never do anything on its own — it
+     centres text INSIDE a box that was already only as wide as the text. This
+     is the axis that actually places them, and every other button face in the
+     menu is centred. */
+  align-items: center;
   justify-content: center;
   gap: 1px;
   width: 100%;
@@ -1001,14 +1006,20 @@ body.placing-stop #route-recalc {
 
 /* Range picker sitting in the tool grid — match the buttons around it. */
 .hud-grid select {
-  padding: 7px 18px 7px 6px;
+  /* Symmetric padding, not 18/6. Centring the label needs the same room
+     reserved on BOTH sides — an earlier attempt centred the text and reset the
+     padding, which slid "Range 15 mi" straight under the caret drawn at
+     `right 9px`. Matching the left inset to the right one keeps the caret's
+     room and puts the label in the middle of the visible box, like every other
+     face in this grid. */
+  padding: 7px 18px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--rule-firm);
   background-color: var(--control);
   color: var(--type-2);
   font-size: 11px;
   letter-spacing: 0.2px;
-  text-align: left;
+  text-align: center;
   pointer-events: auto;
   width: 100%;
   transition: background-color 0.15s, border-color 0.15s;
@@ -4883,9 +4894,10 @@ body.battery.nightvis .maplibregl-ctrl {
     font-size: 12px;
     border-radius: var(--radius-sm);
   }
-  /* The range picker takes the tile height and nothing else. Centring it and
-     resetting its padding put "Range 15 mi" underneath the caret we draw at
-     `right 9px` — a select has to keep the room reserved for it. */
+  /* The range picker takes the tile height and nothing else — the centring and
+     the symmetric padding it needs are on the base rule, which keeps the
+     caret's room on both sides. Do not reset the padding here: doing that is
+     what once slid "Range 15 mi" underneath the caret. */
   .hud-grid select {
     min-height: 44px;
     font-size: 12px;

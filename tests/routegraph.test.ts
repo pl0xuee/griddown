@@ -234,3 +234,47 @@ describe("findRoute", () => {
     expect(r.directMeters).toBeCloseTo(haversine(A, b), 5);
   });
 });
+
+describe("divided highways", () => {
+  // Two opposing one-way carriageways of the same road, 40 m apart, is what a
+  // divided highway IS — and each one is its own component, because no geometry
+  // joins them. The stitch pass bridges two major roads up to 250 m, to any
+  // vertex, bidirectionally, which fused them into a single two-way road: the
+  // route came back crossing the median twice and travelling north up the
+  // southbound side.
+  const dLat = 0.00036; // ~40 m
+  const nb = (n: number): [number, number] => [A[0] + n * 0.004, A[1]];
+  const sb = (n: number): [number, number] => [A[0] + n * 0.004, A[1] + dLat];
+
+  const carriageways = () => [
+    road([nb(0), nb(1), nb(2)], { kind: "major_road", detail: "motorway", oneway: true }),
+    // Southbound runs the other way: its geometry order is reversed.
+    road([sb(2), sb(1), sb(0)], { kind: "major_road", detail: "motorway", oneway: true }),
+  ];
+
+  it("does not let a route hop to the other carriageway", () => {
+    const g = buildRouteGraph(carriageways());
+    // Backwards along the southbound side. There is no legal way to do this.
+    expect(findRoute(g, sb(0), sb(2))).toBeNull();
+  });
+
+  it("still routes the legal direction on each side", () => {
+    const g = buildRouteGraph(carriageways());
+    expect(findRoute(g, nb(0), nb(2))).not.toBeNull();
+    expect(findRoute(g, sb(2), sb(0))).not.toBeNull();
+  });
+
+  it("still bridges a genuine seam in a one-way road", () => {
+    // The same one-way road cut across a tile boundary, with a 200 m gap. Head
+    // to tail, same direction — this is what the major-road allowance is for.
+    const gap = 0.0018;
+    const g = buildRouteGraph([
+      road([nb(0), nb(1)], { kind: "major_road", detail: "motorway", oneway: true }),
+      road(
+        [[nb(1)[0] + gap, nb(1)[1]], [nb(2)[0] + gap, nb(2)[1]]],
+        { kind: "major_road", detail: "motorway", oneway: true }
+      ),
+    ]);
+    expect(findRoute(g, nb(0), [nb(2)[0] + gap, nb(2)[1]])).not.toBeNull();
+  });
+});

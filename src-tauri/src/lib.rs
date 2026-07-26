@@ -876,6 +876,7 @@ fn mvum_file(app: &AppHandle, abbr: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{}.geojson", safe_abbr(abbr))))
 }
 
+
 /// Whether the in-app self-updater exists on this platform.
 ///
 /// Desktop only. iOS and Android update through their stores, and the updater
