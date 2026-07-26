@@ -107,6 +107,18 @@
 
   /* Four steps and a pill. The file previously held fourteen different corner
      radii, which is drift rather than a hierarchy. */
+  /* TYPE SCALE. Eleven sizes, and eleven is already generous — before this the
+     file held twenty-three, including five half-steps, which is drift rather
+     than a hierarchy (the same fault the radii below were pulled out of).
+
+     11px is the FLOOR and it is not negotiable: this is a field instrument read
+     at arm's length in bad light, and the sheet had labels at 8, 8.5, 9 and 9.5
+     that could not be read at all on a phone. Anything below 11 now rounds up
+     to it. 11 is for tracked-out uppercase labels; prose starts at 12.
+
+     Sizes are still written literally rather than as tokens, because a token
+     per step would mean touching all 223 declarations to gain a name. The rule
+     to keep is the scale itself: 11, 12, 13, 14, 16, 18, 20, 22, 24, 30, 34. */
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius: 12px;
@@ -260,6 +272,21 @@ body {
  * whichever gesture handlers are enabled, and must keep it. */
 button {
   touch-action: manipulation;
+  /* A button's label sits in the middle of it. Said once, here, because saying
+     it per component is exactly how this drifted into half the buttons centred
+     and half left — including one selector with both, twice. */
+  text-align: center;
+}
+
+/* The exceptions, and they are not really labels: these are list ROWS that
+   happen to be buttons — a name over a line of explanation, or a search hit
+   over its coordinates. Centring wrapped prose is measurably harder to read
+   than ranging it left, and a list whose every row is centred stops looking
+   like a list. Everything you press for a single action is centred. */
+.ask-choice,
+.search-hit,
+.lake-row {
+  text-align: left;
 }
 
 /* Bold is 600, because 600 is the heaviest weight this app actually ships.
@@ -343,7 +370,7 @@ h6 {
   border: 1px solid var(--rule-firm);
   background: var(--control);
   color: var(--type-2);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
   pointer-events: auto;
@@ -358,7 +385,7 @@ h6 {
   line-height: 1.15;
 }
 #hud-title {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 3px;
   color: var(--label);
   font-weight: 600;
@@ -457,7 +484,7 @@ h6 {
   background: var(--surface-hud);
   color: var(--type-loud);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: 0.04em;
   box-shadow: var(--shadow-soft);
   cursor: pointer;
@@ -537,7 +564,7 @@ body.placing-stop #route-recalc {
   border: 1px solid var(--rule);
   color: var(--type-2);
   font-family: var(--font-prose);
-  font-size: 11.5px;
+  font-size: 12px;
   text-align: center;
 }
 #plan-place-row {
@@ -614,7 +641,7 @@ body.placing-stop #route-recalc {
   border-bottom: 1px solid var(--rule-faint);
   color: var(--label-lift);
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
@@ -625,7 +652,7 @@ body.placing-stop #route-recalc {
 }
 .legend-caret {
   transition: transform 0.2s ease;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 #map-legend.collapsed .legend-caret {
@@ -645,7 +672,7 @@ body.placing-stop #route-recalc {
      the card does not have: "Park or protected land" sets about a sixth shorter
      narrow, which is a sixth less card over the map at the same size. */
   font-family: var(--font-collar);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.3;
   /* The card can never grow past the screen. Every overlay on is sixteen rows,
      which on a short phone would otherwise run off the top — scrolling keeps the
@@ -682,7 +709,7 @@ body.placing-stop #route-recalc {
 
 .hud-sub {
   margin-top: 12px;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 
@@ -744,7 +771,7 @@ body.placing-stop #route-recalc {
 .legend-sec {
   display: block;
   padding-bottom: 2px;
-  font-size: 9.5px;
+  font-size: 11px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--type-quiet);
@@ -754,7 +781,7 @@ body.placing-stop #route-recalc {
    parenthetical the same weight as the thing it qualifies. */
 .lg-n {
   color: var(--type-quiet);
-  font-size: 10.5px;
+  font-size: 11px;
 }
 /* Except this one. Everywhere else in the app a warning is the loudest thing on
    its row (see the plant list), because the reader is deciding what to avoid. */
@@ -849,7 +876,7 @@ body.placing-stop #route-recalc {
   font-family: inherit;
   font-size: 11px;
   letter-spacing: 0.2px;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   pointer-events: auto;
   white-space: nowrap;
@@ -900,7 +927,7 @@ body.placing-stop #route-recalc {
   border: 1px solid var(--rule-hot);
   background: var(--control-on);
   color: var(--type-loud);
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 .hud-feature:hover {
@@ -910,19 +937,19 @@ body.placing-stop #route-recalc {
 .hud-feature-name {
   font-family: var(--font-collar);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 14px;
   letter-spacing: 0.01em;
 }
 .hud-feature-sub {
   font-family: var(--font-prose);
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.35;
   color: var(--type-quiet);
 }
 .hud-grid--primary button {
   min-height: 42px;
   padding: 9px 9px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--type-loud);
   border-color: var(--rule-firm);
   background: var(--control-hover);
@@ -930,7 +957,7 @@ body.placing-stop #route-recalc {
 
 .hud-grid--quiet button {
   padding: 5px 6px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--type-quiet);
   background: none;
   border-color: var(--rule-faint);
@@ -1061,7 +1088,7 @@ body.placing-stop #route-recalc {
   background: rgba(40, 34, 12, 0.9);
   color: var(--warn-soft);
   font-family: inherit;
-  font-size: 10.5px;
+  font-size: 11px;
   cursor: pointer;
   pointer-events: auto;
 }
@@ -1147,7 +1174,7 @@ body.placing-stop #route-recalc {
 /* Gap disclosure: the profile is drawn across missing data, not measured. */
 .ms-gap {
   color: var(--warn);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
@@ -1189,7 +1216,7 @@ body.placing-stop #route-recalc {
 }
 .mk-group {
   margin: 10px 2px 6px;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 2px;
   font-weight: 600;
   color: var(--label);
@@ -1215,14 +1242,14 @@ body.placing-stop #route-recalc {
   min-width: 0;
 }
 .mk-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .mk-sub {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.6;
 }
 .mk-btn {
@@ -1245,7 +1272,7 @@ body.placing-stop #route-recalc {
 
 /* Record-track status: what it does when idle, a live readout while running. */
 .mk-rec {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--type-quiet);
   padding: 8px 10px;
@@ -1267,7 +1294,7 @@ body.placing-stop #route-recalc {
 }
 .mk-rec-note {
   margin-top: 3px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   opacity: 0.85;
 }
@@ -1330,7 +1357,7 @@ body.placing-stop #route-recalc {
   background: none;
   color: var(--bad-soft);
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   cursor: pointer;
 }
 .pn-danger:hover {
@@ -1340,7 +1367,7 @@ body.placing-stop #route-recalc {
 .pn-group {
   margin: 14px 2px 6px;
   font-family: var(--font-collar);
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 2px;
   font-weight: 600;
   color: var(--label);
@@ -1383,21 +1410,21 @@ body.placing-stop #route-recalc {
   min-width: 0;
 }
 .pn-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .pn-sub {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.6;
 }
 /* Provenance is a measured fact about the route — date, pack, build — so it
    takes the instrument face, like coordinates and distances do. */
 .pn-prov {
   font-family: var(--font-data);
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--type-quiet);
   margin-top: 2px;
 }
@@ -1446,9 +1473,9 @@ body.placing-stop #route-recalc {
   color: var(--type-2);
   font-family: var(--font-collar);
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 13px;
   letter-spacing: 0.01em;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
 }
 .pn-back:hover,
@@ -1488,7 +1515,7 @@ body.placing-stop #route-recalc {
   gap: 8px;
 }
 .pn-route-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 .pn-route-btns {
@@ -1512,7 +1539,7 @@ body.placing-stop #route-recalc {
 }
 .pn-step span:last-child {
   font-family: var(--font-data);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   flex: none;
 }
@@ -1588,11 +1615,11 @@ body.placing-stop #route-recalc {
    in the app. */
 .pn-coord {
   font-family: var(--font-data);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 .pn-role {
   font-family: var(--font-collar);
-  font-size: 9.5px;
+  font-size: 11px;
   letter-spacing: 1.2px;
   text-transform: uppercase;
   color: var(--label);
@@ -1618,7 +1645,7 @@ body.placing-stop #route-recalc {
 }
 .pn-fine {
   margin-top: 12px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--type-quiet);
 }
@@ -1666,7 +1693,7 @@ body.placing-stop #route-recalc {
 }
 .kt-fine {
   margin-top: 10px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   color: var(--type-quiet);
 }
@@ -1689,18 +1716,18 @@ body.placing-stop #route-recalc {
   min-width: 0;
 }
 .kt-name {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
 }
 .kt-sub {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.6;
   margin-bottom: 4px;
 }
 /* A percentage is a measured value, so it takes the instrument face. */
 .kt-pct {
   font-family: var(--font-data);
-  font-size: 15px;
+  font-size: 16px;
   color: var(--type-loud);
   flex: none;
 }
@@ -1727,7 +1754,7 @@ body.placing-stop #route-recalc {
   margin-top: 4px;
 }
 .kt-flag {
-  font-size: 9.5px;
+  font-size: 11px;
   padding: 1px 6px;
   border-radius: var(--radius-pill);
   letter-spacing: 0.4px;
@@ -1750,7 +1777,7 @@ body.placing-stop #route-recalc {
 .kt-supply {
   margin: 10px 0;
   padding: 8px 10px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   border-radius: var(--radius-sm);
   border: 1px solid var(--rule-faint);
@@ -1771,7 +1798,7 @@ body.placing-stop #route-recalc {
   padding: 8px 2px;
   color: var(--label);
   font-family: var(--font-collar);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 1.6px;
   text-transform: uppercase;
   cursor: pointer;
@@ -1807,19 +1834,19 @@ body.placing-stop #route-recalc {
   min-width: 0;
 }
 .kt-item-name {
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .kt-item.have .kt-item-name {
   color: var(--type-quiet);
 }
 .kt-item-meta {
   font-family: var(--font-data);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   margin-top: 2px;
 }
 .kt-note {
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--type-quiet);
   opacity: 0.85;
@@ -1829,7 +1856,7 @@ body.placing-stop #route-recalc {
   background: none;
   border: none;
   color: var(--type-quiet);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.1;
   cursor: pointer;
   flex: none;
@@ -1896,6 +1923,20 @@ body.placing-stop #route-recalc {
   color: #fff;
 }
 
+/* MapLibre's own controls ship at 10px, below this sheet's floor: the
+   attribution, and — the one that matters — the SCALE BAR, which is how you
+   judge distance on the map and so is about the last thing that should be hard
+   to read.
+   Doubled class selectors on purpose. maplibre-gl.css is imported after this
+   sheet, so at equal specificity theirs wins on order alone; .maplibregl-ctrl
+   .maplibregl-ctrl-scale together outrank it whatever the order. */
+.maplibregl-ctrl.maplibregl-ctrl-scale,
+.maplibregl-ctrl.maplibregl-ctrl-attrib,
+.maplibregl-ctrl-attrib a,
+.maplibregl-ctrl-attrib-button {
+  font-size: 11px;
+}
+
 /* Waypoint pin marker */
 /* Your pins. Overprinted — see src/overprint.ts for what that means and what
    may and may not use it. */
@@ -1941,14 +1982,14 @@ body.nightvis {
 
 
 .panel-kicker {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 3px;
   color: var(--label);
   font-weight: 600;
 }
 
 .panel-title {
-  font-size: 19px;
+  font-size: 20px;
   font-weight: 600;
 }
 
@@ -2015,7 +2056,7 @@ body.nightvis {
 }
 
 .state-sub {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.6;
   margin-top: 1px;
 }
@@ -2109,7 +2150,7 @@ body.nightvis {
 .state-task-head {
   display: flex;
   justify-content: space-between;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.3px;
   opacity: 0.75;
 }
@@ -2120,13 +2161,13 @@ body.nightvis {
 
 /* The "Add terrain" affordance, shown under an installed row that has none. */
 .state-dem {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.85;
 }
 /* What a whole-pack download is currently doing — "Downloading OR pack
    (472 MB)…" versus "building it here…", which differ by twenty minutes. */
 .state-dl-status {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.7;
 }
 /* The two "add an optional layer" buttons (terrain, forest roads) share one
@@ -2142,8 +2183,8 @@ body.nightvis {
   background: none;
   color: var(--type-2);
   font-family: inherit;
-  font-size: 10px;
-  text-align: left;
+  font-size: 11px;
+  text-align: center;
   cursor: pointer;
 }
 .state-dem-btn:hover {
@@ -2259,7 +2300,7 @@ body.nightvis {
 .ask-choice-label {
   font-family: var(--font-collar);
   font-weight: 600;
-  font-size: 13.5px;
+  font-size: 14px;
   letter-spacing: 0.01em;
 }
 .ask-choice-detail {
@@ -2331,14 +2372,14 @@ body.nightvis {
 
 .welcome-list {
   text-align: left;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
   padding-left: 18px;
   opacity: 0.92;
 }
 
 .welcome-fine {
-  font-size: 10.5px;
+  font-size: 11px;
   opacity: 0.55;
   margin-top: 16px;
 }
@@ -2404,7 +2445,7 @@ body.nightvis {
 
 .hb-body {
   padding: 0 12px 12px 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   /* 1.7 rather than 1.6: these run to several hundred words and are read in bad
      light, and the extra leading is what stops a wall of bullets closing up. */
   line-height: 1.7;
@@ -2431,7 +2472,7 @@ body.nightvis {
 .hb-group {
   flex: none;
   margin: 12px 2px 2px;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 2px;
   font-weight: 600;
   color: var(--label);
@@ -2472,7 +2513,7 @@ body.nightvis {
 .hb-head {
   margin: 12px 0 5px;
   font-family: var(--font-collar);
-  font-size: 10.5px;
+  font-size: 11px;
   letter-spacing: 1.6px;
   text-transform: uppercase;
   color: var(--label-lift);
@@ -2490,7 +2531,7 @@ body.nightvis {
      title, and a full 10px of air made them two separate things. */
   margin: -4px 0 0;
   padding: 0 12px 10px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.55;
   color: var(--type-quiet);
 }
@@ -2505,7 +2546,7 @@ body.nightvis {
 
 #handbook-disclaimer {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.55;
   line-height: 1.5;
   border-top: 1px solid var(--rule);
@@ -2543,7 +2584,7 @@ body.nightvis {
 .sky-row {
   display: flex;
   justify-content: space-between;
-  font-size: 12.5px;
+  font-size: 13px;
   padding: 4px 0;
   border-bottom: 1px solid var(--rule-faint);
 }
@@ -2888,7 +2929,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 
 .maplibregl-ctrl-attrib {
-  font-size: 10px;
+  font-size: 11px;
 }
 
 /* Toast notifications */
@@ -2910,7 +2951,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   padding: 10px 16px;
   border-radius: var(--radius-sm);
   font-family: var(--font-prose);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--type);
   background: var(--surface-hud);
   border: 1px solid var(--rule-hot);
@@ -3111,7 +3152,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   color: var(--type-quiet);
 }
 #collar-elev .ce-mark {
-  font-size: 8px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 #collar-elev .ce-v {
@@ -3236,7 +3277,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     background: var(--wash);
   }
   .cmd-glyph {
-    font-size: 17px;
+    font-size: 18px;
     line-height: 1;
   }
   .cmd-label {
@@ -3244,7 +3285,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    font-size: 9.5px;
+    font-size: 11px;
     line-height: 1;
   }
   /* Lit while the thing it opens is showing, so the bar reports state rather
@@ -3369,7 +3410,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   gap: 4px;
 }
 .print-field span {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.08em;
   opacity: 0.6;
 }
@@ -3487,7 +3528,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .card-label {
   margin-top: 9px;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--type-quiet);
@@ -3499,7 +3540,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   margin-top: 5px;
 }
 .card-chip {
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   background: var(--wash-firm);
@@ -3512,7 +3553,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .card-caveat {
   margin-top: 9px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--type-quiet);
 }
@@ -3549,7 +3590,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .card-reasons li {
   margin-bottom: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--type-2);
 }
@@ -3559,12 +3600,12 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   margin-top: 9px;
 }
 .season-item .si-icon {
-  font-size: 15px;
+  font-size: 16px;
   flex: 0 0 auto;
   line-height: 1.4;
 }
 .season-item .si-body {
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--type-2);
 }
@@ -3592,7 +3633,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-2);
 }
 .land-manager {
@@ -3623,7 +3664,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 9px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 .land-rule .lr-v {
@@ -3658,20 +3699,20 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .lake-row:hover { background: rgba(56, 214, 255, 0.16); }
 .lake-name {
-  font-size: 12.5px;
+  font-size: 13px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .lake-meta {
   flex: 0 0 auto;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--type-quiet);
   font-variant-numeric: tabular-nums;
 }
 .lake-empty {
   margin-top: 10px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--type-quiet);
 }
 
@@ -3721,7 +3762,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .fish-label {
   margin-top: 9px;
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   color: var(--type-quiet);
@@ -3733,7 +3774,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   margin-top: 5px;
 }
 .fish-sp {
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 2px 7px;
   border-radius: var(--radius-pill);
   background: rgba(56, 214, 255, 0.14);
@@ -3742,18 +3783,18 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
 }
 .fish-note {
   margin-top: 8px;
-  font-size: 10.5px;
+  font-size: 11px;
   color: var(--warn);
 }
 .fish-method {
   margin-top: 9px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.5;
   color: var(--type-2);
 }
 .fish-drink {
   margin-top: 8px;
-  font-size: 10.5px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--type-quiet);
 }
@@ -3762,14 +3803,14 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   border: none;
   color: var(--layer-water);
   font: inherit;
-  font-size: 10.5px;
+  font-size: 11px;
   padding: 0;
   cursor: pointer;
   text-decoration: underline;
 }
 .fish-caveat {
   margin-top: 8px;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   color: var(--type-quiet);
 }
@@ -3867,7 +3908,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   color: var(--type-loud);
 }
 #compass-note {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
   opacity: 0.65;
   margin-top: 6px;
@@ -3960,7 +4001,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   background: var(--control-weak);
 }
 .sh-kind {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.55;
   flex: none;
 }
@@ -3970,7 +4011,7 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
   padding: 10px 2px;
 }
 #search-fine {
-  font-size: 10px;
+  font-size: 11px;
   opacity: 0.55;
   line-height: 1.5;
 }
@@ -4035,7 +4076,7 @@ body.battery.nightvis .maplibregl-ctrl {
   font-family: inherit;
   font-size: 11px;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
 }
 .rt-btns button:hover,
 .rt-go:hover {
@@ -4089,7 +4130,7 @@ body.battery.nightvis .maplibregl-ctrl {
 /* Deliberately always visible on a result: this is an overview, not navigation. */
 .rt-disclaimer {
   color: var(--type-quiet);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   border-top: 1px dotted var(--rule);
   padding-top: 7px;
@@ -4098,7 +4139,7 @@ body.battery.nightvis .maplibregl-ctrl {
 /* Quiet note under a route result — smaller than a warning, not a disclaimer. */
 .rt-fine {
   color: var(--type-quiet);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
@@ -4128,7 +4169,7 @@ body.battery.nightvis .maplibregl-ctrl {
   background: rgba(22, 40, 55, 0.55);
 }
 .rt-slot-k {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: var(--type-quiet);
@@ -4141,7 +4182,7 @@ body.battery.nightvis .maplibregl-ctrl {
   color: var(--type-2);
 }
 .rt-slot-c {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   font-variant-numeric: tabular-nums;
 }
@@ -4158,7 +4199,7 @@ body.battery.nightvis .maplibregl-ctrl {
   background: none;
   color: var(--type-2);
   font-family: inherit;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 .rt-swap:hover {
@@ -4219,7 +4260,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 /* Section label between Pins and Places. */
 .rt-sec-h {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.6px;
   text-transform: uppercase;
   color: var(--type-quiet);
@@ -4254,14 +4295,14 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .rt-hit-sub {
   flex: none;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 .rt-hint {
   color: var(--type-quiet);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -4273,7 +4314,7 @@ body.battery.nightvis .maplibregl-ctrl {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--rule);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   letter-spacing: 0.4px;
 }
@@ -4318,7 +4359,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .mv-popup .maplibregl-popup-close-button {
   color: var(--type-2);
-  font-size: 17px;
+  font-size: 18px;
 }
 .mv-title {
   font-size: 13px;
@@ -4348,7 +4389,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .mv-extra {
   margin-top: 6px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   line-height: 1.4;
 }
@@ -4358,7 +4399,7 @@ body.battery.nightvis .maplibregl-ctrl {
   margin-top: 7px;
   padding-top: 6px;
   border-top: 1px solid var(--rule);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--warn-soft);
 }
@@ -4466,12 +4507,12 @@ body.battery.nightvis .maplibregl-ctrl {
   text-overflow: ellipsis;
 }
 .mesh-meta {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   margin-top: 2px;
 }
 .mesh-fine {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   color: var(--type-quiet);
   border-top: 1px dotted var(--rule);
@@ -4479,7 +4520,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .mesh-label {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--type-quiet);
   letter-spacing: 0.5px;
 }
@@ -4571,7 +4612,7 @@ body.battery.nightvis .maplibregl-ctrl {
   line-height: 1;
 }
 .hud-icon-label {
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.2px;
   line-height: 1;
   opacity: 0.85;
@@ -4740,7 +4781,7 @@ body.battery.nightvis .maplibregl-ctrl {
     min-height: 44px;
     padding: 8px 6px;
     text-align: center;
-    font-size: 11.5px;
+    font-size: 12px;
     border-radius: var(--radius-sm);
   }
   /* The range picker takes the tile height and nothing else. Centring it and
@@ -4748,7 +4789,7 @@ body.battery.nightvis .maplibregl-ctrl {
      `right 9px` — a select has to keep the room reserved for it. */
   .hud-grid select {
     min-height: 44px;
-    font-size: 11.5px;
+    font-size: 12px;
     border-radius: var(--radius-sm);
   }
   /* An author `display` here beats the UA sheet's `[hidden] { display: none }`,
@@ -4839,7 +4880,7 @@ body.battery.nightvis .maplibregl-ctrl {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 .pl-group:first-child { margin-top: 2px; }
@@ -4864,19 +4905,19 @@ body.battery.nightvis .maplibregl-ctrl {
 .pl-row-name { display: block; font-size: 13px; color: var(--type-loud); }
 .pl-row-sci {
   display: block;
-  font-size: 10.5px;
+  font-size: 11px;
   font-style: italic;
   color: var(--type-quiet);
 }
 .pl-row-warn {
   display: block;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--bad-soft);
 }
 .pl-row-side { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
 .pl-here {
-  font-size: 9px;
+  font-size: 11px;
   letter-spacing: 0.06em;
   color: var(--good);
 }
@@ -4905,7 +4946,7 @@ body.battery.nightvis .maplibregl-ctrl {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  font-size: 8.5px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .pl-deadly { background: rgba(255, 90, 90, 0.22); color: var(--bad); }
@@ -4934,7 +4975,7 @@ body.battery.nightvis .maplibregl-ctrl {
   justify-content: space-between;
   gap: 10px;
 }
-.pl-title { font-size: 17px; color: var(--type-loud); }
+.pl-title { font-size: 18px; color: var(--type-loud); }
 .pl-sci {
   margin-top: 2px;
   font-size: 11px;
@@ -4949,7 +4990,7 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 .pl-fig figcaption {
   margin-top: 3px;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 
@@ -4977,14 +5018,14 @@ body.battery.nightvis .maplibregl-ctrl {
 }
 
 .pl-section { margin-top: 14px; }
-.pl-section p { margin: 0; font-size: 12.5px; line-height: 1.5; }
+.pl-section p { margin: 0; font-size: 13px; line-height: 1.5; }
 .pl-h {
   margin-bottom: 5px;
   font-family: var(--font-collar);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 9.5px;
+  font-size: 11px;
   color: var(--type-quiet);
 }
 
@@ -5029,7 +5070,7 @@ body.battery.nightvis .maplibregl-ctrl {
 .pl-look-tell {
   display: block;
   margin-top: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   color: var(--type-2);
 }
