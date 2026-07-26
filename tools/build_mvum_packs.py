@@ -250,6 +250,26 @@ def boxes_overlap(box, bbox):
 # --- Build -------------------------------------------------------------------
 
 
+def upstream_stamps() -> dict[str, str]:
+    """`Last-Modified` for each national file.
+
+    Written into the manifest so a later run can tell whether the Forest
+    Service has actually recut anything. Without it the monthly rebuild has no
+    way to know, and republishes 272 MB of byte-identical geometry every time —
+    the current national file is dated May 2025 and will sit there for a year.
+    """
+    out: dict[str, str] = {}
+    for kind, url, _ in SOURCES:
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=60) as r:
+                out[kind] = r.headers.get("Last-Modified", "")
+        except Exception as e:  # noqa: BLE001 - a missing stamp just means "rebuild"
+            log(f"  (couldn't read Last-Modified for {kind}: {e})")
+            out[kind] = ""
+    return out
+
+
 def fetch(url: str, cache: Path | None) -> Path:
     if cache:
         cache.mkdir(parents=True, exist_ok=True)
@@ -278,6 +298,9 @@ def build(out_dir: Path, only: set[str] | None, cache: Path | None, base_url: st
     # One temp file per state, appended to as the national files stream past.
     # The alternative — holding every state's features in memory — does not fit:
     # the trails .dbf alone is 2 GB uncompressed.
+    stamps = upstream_stamps()
+    log(f"upstream: {stamps}")
+
     tmp_dir = Path(tempfile.mkdtemp(prefix="mvum-"))
     handles = {s["abbr"]: open(tmp_dir / f"{s['abbr']}.jsonl", "w", encoding="utf-8") for s in states}
     counts = {s["abbr"]: 0 for s in states}
@@ -385,7 +408,17 @@ def build(out_dir: Path, only: set[str] | None, cache: Path | None, base_url: st
         log(f"  {abbr}: {counts[abbr]:,} features, {len(data)/1e6:.1f} MB, {len(forests[abbr])} forest(s)")
 
     (out_dir / "mvum.json").write_text(
-        json.dumps({"built": stamp, "source": SOURCES[0][1], "states": manifest}, indent=1)
+        json.dumps(
+            {
+                "built": stamp,
+                "source": SOURCES[0][1],
+                # What the national files said when this was cut. CI compares
+                # these before spending two hours re-cutting the same data.
+                "upstream": stamps,
+                "states": manifest,
+            },
+            indent=1,
+        )
     )
     total = sum(m["bytes"] for m in manifest.values())
     log(f"\n{len(manifest)} state pack(s), {total/1e6:.1f} MB total → {out_dir}")

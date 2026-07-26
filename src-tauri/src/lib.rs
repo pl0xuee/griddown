@@ -736,8 +736,19 @@ fn mvum_from_pack(
     abbr: &str,
     path: &Path,
 ) -> Result<u64, String> {
+    // Cache-busted, and it has to be. The release asset sits behind a CDN that
+    // serves a stale copy for ~20 minutes and ignores Cache-Control: no-cache —
+    // measured at Age: 1210 on a file replaced moments earlier. The manifest is
+    // replaced wholesale on every rebuild, so a stale one lists sha256s for
+    // packs that no longer exist: every download would fail its integrity check
+    // and fall back to the live service, for the whole TTL, right after a
+    // rebuild. A query string is enough to get past it.
+    let bust = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let manifest: MvumManifest = client
-        .get(MVUM_MANIFEST_URL)
+        .get(format!("{MVUM_MANIFEST_URL}?t={bust}"))
         .timeout(std::time::Duration::from_secs(20))
         .send()
         .and_then(|r| r.error_for_status())
