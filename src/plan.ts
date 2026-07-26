@@ -64,7 +64,15 @@ export interface FrozenRoute {
   pack: string;
   computedAt: number;
   appVersion: string;
-  /** Hand-drawn rather than routed: trails and off-road, so no turn list. */
+  /**
+   * Hand-drawn rather than routed, so no turn list.
+   *
+   * Nothing creates these any more — routes come from Get there, which knows
+   * about one-way streets, road classes and the Forest Service overlay, none of
+   * which a fingertip does. The flag is still read so that a leg drawn before
+   * that changed keeps saying what it is, rather than quietly presenting itself
+   * as a routed line that happens to have no directions.
+   */
   drawn?: boolean;
 }
 

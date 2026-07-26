@@ -141,6 +141,16 @@
      child owns it depends on whether the command bar is there (see #dock and
      #cmdbar), and that choice is only safe while the total is written down here.
      Zero on every device without an inset. */
+  /* The four insets, copied onto :root so script can read them.
+     `env()` is not readable from getComputedStyle, but a custom property that
+     resolves to it is — and fitting a route to the screen needs to know about
+     the notch, which is not an element and which nothing in the DOM reports.
+     Without these the top of a fitted route sits under the status bar. */
+  --sai-top: env(safe-area-inset-top, 0px);
+  --sai-right: env(safe-area-inset-right, 0px);
+  --sai-bottom: env(safe-area-inset-bottom, 0px);
+  --sai-left: env(safe-area-inset-left, 0px);
+
   --home-inset: env(safe-area-inset-bottom);
   --dock-h: calc(var(--collar-h) + var(--cmdbar-h) + var(--home-inset));
 

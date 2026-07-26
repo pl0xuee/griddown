@@ -17,7 +17,7 @@ import { toast } from "./toast";
 import { loadMvumFor, mvumClass, formatDates } from "./mvum";
 import { buildMvumIndex, summariseRoute } from "./mvumindex";
 import { OVERPRINT, OVERPRINT_CASING } from "./overprint";
-import { computePadding, visibleBox } from "./fitmap";
+import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { saveRouteToPlan } from "./planpanel";
 
 // "How do I get there" overview: a road-following path from a start point to a
@@ -518,11 +518,19 @@ export function initRoute(deps: {
       return;
     }
 
-    const padding = computePadding(
-      map.getCanvas().getBoundingClientRect(),
-      visibleBox(document.getElementById("dock")),
-      visibleBox(panel)
-    );
+    const padding = computePadding({
+      canvas: map.getCanvas().getBoundingClientRect(),
+      // The recompute button floats ABOVE the dock, so the dock's box says
+      // nothing about it — and it is exactly what you press after a route is
+      // drawn, so the end of the line used to land behind it.
+      bottom: [
+        visibleBox(document.getElementById("dock")),
+        visibleBox(document.getElementById("route-recalc")),
+        visibleBox(document.getElementById("map-legend")),
+      ],
+      panel: visibleBox(panel),
+      insets: safeAreaInsets(),
+    });
     map.fitBounds(b, { padding, duration: 600 });
   }
 
@@ -888,9 +896,12 @@ export function initRoute(deps: {
         at: Date.now(),
       };
       draw(best.r.coords, best.plan.z < 14);
-      fit(best.r.coords);
       shown = next;
+      // Before fit, not after: syncRecalc is what puts the on-map recompute
+      // button on screen, and fit measures it. Fitting first measured a screen
+      // that was about to grow a button over the bottom of the route.
       syncRecalc();
+      fit(best.r.coords);
       save(next);
       renderResult(next);
     } catch (err) {

@@ -25,7 +25,7 @@ import {
   type CommsPlan,
   type Person,
 } from "./roster";
-import { computePadding, visibleBox } from "./fitmap";
+import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { printPlan } from "./planprint";
 import { OVERPRINT, OVERPRINT_CASING, OVERPRINT_LIFT } from "./overprint";
 import { chooseAction, confirmAction, promptAction } from "./dialog";
@@ -63,9 +63,13 @@ let openId: string | null = null;
 /** The plan currently drawn on the map. Survives closing the panel. */
 let shownId: string | null = null;
 let markers: maplibregl.Marker[] = [];
-/** Leg being hand-drawn by tapping the map, if any. */
-let drawing: { planId: string; pts: LL[] } | null = null;
 let appVersion = "dev";
+/**
+ * The plan that sent you to Get there, so the route you work out there comes
+ * back here without being asked which plan it belonged to. Cleared once used —
+ * a route computed later, off your own bat, should still ask.
+ */
+let awaitingRouteFor: string | null = null;
 // The roster and comms plan belong to the household, not to any one plan — the
 // same people and the same radio channel apply whichever way you leave.
 let roster: Person[] = [];
@@ -73,13 +77,6 @@ let comms: CommsPlan | null = null;
 
 function rid(): string {
   return Math.random().toString(36).slice(2, 10);
-}
-
-/** True while a leg is being laid out by tapping the map. The identify cards
- *  check this so a tap meant for the plan doesn't also open a card over it —
- *  the same courtesy the measure tool already gets. */
-export function drawingLeg(): boolean {
-  return drawing !== null;
 }
 
 const MI = 1609.344;
@@ -258,11 +255,16 @@ function fitPlan(p: Plan) {
     return;
   }
   map.fitBounds(bounds, {
-    padding: computePadding(
-      map.getCanvas().getBoundingClientRect(),
-      visibleBox(document.getElementById("dock")),
-      visibleBox(document.getElementById("plan-panel"))
-    ),
+    padding: computePadding({
+      canvas: map.getCanvas().getBoundingClientRect(),
+      bottom: [
+        visibleBox(document.getElementById("dock")),
+        visibleBox(document.getElementById("route-recalc")),
+        visibleBox(document.getElementById("map-legend")),
+      ],
+      panel: visibleBox(document.getElementById("plan-panel")),
+      insets: safeAreaInsets(),
+    }),
     duration: 600,
   });
 }
@@ -458,25 +460,16 @@ function renderDetail(p: Plan) {
 
     <div class="pn-actions">
       <button id="pn-show" type="button">Show on map</button>
-      <button id="pn-draw" type="button">${
-        drawing?.planId === p.id ? "◼ Finish drawn leg" : "✎ Draw a leg"
-      }</button>
+      <button id="pn-addroute" type="button">→ Add a route</button>
       <button id="pn-print" type="button">⎙ Print to paper</button>
     </div>
-    ${
-      drawing?.planId === p.id
-        ? `<div class="pn-note">Tap the map to add points — ${drawing.pts.length} so far.
-           Use this for trails and tracks the router has no data for. Press
-           <b>Finish drawn leg</b> when you're done.</div>`
-        : ""
-    }
 
     <div class="pn-group">Routes</div>
     ${
       p.routes.length
         ? p.routes.map(routeCard).join("")
-        : `<div class="pn-empty">No route yet. Work one out in <b>Get there</b> and
-           press <b>Save to plan</b>, or draw a leg by hand.</div>`
+        : `<div class="pn-empty">No route yet. <b>Add a route</b> opens Get there;
+           work out the way, then press <b>Save to plan</b> and it lands here.</div>`
     }
     ${
       p.routes.length === 1
@@ -678,54 +671,6 @@ async function editPerson(id: string | null) {
   render();
 }
 
-function beginDraw(p: Plan) {
-  drawing = { planId: p.id, pts: [] };
-  toast("Tap the map to lay out the leg.", "info", 5000);
-  render();
-}
-
-async function finishDraw(p: Plan) {
-  const pts = drawing?.pts ?? [];
-  drawing = null;
-  if (pts.length < 2) {
-    toast("A leg needs at least two points.", "error");
-    render();
-    return;
-  }
-  const name =
-    (await promptAction("Name this leg", { value: "Drawn leg", okLabel: "Save" })) ||
-    "Drawn leg";
-  let meters = 0;
-  for (let i = 1; i < pts.length; i++) {
-    // Rough planar length is enough for a hand-drawn line; the point of it is
-    // the shape, not the mileage, and it says so on the card.
-    const dx = (pts[i][0] - pts[i - 1][0]) * 111320 * Math.cos((pts[i][1] * Math.PI) / 180);
-    const dy = (pts[i][1] - pts[i - 1][1]) * 111320;
-    meters += Math.hypot(dx, dy);
-  }
-  const r = freezeRoute(
-    { coords: pts, meters, steps: [], usedTrail: true },
-    {
-      id: rid(),
-      name: name.trim() || "Drawn leg",
-      from: { lat: pts[0][1], lng: pts[0][0], label: "start of the drawn leg" },
-      to: {
-        lat: pts[pts.length - 1][1],
-        lng: pts[pts.length - 1][0],
-        label: "end of the drawn leg",
-      },
-      pack: deps?.activeAbbr?.() ?? "",
-      appVersion,
-      now: Date.now(),
-      drawn: true,
-    }
-  );
-  replacePlan({ ...p, routes: p.routes.concat(r) });
-  await persist();
-  render();
-  drawPlan(findPlan(p.id)!);
-}
-
 /**
  * Save a route computed by Get there into a plan.
  *
@@ -745,7 +690,13 @@ export async function saveRouteToPlan(h: {
   pack: string;
 }): Promise<void> {
   let target: Plan | undefined;
-  if (!plans.length) {
+  // Came here from a plan's "Add a route"? Then the question has already been
+  // answered, and asking it again is just a button to press.
+  const sentFrom = awaitingRouteFor ? findPlan(awaitingRouteFor) : undefined;
+  awaitingRouteFor = null;
+  if (sentFrom) {
+    target = sentFrom;
+  } else if (!plans.length) {
     // Nothing to choose between — go straight to making one.
     target = (await newPlan()) ?? undefined;
     if (!target) return;
@@ -903,9 +854,15 @@ function onBodyClick(e: MouseEvent) {
     fitPlan(p);
     return;
   }
-  if (t.id === "pn-draw") {
-    if (drawing?.planId === p.id) void finishDraw(p);
-    else beginDraw(p);
+  if (t.id === "pn-addroute") {
+    // Hand the job to the thing that already does it. Get there knows about
+    // one-way streets, road classes and the Forest Service overlay; a line
+    // drawn with a fingertip knows none of that and looks just as authoritative
+    // on the map.
+    awaitingRouteFor = p.id;
+    document.getElementById("plan-panel")?.classList.add("hidden");
+    document.getElementById("route-open")?.click();
+    toast("Work out the route, then press Save to plan.", "info", 6000);
     return;
   }
   if (t.id === "pn-rename") {
@@ -1074,13 +1031,6 @@ export function initPlan(d: Deps) {
       clearDrawn();
       shownId = null;
     }
-    render();
-  });
-
-  // Hand-drawn legs: every tap while drawing is a point.
-  d.map().on("click", (e) => {
-    if (!drawing) return;
-    drawing.pts.push([e.lngLat.lng, e.lngLat.lat]);
     render();
   });
 

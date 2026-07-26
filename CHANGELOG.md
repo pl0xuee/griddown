@@ -28,8 +28,13 @@ the primary draws solid in the overprint magenta, alternates dashed in the
 lifted hue. It also holds **stops** (rally points, caches, fuel, water, shelter,
 medical, and ground to avoid), the **go/no-go conditions** decided while calm
 rather than at 3am, and one sentence for what happens if you are not together.
-Legs the router has no data for — trails, tracks, cross-country — can be **drawn
-by tapping the map**.
+
+Routes are always made by **Get there** — the plan's **Add a route** opens it,
+and the route you work out comes back to the plan you started from without
+asking which one. There is no hand-drawing: a line laid down with a fingertip
+knows nothing about one-way streets, road classes or the Forest Service
+overlay, and it would sit on the map looking exactly as authoritative as one
+that does.
 
 **Kit** is the new checklist panel: a 72-hour go bag, a vehicle kit, a
 shelter-in-place list running from thirty days to a year, medical, documents and

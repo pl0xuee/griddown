@@ -36,7 +36,7 @@ import { initMeasure } from "./measure";
 import { dropGotoPin } from "./goto";
 import { initSearch, resetPlaceIndex } from "./search";
 import { initRoute } from "./route";
-import { drawingLeg, initPlan } from "./planpanel";
+import { initPlan } from "./planpanel";
 import { initKit } from "./kitpanel";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
@@ -1654,8 +1654,6 @@ async function start() {
     if (!fishingOn && !wildfoodOn && !publicLandOn) return;
     // Don't steal the tap from the measure tool while it's placing points.
     if (!document.getElementById("measure-readout")?.classList.contains("hidden")) return;
-    // Same for a plan leg being drawn: those taps are the line, not a query.
-    if (drawingLeg()) return;
     // Clear panels HERE, on the tap, not inside hideCards. A card render awaits
     // elevation and lake lookups first, and closing panels after that await
     // slammed shut whatever the user had opened in the meantime.
