@@ -80,9 +80,14 @@ export function initSky(getCenter: () => { lat: number; lng: number }) {
     if (sub) {
       // Say whose clock these times are on whenever it isn't the obvious one.
       const dh = zoneOffsetHours(lng, now);
+      // "the sun there", not "this point is": what the longitude gives is solar
+      // time, and civil zones do not follow the 15 deg meridians. Boise is a
+      // whole zone west of its longitude and Amarillo a whole zone east, so
+      // stating a clock difference put those an hour out — while the sun figure
+      // was right all along, and is the one that decides when it gets dark.
       const zone = dh === 0
         ? ""
-        : ` · times in YOUR clock — this point is ${Math.abs(dh)}h ${dh < 0 ? "behind" : "ahead"}`;
+        : ` · times in YOUR clock — the sun there is about ${Math.abs(dh)}h ${dh < 0 ? "behind" : "ahead"}`;
       sub.textContent = `${lat.toFixed(3)}, ${lng.toFixed(3)} · ${now.toLocaleDateString(
         [],
         { weekday: "short", month: "short", day: "numeric" }

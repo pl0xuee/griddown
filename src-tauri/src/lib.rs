@@ -817,40 +817,52 @@ fn mvum_from_pack(
 
     // Hashed on the way past rather than re-read afterwards: these run to tens
     // of megabytes and the file is about to be renamed into place regardless.
+    //
+    // The whole download runs inside a closure so that EVERY way out of it goes
+    // through the cleanup below. Only the checksum mismatch used to remove the
+    // .part; a dropped connection, a full disk or a failed rename left tens of
+    // megabytes of dead file in app data, invisible to the user and to the pack
+    // list, and a retry wrote a second one beside it.
     let tmp = path.with_extension("part");
-    let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-    let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
-    let mut buf = vec![0u8; 64 * 1024];
-    let mut got: u64 = 0;
-    loop {
-        let n = std::io::Read::read(&mut res, &mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
+    let downloaded = (|| -> Result<u64, String> {
+        let mut out = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        let mut hasher = <sha2::Sha256 as sha2::Digest>::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut got: u64 = 0;
+        loop {
+            let n = std::io::Read::read(&mut res, &mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            sha2::Digest::update(&mut hasher, &buf[..n]);
+            std::io::Write::write_all(&mut out, &buf[..n]).map_err(|e| e.to_string())?;
+            got += n as u64;
+            let _ = app.emit(
+                "mvum-progress",
+                serde_json::json!({ "abbr": abbr, "done": got, "total": pack.bytes }),
+            );
         }
-        sha2::Digest::update(&mut hasher, &buf[..n]);
-        std::io::Write::write_all(&mut out, &buf[..n]).map_err(|e| e.to_string())?;
-        got += n as u64;
-        let _ = app.emit(
-            "mvum-progress",
-            serde_json::json!({ "abbr": abbr, "done": got, "total": pack.bytes }),
-        );
-    }
-    drop(out);
+        drop(out);
 
-    // Verified before it is allowed to become the overlay. A truncated pack
-    // still parses far enough to draw, and would show as forest roads that
-    // simply stop — which is the one failure this data must never present,
-    // since "no road here" is a thing people act on.
-    let sum = format!("{:x}", <sha2::Sha256 as sha2::Digest>::finalize(hasher));
-    if got != pack.bytes || sum != pack.sha256 {
+        // Verified before it is allowed to become the overlay. A truncated pack
+        // still parses far enough to draw, and would show as forest roads that
+        // simply stop — which is the one failure this data must never present,
+        // since "no road here" is a thing people act on.
+        let sum = format!("{:x}", <sha2::Sha256 as sha2::Digest>::finalize(hasher));
+        if got != pack.bytes || sum != pack.sha256 {
+            return Err(format!(
+                "pack for {key} arrived damaged ({got} bytes, expected {})",
+                pack.bytes
+            ));
+        }
+        std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+        Ok(got)
+    })();
+
+    if downloaded.is_err() {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "pack for {key} arrived damaged ({got} bytes, expected {})",
-            pack.bytes
-        ));
     }
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
-    Ok(got)
+    downloaded
 }
 
 /// Path of a state's MVUM overlay file.

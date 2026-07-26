@@ -22,20 +22,42 @@ function supported(): boolean {
   return typeof navigator !== "undefined" && "wakeLock" in navigator;
 }
 
-async function request(): Promise<void> {
+// One request in flight at a time. Asking is asynchronous, and the basemap,
+// terrain and forest-road downloads can start together — two callers both found
+// `sentinel` still null, both asked the system, and the second grant overwrote
+// the first. The first was then held for the rest of the session with nobody
+// left holding a reference to release it.
+let pending: Promise<void> | null = null;
+
+function request(): Promise<void> {
   // A sentinel the system already released is a dead object, not a held lock —
   // it stays non-null after release, so testing it alone would wedge us here
   // forever and make the re-acquire below unreachable.
-  if (!supported() || (sentinel && !sentinel.released)) return;
+  if (!supported() || (sentinel && !sentinel.released)) return Promise.resolve();
+  if (pending) return pending;
   sentinel = null;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    sentinel = await (navigator as any).wakeLock.request("screen");
-  } catch {
-    // Denied, or the document isn't visible. Not worth surfacing: the download
-    // works regardless, it just isn't protected from the screen locking.
-    sentinel = null;
-  }
+  pending = (async () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const s: Sentinel = await (navigator as any).wakeLock.request("screen");
+      if (holders === 0) {
+        // Everyone finished while we were waiting — a re-acquire on
+        // visibilitychange can race a download that ends at the same moment.
+        // Hand it straight back rather than hold a lock nobody asked for.
+        void s.release().catch(() => {});
+        return;
+      }
+      sentinel = s;
+    } catch {
+      // Denied, or the document isn't visible. Not worth surfacing: the
+      // download works regardless, it just isn't protected from the screen
+      // locking.
+      sentinel = null;
+    } finally {
+      pending = null;
+    }
+  })();
+  return pending;
 }
 
 // The system drops the lock whenever the page is hidden — switching apps, or the

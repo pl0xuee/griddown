@@ -274,8 +274,12 @@ export function gridLabel(value: number, spacingM: number): string {
   // straddling the equator is forced into one hemisphere, which gives genuinely
   // negative northings; a raw `%` labelled those "-40", and `Math.floor` on a
   // negative then put them one square out.
-  const within = ((Math.round(value) % 100000) + 100000) % 100000;
-  if (spacingM >= 100000) return String(Math.round(value / 100000));
+  // Normalised over the whole UTM northing range first, so the 100 km branch
+  // gets the same treatment the two finer ones do. It used to divide the raw
+  // value and could print "-1"; the test above only exercised 1000 and 100.
+  const norm = ((Math.round(value) % 10000000) + 10000000) % 10000000;
+  const within = norm % 100000;
+  if (spacingM >= 100000) return String(Math.floor(norm / 100000));
   if (spacingM >= 1000) return String(Math.floor(within / 1000)).padStart(2, "0");
   return String(Math.floor(within / 100)).padStart(3, "0");
 }

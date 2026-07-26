@@ -214,8 +214,13 @@ pub fn decode_position(buf: &[u8]) -> Position {
     for (num, w) in fields(buf) {
         match num {
             // latitude_i / longitude_i are sfixed32 in units of 1e-7 degrees.
-            1 => p.lat = as_i32(&w).map(|v| v as f64 * 1e-7),
-            2 => p.lng = as_i32(&w).map(|v| v as f64 * 1e-7),
+            // Range-checked, because the full i32 span is +/-214.7 degrees and
+            // this arrives over the air from a radio we do not control. An
+            // impossible latitude reached the map as a fly-to and threw inside
+            // maplibregl.LngLat, which is a corrupt or spoofed packet taking the
+            // panel down with it.
+            1 => p.lat = as_i32(&w).map(|v| v as f64 * 1e-7).filter(|v| v.abs() <= 90.0),
+            2 => p.lng = as_i32(&w).map(|v| v as f64 * 1e-7).filter(|v| v.abs() <= 180.0),
             3 => p.altitude = as_i32(&w),
             4 => p.time = as_u32(&w),
             // timestamp (7) is the GPS solution time and is preferred over
@@ -239,10 +244,13 @@ fn apply_position(node: &mut MeshNode, p: &Position) {
     if p.lat == Some(0.0) && p.lng == Some(0.0) {
         return;
     }
-    if p.lat.is_some() {
+    // Half a fix is not a fix. A packet whose latitude was in range and whose
+    // longitude was not (the range check in decode_position drops one and keeps
+    // the other) would otherwise leave the node holding the new latitude beside
+    // whatever longitude it had before — a position that was never reported.
+    // Altitude and time below are independent and still worth taking.
+    if p.lat.is_some() && p.lng.is_some() {
         node.lat = p.lat;
-    }
-    if p.lng.is_some() {
         node.lng = p.lng;
     }
     if p.altitude.is_some() {
@@ -728,6 +736,41 @@ mod tests {
 
     // Every assertion below is against bytes produced by Meshtastic's own
     // protobuf library, so these test the real schema and not our reading of it.
+
+    /// sfixed32 field `num`, little-endian, as it appears on the wire.
+    fn sfixed32(num: u8, v: i32) -> Vec<u8> {
+        let mut out = vec![(num << 3) | 5];
+        out.extend_from_slice(&v.to_le_bytes());
+        out
+    }
+
+    #[test]
+    fn refuses_a_position_outside_the_planet() {
+        // latitude_i is sfixed32 in units of 1e-7 degrees, so the full range of
+        // the type is +/-214.7 degrees. This arrives over the air from a radio
+        // we do not control; a corrupt or spoofed packet used to reach the map
+        // as a fly-to and throw inside maplibregl.LngLat, taking the panel down.
+        let mut buf = sfixed32(1, 1_500_000_000); // 150 degrees of latitude
+        buf.extend(sfixed32(2, -1_220_000_000)); // a perfectly good longitude
+        let p = decode_position(&buf);
+        assert_eq!(p.lat, None);
+        assert!((p.lng.unwrap() + 122.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_half_rejected_fix_does_not_move_a_node() {
+        let mut node = MeshNode {
+            lat: Some(45.0),
+            lng: Some(-122.0),
+            ..Default::default()
+        };
+        let mut buf = sfixed32(1, 1_500_000_000); // rejected latitude
+        buf.extend(sfixed32(2, -1_180_000_000)); // accepted longitude
+        apply_position(&mut node, &decode_position(&buf));
+        // Not 45 N, -118 — a place the radio never reported being.
+        assert_eq!(node.lat, Some(45.0));
+        assert_eq!(node.lng, Some(-122.0));
+    }
 
     #[test]
     fn decodes_a_node_info_record() {

@@ -218,6 +218,18 @@ export async function initWaypoints(map: maplibregl.Map) {
       // native watch is left running (the drain the one-shot design avoids).
       if (gen === recGen && recording) stopWatch = stop;
       else stop();
+    }).catch((e) => {
+      // The error CALLBACK above covers a watch that starts and then fails. A
+      // rejected promise is the other case — watchFix never got as far as
+      // starting one — and without this the button reads "Stop recording" while
+      // nothing is being captured and nothing has said so.
+      if (gen !== recGen) return;
+      toast(
+        `Can't record a track — ${e instanceof Error ? e.message : "location unavailable"}.`,
+        "error",
+        6000
+      );
+      stopRec();
     });
     updateRecUi();
   }

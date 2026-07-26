@@ -195,6 +195,17 @@ describe("gridLabel", () => {
       expect(gridLabel(v, 100)).toMatch(/^\d{3}$/);
     }
   });
+
+  it("never prints a minus sign at 100 km spacing either", () => {
+    // The two finer branches normalised the sign; this one divided the raw
+    // value, so a northing forced into the far hemisphere labelled a square
+    // "-1". The test that was meant to catch it only ran at 1000 and 100.
+    for (let v = -250000; v <= 250000; v += 1234) {
+      expect(gridLabel(v, 100000)).toMatch(/^\d+$/);
+    }
+    // -100 km northern = 9,900 km southern, which is square 99.
+    expect(gridLabel(-100000, 100000)).toBe("99");
+  });
 });
 
 describe("refusing to draw a grid that would lie", () => {

@@ -1092,7 +1092,12 @@ function onBodyClick(e: MouseEvent) {
   if (delChannel != null && comms) {
     const i = Number(delChannel);
     comms = { ...comms, channels: comms.channels.filter((_, n) => n !== i) };
-    void persist().then(render);
+    // Redraw first, then save. These rows are keyed by their position in the
+    // list, so leaving the old markup up while the write completes means a
+    // second tap sends an index into a list that has already shifted — and
+    // deletes the wrong channel.
+    render();
+    void persist();
     return;
   }
   if (t.id === "pn-schedule") {
@@ -1293,7 +1298,10 @@ function onBodyClick(e: MouseEvent) {
   if (delTrigger != null) {
     const i = Number(delTrigger);
     replacePlan({ ...p, triggers: p.triggers.filter((_, n) => n !== i) });
-    void persist().then(render);
+    // Redraw first, then save — index-keyed rows, same reasoning as the
+    // channel delete above.
+    render();
+    void persist();
     return;
   }
 }

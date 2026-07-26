@@ -2,24 +2,19 @@ import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { assessGaps, fillGaps } from "./profile";
 import { sampleElevationM } from "./dem";
-import { haversine, bearing, cardinal, toRad, EARTH_R as R, type LL } from "./geo";
+import { haversine, bearing, cardinal, ringArea, type LL } from "./geo";
 import { REFRACTION } from "./sweep";
 
 // Measure tool: tap the map to lay down points, get running distance along the
 // path, the bearing of the last leg, and — with 3+ points — the enclosed area.
 // Pure offline math (haversine + geodesic bearing + spherical polygon area).
 
-// Geodesic area of a closed ring (m²), signed magnitude taken absolute.
-function ringArea(pts: LL[]): number {
-  const n = pts.length;
-  if (n < 3) return 0;
-  let total = 0;
-  for (let i = 0; i < n; i++) {
-    const [lng1, lat1] = pts[i];
-    const [lng2, lat2] = pts[(i + 1) % n];
-    total += toRad(lng2 - lng1) * (2 + Math.sin(toRad(lat1)) + Math.sin(toRad(lat2)));
-  }
-  return Math.abs((total * R * R) / 2);
+/** A bridged gap, in the units the rest of the readout uses. */
+function fmtGap(m: number): string {
+  const ft = m * 3.28084;
+  return ft < 1000
+    ? `${Math.round(ft).toLocaleString()} ft`
+    : `${(m / 1609.344).toFixed(1)} mi`;
 }
 
 function fmtDist(m: number): { imp: string; met: string } {
@@ -193,7 +188,10 @@ export function initMeasure(map: maplibregl.Map) {
   }
 
   // Line-of-sight between the two endpoints over the terrain, with an
-  // eye/target height and Earth-curvature correction. Optical (no refraction).
+  // eye/target height and a curvature-less-refraction correction — the same
+  // physics, and the same shared REFRACTION constant, as the viewshed sweep.
+  // (This used to say "optical, no refraction". That stopped being true when
+  // the constant was shared, and nobody moved the comment.)
   const EYE_M = 1.7; // observer eye height
   const TGT_M = 1.7; // target height
   const EARTH_M = 6371000;
@@ -246,7 +244,10 @@ export function initMeasure(map: maplibregl.Map) {
     // larger gets disclosed, and the line-of-sight verdict is withheld rather
     // than computed from invented ground. Without this, 2 real samples out of
     // 256 still produced a confident profile and a precise "Blocked at 0.59 mi".
-    const { missingPct, trustworthy } = assessGaps(rawM);
+    // N is capped, so spacing grows with the path — 20 m over a mile, 631 m
+    // over a hundred. The gap rule needs the real figure, not an assumed one.
+    const spacingM = samples.length > 1 ? total / (samples.length - 1) : total;
+    const { missingPct, gapRun, trustworthy } = assessGaps(rawM, spacingM);
 
     const elevM = fillGaps(rawM) as number[];
     const elevFt = elevM.map((m) => m * 3.28084);
@@ -300,7 +301,9 @@ export function initMeasure(map: maplibregl.Map) {
       ${
         trustworthy
           ? ""
-          : `<div class="ms-prow ms-gap"><span>⚠ ${missingPct}% of this path has no terrain data — the profile is drawn across the gaps, not measured.</span></div>`
+          : `<div class="ms-prow ms-gap"><span>⚠ ${missingPct}% of this path has no terrain data, the widest gap ${fmtGap(
+              gapRun * spacingM
+            )} across — the profile is drawn over that, not measured.</span></div>`
       }
       ${losRow}`;
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { assessGaps, fillGaps, longestNullRun, MAX_FILL_RUN } from "../src/profile";
+import { assessGaps, fillGaps, longestNullRun, MAX_FILL_M } from "../src/profile";
 
 // Regression cover for the "invented terrain" bug: the elevation profile drew a
 // complete-looking chart, a climb figure and a line-of-sight verdict from as
@@ -26,7 +26,7 @@ describe("longestNullRun", () => {
 
 describe("assessGaps", () => {
   it("trusts a profile whose gaps are short dropouts", () => {
-    const r = assessGaps([100, null, 102, 103, null, 105]);
+    const r = assessGaps([100, null, 102, 103, null, 105], 20);
     expect(r.trustworthy).toBe(true);
     expect(r.gapRun).toBe(1);
     expect(r.missingPct).toBe(33);
@@ -35,27 +35,43 @@ describe("assessGaps", () => {
   it("does NOT trust a profile bridged across a long gap", () => {
     // The bug: 2 real samples, everything else invented.
     const raw = [100, ...Array(20).fill(null), 300] as (number | null)[];
-    const r = assessGaps(raw);
+    const r = assessGaps(raw, 20);
     expect(r.trustworthy).toBe(false);
     expect(r.gapRun).toBe(20);
     expect(r.missingPct).toBe(91);
   });
 
-  it("draws the line exactly at MAX_FILL_RUN", () => {
-    const atLimit = [1, ...Array(MAX_FILL_RUN).fill(null), 2] as (number | null)[];
-    const overLimit = [1, ...Array(MAX_FILL_RUN + 1).fill(null), 2] as (number | null)[];
-    expect(assessGaps(atLimit).trustworthy).toBe(true);
-    expect(assessGaps(overLimit).trustworthy).toBe(false);
+  it("draws the line at MAX_FILL_M of ground, not at a sample count", () => {
+    const runs = MAX_FILL_M / 20;
+    const atLimit = [1, ...Array(runs).fill(null), 2] as (number | null)[];
+    const overLimit = [1, ...Array(runs + 1).fill(null), 2] as (number | null)[];
+    expect(assessGaps(atLimit, 20).trustworthy).toBe(true);
+    expect(assessGaps(overLimit, 20).trustworthy).toBe(false);
+  });
+
+  it("distrusts the SAME gap once the samples are further apart", () => {
+    // The profile takes at most 256 samples however long the path is, so
+    // spacing is ~20 m over a mile and ~631 m over a hundred. A rule counting
+    // samples said three missing in a row was 60 m of bridged ground in both
+    // cases; over the long path it is 1.9 km, and the panel still printed
+    // "Blocked at 8.4 mi" as though it had been measured.
+    const raw = [100, null, null, null, 300] as (number | null)[];
+    expect(assessGaps(raw, 20).trustworthy).toBe(true);
+    expect(assessGaps(raw, 631).trustworthy).toBe(false);
+  });
+
+  it("distrusts a single missing sample when one sample is most of a mile", () => {
+    expect(assessGaps([100, null, 300], 631).trustworthy).toBe(false);
   });
 
   it("treats a profile with no data at all as untrustworthy", () => {
-    const r = assessGaps([null, null, null, null]);
+    const r = assessGaps([null, null, null, null], 20);
     expect(r.trustworthy).toBe(false);
     expect(r.missingPct).toBe(100);
   });
 
   it("reports a complete profile as fully trustworthy", () => {
-    const r = assessGaps([1, 2, 3, 4]);
+    const r = assessGaps([1, 2, 3, 4], 20);
     expect(r.trustworthy).toBe(true);
     expect(r.missingPct).toBe(0);
     expect(r.gapRun).toBe(0);
@@ -76,11 +92,11 @@ describe("fillGaps", () => {
     expect(fillGaps([null, null, 50])).toEqual([50, 50, 50]);
     expect(fillGaps([50, null, null])).toEqual([50, 50, 50]);
     // Short end-gap: within tolerance, drawn without comment.
-    expect(assessGaps([null, null, 50]).trustworthy).toBe(true);
+    expect(assessGaps([null, null, 50], 20).trustworthy).toBe(true);
     // Long end-gap: flat-extended over most of the path, so it must be flagged.
     const longTail = [50, ...Array(30).fill(null)] as (number | null)[];
     expect(fillGaps(longTail).every((v) => v === 50)).toBe(true);
-    expect(assessGaps(longTail).trustworthy).toBe(false);
+    expect(assessGaps(longTail, 20).trustworthy).toBe(false);
   });
 
   it("leaves a complete profile untouched", () => {

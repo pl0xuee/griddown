@@ -219,18 +219,29 @@ async function loadRoads(
               const kind = String(p.kind ?? "");
               const detail = String(p.kind_detail ?? "");
               if (!isRoutable(kind, detail)) continue;
+              // "yes", "no" and — rarely but really — "-1", which means one-way
+              // AGAINST the drawn direction. Counted in the Oregon pack around
+              // Portland and Bend at z14: 1,541 "yes", 388 "no", 2 "-1" out of
+              // 9,853 road features. Reading "-1" as two-way, which is what a
+              // bare `=== "yes"` does, lets the router send you the wrong way up
+              // a one-way street — so the geometry is reversed instead and the
+              // rest of the graph keeps its single, forward-only rule.
+              const owRaw = String(p.oneway ?? "");
+              const oneway = owRaw === "yes" || owRaw === "-1";
+              const reversed = owRaw === "-1";
               for (const line of feat.loadGeometry()) {
                 if (line.length < 2) continue;
+                const coords: [number, number][] = line.map((pt) => [
+                  tile2lng(x + pt.x / feat.extent, plan.z),
+                  tile2lat(y + pt.y / feat.extent, plan.z),
+                ]);
                 segs.push({
-                  coords: line.map((pt) => [
-                    tile2lng(x + pt.x / feat.extent, plan.z),
-                    tile2lat(y + pt.y / feat.extent, plan.z),
-                  ]),
+                  coords: reversed ? coords.reverse() : coords,
                   kind,
                   detail,
                   name: p.name ? String(p.name) : undefined,
                   ref: p.ref ? String(p.ref) : undefined,
-                  oneway: String(p.oneway ?? "") === "yes",
+                  oneway,
                   bridge: String(p.is_bridge ?? "") === "true",
                 });
               }

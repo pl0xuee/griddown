@@ -219,3 +219,36 @@ describe("keepAwake", () => {
     expect(() => release()).not.toThrow();
   });
 });
+
+describe("overlapping downloads", () => {
+  it("does not leak a sentinel when two callers start at once", async () => {
+    // Basemap, terrain and forest roads can all be downloading together, and
+    // keepAwake awaits the grant. Two calls that interleave both found `sentinel`
+    // still null and both asked the system for a lock; the second overwrote the
+    // first, which was then never released and held the screen on for the rest
+    // of the session.
+    const wl = fakeWakeLock();
+    const { keepAwake } = await loadWakelock(wl);
+
+    const [a, b] = await Promise.all([keepAwake(), keepAwake()]);
+    expect(wl.granted).toBe(1);
+
+    a();
+    b();
+    expect(wl.released.length).toBe(1);
+    expect(wl.handed.every((h) => h.released)).toBe(true);
+  });
+
+  it("releases a lock that arrives after the last holder has gone", async () => {
+    const wl = fakeWakeLock();
+    const { keepAwake } = await loadWakelock(wl);
+    const release = await keepAwake();
+    release();
+    // A visibilitychange re-acquire in flight when the count hit zero used to
+    // land a sentinel nobody owned.
+    setVisible("visible");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(wl.handed.every((h) => h.released)).toBe(true);
+  });
+});

@@ -37,8 +37,19 @@ export function fillGaps(v: readonly (number | null)[]): (number | null)[] {
   return out;
 }
 
-/** Fills longer than this are disclosed, not silently drawn as measurements. */
-export const MAX_FILL_RUN = 3; // ~60 m at the profile's ~20 m sample spacing
+/**
+ * Ground distance a fill may bridge before it has to be disclosed.
+ *
+ * Metres, not samples. This was `MAX_FILL_RUN = 3`, with a comment saying "~60 m
+ * at the profile's ~20 m sample spacing" — but the profile takes at most 256
+ * samples however long the path is, so the spacing is 20 m over a mile and
+ * 631 m over a hundred. Three samples was 60 m of invented ground on a short
+ * path and 1.9 km on a long one, and the long one is the realistic case: a
+ * hundred-mile shot is exactly the "can I see that peak, will this radio path
+ * clear" question people open this for. The rule now measures what it is
+ * actually about.
+ */
+export const MAX_FILL_M = 60;
 
 export interface GapReport {
   /** Percentage of samples with no terrain data, 0-100. */
@@ -54,12 +65,17 @@ export interface GapReport {
   trustworthy: boolean;
 }
 
-export function assessGaps(raw: readonly (number | null)[]): GapReport {
+/** @param spacingM ground distance between consecutive samples. */
+export function assessGaps(
+  raw: readonly (number | null)[],
+  spacingM: number
+): GapReport {
   const known = raw.filter((m) => m != null).length;
   const gapRun = longestNullRun(raw);
+  const step = Number.isFinite(spacingM) && spacingM > 0 ? spacingM : 20;
   return {
     missingPct: raw.length ? Math.round(((raw.length - known) / raw.length) * 100) : 0,
     gapRun,
-    trustworthy: gapRun <= MAX_FILL_RUN,
+    trustworthy: gapRun * step <= MAX_FILL_M,
   };
 }

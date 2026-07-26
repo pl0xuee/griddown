@@ -37,5 +37,32 @@ const DIRS = [
 
 /** Compass point for a bearing, e.g. 100° → "E". */
 export function cardinal(deg: number): string {
+  // A NaN bearing indexed the table with NaN and returned undefined, which the
+  // readout then printed as the literal word "undefined" next to "NaN°". An
+  // em dash says the same thing without pretending to be a direction.
+  if (!Number.isFinite(deg)) return "—";
   return DIRS[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
+}
+
+/** Geodesic area of a closed ring (m²), magnitude. Lives here rather than in
+ *  measure.ts so it can be tested without a map. */
+export function ringArea(pts: LL[]): number {
+  const n = pts.length;
+  if (n < 3) return 0;
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    const [lng1, lat1] = pts[i];
+    const [lng2, lat2] = pts[(i + 1) % n];
+    // Shortest way round, not the arithmetic difference. MapLibre hands back
+    // wrapped longitudes, so a ring straddling the antimeridian gives
+    // lng2 - lng1 = -359.8 where the leg is +0.2 — and a 305 km box in the
+    // Aleutians read 549,004 km. haversine and bearing are periodic and were
+    // never affected, so distance and bearing stayed right while Area alone
+    // went absurd.
+    let dLng = lng2 - lng1;
+    if (dLng > 180) dLng -= 360;
+    else if (dLng < -180) dLng += 360;
+    total += toRad(dLng) * (2 + Math.sin(toRad(lat1)) + Math.sin(toRad(lat2)));
+  }
+  return Math.abs((total * EARTH_R * EARTH_R) / 2);
 }

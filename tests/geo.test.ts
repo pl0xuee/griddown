@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { bearing, cardinal, EARTH_R, haversine, type LL } from "../src/geo";
+import { bearing, cardinal, EARTH_R, haversine, type LL,
+  ringArea,
+} from "../src/geo";
 
 /**
  * The shared geodesic maths. Everything that reports a distance goes through
@@ -117,5 +119,35 @@ describe("cardinal", () => {
 
   it("describes the Portland–Bend leg as southeast", () => {
     expect(cardinal(bearing(PORTLAND, BEND))).toBe("SE");
+  });
+});
+
+describe("ringArea", () => {
+  // 0.2 deg square at 52 N. Small enough that the spherical excess is tiny, so
+  // the answer is close to the flat-earth product of its sides.
+  const box = (w: number, e: number): [number, number][] => [
+    [w, 52], [e, 52], [e, 52.2], [w, 52.2],
+  ];
+
+  it("measures a small box", () => {
+    const a = ringArea(box(0, 0.2));
+    expect(a / 1e6).toBeGreaterThan(280);
+    expect(a / 1e6).toBeLessThan(330);
+  });
+
+  it("measures the same box across the antimeridian", () => {
+    // MapLibre hands back wrapped longitudes, so a ring straddling 180 arrives
+    // as 179.9 then -179.9. Read as arithmetic that is a 359.8 deg leg, and the
+    // 305 km box came out at 549,004 km — 1,799x too large.
+    const wrapped = ringArea(box(179.9, -179.9));
+    const continuous = ringArea(box(179.9, 180.1));
+    expect(wrapped / 1e6).toBeGreaterThan(280);
+    expect(wrapped / 1e6).toBeLessThan(330);
+    expect(wrapped).toBeCloseTo(continuous, 0);
+  });
+
+  it("is zero for anything that is not a ring", () => {
+    expect(ringArea([])).toBe(0);
+    expect(ringArea([[0, 0], [1, 1]])).toBe(0);
   });
 });
