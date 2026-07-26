@@ -2264,6 +2264,19 @@ body.nightvis {
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
 }
+/* With the keyboard up, stop centring and pin the card to the top.
+   WKWebView does not shrink the layout viewport for the keyboard, so a fixed,
+   centred card does not move — and on a short phone that puts OK and Cancel
+   underneath the keys. Measured on a 320x568 rename prompt: buttons at 308-352
+   against a keyboard top of ~308, fully covered. Enter still accepts and the
+   backdrop still cancels, so it was recoverable, but the button was not there.
+   Anchoring to the top also caps the card at the space actually left. */
+body.kbd-open .ask {
+  align-items: flex-start;
+}
+body.kbd-open .ask-card {
+  max-height: 100%;
+}
 .ask-card {
   width: 100%;
   max-width: 400px;

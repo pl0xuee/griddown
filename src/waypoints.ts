@@ -66,6 +66,31 @@ export async function initWaypoints(map: maplibregl.Map) {
   let recGen = 0;
   let recStart = 0;
 
+  // A recording in progress lived only in RAM until Stop was pressed. iOS kills
+  // a backgrounded app whenever it wants, and a phone in a pocket is a
+  // backgrounded app — so a whole day's walk could vanish with nothing to
+  // recover, which is the one thing a track recorder must not do. Each fix is
+  // mirrored to localStorage (a few KB, no marks.json churn, no IPC) and picked
+  // back up on the next launch.
+  const REC_KEY = "griddown_rec_inprogress";
+  const stashRec = () => {
+    try {
+      if (recPts.length) {
+        localStorage.setItem(REC_KEY, JSON.stringify({ t: recStart, pts: recPts }));
+      } else localStorage.removeItem(REC_KEY);
+    } catch {
+      /* private mode, or full — the recording still works, it just isn't
+         crash-proof, and saying so would be noise mid-walk. */
+    }
+  };
+  const clearStash = () => {
+    try {
+      localStorage.removeItem(REC_KEY);
+    } catch {
+      /* nothing to do */
+    }
+  };
+
   // Persisting is async now, but callers are all UI handlers that don't need to
   // wait — surface a failure as a toast rather than swallowing it, since a
   // silent save failure is exactly the kind of thing this change exists to stop.
@@ -192,6 +217,7 @@ export async function initWaypoints(map: maplibregl.Map) {
         // after recording stopped but before its clearWatch takes effect.
         if (gen !== recGen || !recording) return;
         recPts.push([f.lng, f.lat, f.altitude]);
+        stashRec();
         ensureTrackLayer();
         updateRecUi(); // keep the live distance/points/time honest
       },
@@ -239,6 +265,7 @@ export async function initWaypoints(map: maplibregl.Map) {
       stopWatch();
       stopWatch = null;
     }
+    clearStash();
     if (recPts.length > 1) {
       tracks.push({ id: rid(), name: `Track ${tracks.length + 1}`, pts: recPts, t: Date.now() });
       saveTr();
@@ -562,4 +589,49 @@ export async function initWaypoints(map: maplibregl.Map) {
 
   refreshMarkers();
   updateRecUi();
+
+  // A recording the app never got to finish. Offered rather than saved: the
+  // points are real, but only the person who walked them knows whether the
+  // track is worth keeping, and silently adding one is its own surprise.
+  void (async () => {
+    let stash: { t?: number; pts?: unknown } | null = null;
+    try {
+      const raw = localStorage.getItem(REC_KEY);
+      stash = raw ? JSON.parse(raw) : null;
+    } catch {
+      clearStash();
+      return;
+    }
+    const pts = Array.isArray(stash?.pts) ? (stash!.pts as Pt[]) : [];
+    const good = pts.filter(
+      (p) =>
+        Array.isArray(p) &&
+        typeof p[0] === "number" &&
+        typeof p[1] === "number" &&
+        Math.abs(p[1]) <= 90 &&
+        Math.abs(p[0]) <= 180
+    );
+    if (good.length < 2) {
+      clearStash();
+      return;
+    }
+    const when = typeof stash?.t === "number" ? stash.t : Date.now();
+    const km = trackMeters(good) / 1000;
+    const ok = await confirmAction(
+      `A track recording was interrupted — ${good.length} points, ${km.toFixed(1)} km, ` +
+        `started ${fmtAge(Math.floor((Date.now() - when) / 1000))}. Keep it?`
+    );
+    clearStash();
+    if (!ok) return;
+    tracks.push({
+      id: rid(),
+      name: `Recovered track ${new Date(when).toLocaleDateString()}`,
+      pts: good,
+      t: when,
+    });
+    saveTr();
+    ensureTrackLayer();
+    renderList();
+    toast(`Recovered a track — ${good.length} points.`, "success");
+  })();
 }

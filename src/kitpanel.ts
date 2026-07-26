@@ -114,7 +114,7 @@ function renderList() {
         i.expired ? `<span class="kt-flag bad">${i.expired} expired</span>` : "",
         i.soon ? `<span class="kt-flag warn">${i.soon} due soon</span>` : "",
       ].join("");
-      return `<div class="kt-row" data-open="${esc(k.id)}">
+      return `<div class="kt-row" data-open="${esc(k.id)}" role="button" tabindex="0" aria-label="Open checklist ${esc(k.name)}">
           <div class="kt-info">
             <div class="kt-name">▤ ${esc(k.name)}</div>
             <div class="kt-sub">${i.have} of ${i.total} packed${
@@ -461,7 +461,19 @@ export function initKit() {
   document.getElementById("kit-close")?.addEventListener("click", () => {
     panel?.classList.add("hidden");
   });
+
+  // A role="button" that cannot be operated from a keyboard is worse than a
+  // plain div: it announces as a control and then does nothing. Enter and Space
+  // are what a button responds to, so these rows do too.
+  const onRowKey = (e: KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = (e.target as HTMLElement | null)?.closest?.<HTMLElement>("[data-open]");
+    if (!row || row !== e.target) return;
+    e.preventDefault();
+    row.click();
+  };
   body()?.addEventListener("click", onClick);
+  body()?.addEventListener("keydown", onRowKey);
 
   // A restore replaces what's on disk under us.
   document.addEventListener("griddown:marks-changed", () => {

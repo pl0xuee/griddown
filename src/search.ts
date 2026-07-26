@@ -3,7 +3,7 @@ import { PMTiles } from "pmtiles";
 import { PbfReader } from "pbf";
 import { VectorTile } from "@mapbox/vector-tile";
 import { toast } from "./toast";
-import { parseCoord, clearGotoPin } from "./goto";
+import { parseCoord, squareLabel, clearGotoPin, type Coord } from "./goto";
 import { loadMarks, type Waypoint } from "./store";
 import { esc } from "./esc";
 import { haversine, bearing, cardinal, type LL } from "./geo";
@@ -1023,12 +1023,31 @@ export function initSearch(deps: {
   }
 
   /** Fly to a coordinate and pin it — what the old "Go to" box did. */
-  function goToCoord(lng: number, lat: number) {
-    deps.map().flyTo({ center: [lng, lat], zoom: Math.max(deps.map().getZoom(), 13) });
-    deps.dropPin(lng, lat);
+  function goToCoord(c: Coord) {
+    // Zoom to the square, not to street level. A 100 km reference flown to z13
+    // and reported to five decimal places reads as a metre-accurate fix; the
+    // truth is that the pin is the CENTRE of a square you could be anywhere in.
+    // The coarser the reference, the further out it stops.
+    const zoomFor = (m: number) =>
+      m >= 100000 ? 8 : m >= 10000 ? 10 : m >= 1000 ? 12 : 13;
+    const zoom = Math.min(
+      Math.max(deps.map().getZoom(), 13),
+      c.squareM > 0 ? zoomFor(c.squareM) : 22
+    );
+    deps.map().flyTo({ center: [c.lng, c.lat], zoom });
+    deps.dropPin(c.lng, c.lat);
     panel?.classList.add("hidden");
     deps.onJump?.();
-    toast(`Pin dropped at ${lat.toFixed(5)}, ${lng.toFixed(5)}`, "success");
+    // Decimals that match the precision claimed, rather than five regardless.
+    const dp = c.squareM >= 10000 ? 2 : c.squareM >= 100 ? 3 : 5;
+    const square = squareLabel(c.squareM);
+    toast(
+      square && c.squareM >= 100
+        ? `Pin at the centre of a ${square} — ${c.lat.toFixed(dp)}, ${c.lng.toFixed(dp)}. Anywhere in that square fits this reference.`
+        : `Pin dropped at ${c.lat.toFixed(dp)}, ${c.lng.toFixed(dp)}`,
+      "success",
+      c.squareM >= 1000 ? 8000 : 4000
+    );
   }
 
   /** Fly to one of the user's saved pins and re-drop its marker. Shared by the
@@ -1056,13 +1075,17 @@ export function initSearch(deps: {
     // you look at what you were handed.
     const coord = parseCoord(q);
     if (coord) {
+      const dp = coord.squareM >= 10000 ? 2 : coord.squareM >= 100 ? 3 : 5;
+      const square = squareLabel(coord.squareM);
       show(`<button class="search-hit" id="search-coord">
-          <span class="sh-name">${esc(coord[1].toFixed(5))}, ${esc(coord[0].toFixed(5))}</span>
-          <span class="sh-kind">grid ref</span>
+          <span class="sh-name">${esc(coord.lat.toFixed(dp))}, ${esc(coord.lng.toFixed(dp))}</span>
+          <span class="sh-kind">${
+            coord.squareM >= 100 ? esc(square) : "grid ref"
+          }</span>
         </button>`);
       document
         .getElementById("search-coord")
-        ?.addEventListener("click", () => goToCoord(coord[0], coord[1]));
+        ?.addEventListener("click", () => goToCoord(coord));
       return;
     }
     // Your own pins first, and without waiting for the place index. They are
@@ -1160,7 +1183,7 @@ export function initSearch(deps: {
   input?.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     const coord = parseCoord(input.value);
-    if (coord) goToCoord(coord[0], coord[1]);
+    if (coord) goToCoord(coord);
   });
   document.getElementById("search-clear-pin")?.addEventListener("click", () => {
     clearGotoPin();

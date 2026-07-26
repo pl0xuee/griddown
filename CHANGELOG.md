@@ -6,6 +6,46 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.2.1
+
+The rest of the review that 1.2.0 shipped without.
+
+**A grid reference with digits missing dropped a confident pin.** `10T DK 12345
+67890` names a 1 m square and `10TDK` names a **100 km** one, and both parsed to
+a single lat/lng shown to five decimal places — so a reference read over a radio
+with numbers dropped put a mark up to 70 km from where the person was, with
+nothing on screen saying which of the two you had. Find now says the square size
+("10 km square"), rounds the coordinates to match, and stops zooming in past
+what the reference can support. A reference with an odd number of digits is
+refused outright rather than split somewhere arbitrary.
+
+**"No route" where a road 160 m away was perfectly reachable.** Components are
+labelled undirected, so a destination on the far side of a one-way — the other
+carriageway of a divided highway, the wrong end of an exit ramp — shares a
+component with you and cannot actually be driven to. The search that fails
+already knows everything it *can* reach, so instead of giving up it now finishes
+at the nearest place it can get to and says how far short that leaves you.
+
+**An interrupted track recording is no longer lost.** It lived only in memory
+until you pressed Stop, and iOS kills a backgrounded app whenever it likes — a
+phone in a pocket is a backgrounded app. Each fix is now mirrored to local
+storage, and the next launch offers the recording back with its length and when
+it started. Offered, not saved: only the person who walked it knows whether it
+is worth keeping.
+
+**The elevation profile sampled one line and labelled it with another's
+distances** — linear in lng/lat while measuring along the great circle, which is
+508 m apart at the midpoint of a hundred-mile leg. And a corrupt DEM tile
+decodes to −32,768 m under the terrarium encoding; that was being returned as a
+real elevation instead of the "no data here" the gap warnings depend on.
+
+Also: prompts keep their OK and Cancel above the software keyboard on short
+phones, where they used to sit underneath it; the plan and checklist rows
+announce and operate as controls for VoiceOver instead of being silent divs; and
+the viewshed and the measure tool now say in the code why they disagree about
+target height by 1.7 m, which is deliberate — one asks what ground you can see,
+the other whether you could see a person standing on it.
+
 ## v1.2.0
 
 **The app now holds the plan, not just the map.** Everything GridDown did before

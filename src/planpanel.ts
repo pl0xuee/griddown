@@ -316,7 +316,7 @@ function renderList() {
       const stops = s.stops ? ` · ${s.stops} stop${s.stops > 1 ? "s" : ""}` : "";
       // The whole row opens the plan, as the Kit rows do — a target you can hit
       // with a cold thumb beats a button you have to aim at.
-      return `<div class="pn-row pn-row--tap" data-open="${esc(p.id)}">
+      return `<div class="pn-row pn-row--tap" data-open="${esc(p.id)}" role="button" tabindex="0" aria-label="Open plan ${esc(p.name)}">
           <div class="pn-info">
             <div class="pn-name">◈ ${esc(p.name)}</div>
             <div class="pn-sub">${esc(p.destination || "no destination set")}</div>
@@ -1345,7 +1345,19 @@ export function initPlan(d: Deps) {
     endPlacingStop();
     if (id) showPlanPanel(id);
   });
+
+  // A role="button" that cannot be operated from a keyboard is worse than a
+  // plain div: it announces as a control and then does nothing. Enter and Space
+  // are what a button responds to, so these rows do too.
+  const onRowKey = (e: KeyboardEvent) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const row = (e.target as HTMLElement | null)?.closest?.<HTMLElement>("[data-open]");
+    if (!row || row !== e.target) return;
+    e.preventDefault();
+    row.click();
+  };
   panelBody()?.addEventListener("click", onBodyClick);
+  panelBody()?.addEventListener("keydown", onRowKey);
 
   // A restore replaces what's on disk under us — re-read rather than keep
   // showing plans that are no longer there.

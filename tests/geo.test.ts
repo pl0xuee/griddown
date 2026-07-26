@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { bearing, cardinal, EARTH_R, haversine, type LL,
+import {
+  bearing,
+  cardinal,
+  EARTH_R,
+  haversine,
+  interpolate,
   ringArea,
+  type LL,
 } from "../src/geo";
 
 /**
@@ -149,5 +155,36 @@ describe("ringArea", () => {
   it("is zero for anything that is not a ring", () => {
     expect(ringArea([])).toBe(0);
     expect(ringArea([[0, 0], [1, 1]])).toBe(0);
+  });
+});
+
+describe("interpolate", () => {
+  it("lands on the endpoints", () => {
+    const a: [number, number] = [-122.7, 45.5];
+    const b: [number, number] = [-70.0, 45.5];
+    expect(interpolate(a, b, 0)[0]).toBeCloseTo(a[0], 9);
+    expect(interpolate(a, b, 1)[1]).toBeCloseTo(b[1], 9);
+  });
+
+  it("puts the midpoint on the great circle, not on the straight lng/lat line", () => {
+    // A 100 mile east-west leg at 45 N. Interpolating linearly in lng/lat while
+    // measuring with haversine put the sampled midpoint about 508 m from the
+    // real one — so the elevation profile sampled one line and labelled it with
+    // another's distances.
+    const a: [number, number] = [-122.0, 45.0];
+    const b: [number, number] = [-120.0, 45.0];
+    const mid = interpolate(a, b, 0.5);
+    const half = haversine(a, b) / 2;
+    expect(haversine(a, mid)).toBeCloseTo(half, 0);
+    expect(haversine(mid, b)).toBeCloseTo(half, 0);
+    // A great circle between two points at the same latitude bulges poleward.
+    expect(mid[1]).toBeGreaterThan(45.0);
+  });
+
+  it("handles two identical points without dividing by zero", () => {
+    const a: [number, number] = [-122.7, 45.5];
+    const mid = interpolate(a, a, 0.5);
+    expect(mid[0]).toBeCloseTo(a[0], 9);
+    expect(mid[1]).toBeCloseTo(a[1], 9);
   });
 });

@@ -3,8 +3,24 @@
 
 export interface DemTile {
   width: number;
+  /** Rows, when the tile is not square. mlcontour's DemTile carries this;
+   *  reading `width` for both worked only because terrarium tiles are square. */
+  height?: number;
   data: ArrayLike<number>;
 }
+
+/**
+ * Elevations outside this band are decoder output, not terrain.
+ *
+ * Terrarium packs elevation into RGB with a -32768 m offset, so an all-zero
+ * pixel — which is what a corrupt or partially-written tile is full of —
+ * decodes to exactly -32768 m and was returned as a real reading. The band is
+ * generous either side of the actual extremes (Dead Sea shore -430 m, Everest
+ * 8,849 m) because the point is to reject impossibilities, not to second-guess
+ * the survey.
+ */
+const MIN_ELEV_M = -500;
+const MAX_ELEV_M = 9000;
 
 /** Anything that can hand back a decoded DEM tile — the real mlcontour
  *  DemSource in the app, a stub in tests. */
@@ -32,10 +48,15 @@ export function tileYf(lat: number, n: number): number {
 /** Read one sample out of an already-decoded DEM tile. */
 export function pixelAt(tile: DemTile, xf: number, yf: number): number | null {
   const w = tile.width;
+  const h = tile.height ?? w;
   const px = Math.min(w - 1, Math.max(0, Math.floor((xf - Math.floor(xf)) * w)));
-  const py = Math.min(w - 1, Math.max(0, Math.floor((yf - Math.floor(yf)) * w)));
+  const py = Math.min(h - 1, Math.max(0, Math.floor((yf - Math.floor(yf)) * h)));
   const m = tile.data[py * w + px];
-  return m == null || isNaN(m) ? null : m;
+  if (m == null || isNaN(m)) return null;
+  // A null here means genuinely-absent data, and that is the contract the whole
+  // gap-disclosure machinery upstream depends on — so a decoded impossibility
+  // has to become a null rather than travel on as an elevation.
+  return m < MIN_ELEV_M || m > MAX_ELEV_M ? null : m;
 }
 
 /**

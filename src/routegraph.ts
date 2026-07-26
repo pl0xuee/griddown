@@ -826,7 +826,9 @@ export function findRoute(
   const snap = opts.snapMeters ?? 1000;
   const pair = snapPair(g, from, to, snap);
   if (!pair) return null;
-  const { start, goal } = pair;
+  const { start } = pair;
+  let goal = pair.goal;
+  let goalM = pair.goalM;
   if (start === goal) return null;
 
   const n = g.nodeCount;
@@ -866,7 +868,31 @@ export function findRoute(
     }
   }
 
-  if (!Number.isFinite(gScore[goal])) return null;
+  if (!Number.isFinite(gScore[goal])) {
+    // The pair shared a component, and the component labelling is undirected —
+    // so "connected" here never meant "you can drive it". A destination on the
+    // far side of a one-way, or on the opposite carriageway of a divided
+    // highway, lands in the same component and is not reachable from the start.
+    //
+    // The search that just failed explored everything the start CAN reach, so
+    // gScore already says which nodes those are: no second A* is needed, only a
+    // scan of the other candidates near the destination. Answering "no route"
+    // while a road 160 m away is perfectly reachable is the worse failure, and
+    // the route reports snappedToM so the shortfall is stated rather than
+    // hidden.
+    let bestM = Infinity;
+    let bestId = -1;
+    for (const cand of nearestNodes(g, to, snap, 60)) {
+      if (cand.m >= bestM) break; // sorted nearest-first
+      if (!Number.isFinite(gScore[cand.id])) continue;
+      bestM = cand.m;
+      bestId = cand.id;
+      break;
+    }
+    if (bestId < 0 || bestId === start) return null;
+    goal = bestId;
+    goalM = bestM;
+  }
 
   // Walk back, then measure and group into steps by road name.
   const nodes: number[] = [];
@@ -901,7 +927,7 @@ export function findRoute(
     // How far the endpoints were from any usable road — the UI should say so
     // when it's a long walk from where you asked to where the route starts.
     snappedFromM: pair.startM,
-    snappedToM: pair.goalM,
+    snappedToM: goalM,
     bridgedMeters,
   };
 }

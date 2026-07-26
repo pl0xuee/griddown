@@ -2,7 +2,7 @@ import maplibregl from "maplibre-gl";
 import { toast } from "./toast";
 import { assessGaps, fillGaps } from "./profile";
 import { sampleElevationM } from "./dem";
-import { haversine, bearing, cardinal, ringArea, type LL } from "./geo";
+import { haversine, bearing, cardinal, interpolate, ringArea, type LL } from "./geo";
 import { REFRACTION } from "./sweep";
 
 // Measure tool: tap the map to lay down points, get running distance along the
@@ -160,7 +160,12 @@ export function initMeasure(map: maplibregl.Map) {
       const b = path[seg];
       const segLen = cum[seg] - cum[seg - 1] || 1;
       const f = Math.min(1, Math.max(0, (d - cum[seg - 1]) / segLen));
-      out.push({ d, lng: a[0] + (b[0] - a[0]) * f, lat: a[1] + (b[1] - a[1]) * f });
+      // Along the great circle, which is the line `cum` was measured on. This
+      // used to interpolate lng/lat linearly, so the samples sat on a different
+      // line from the distances labelling them — 508 m apart at the midpoint of
+      // a 100-mile east-west leg.
+      const [lng, lat] = interpolate(a, b, f);
+      out.push({ d, lng, lat });
     }
     return out;
   }

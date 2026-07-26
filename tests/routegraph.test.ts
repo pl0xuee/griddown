@@ -278,3 +278,38 @@ describe("divided highways", () => {
     expect(findRoute(g, nb(0), [nb(2)[0] + gap, nb(2)[1]])).not.toBeNull();
   });
 });
+
+describe("a destination on the wrong side of a oneway", () => {
+  // Components are labelled on the UNDIRECTED view, because that is what
+  // "reachable" means before oneways are considered. snapPair then committed to
+  // the closest pair sharing a component and A* answered "no route" — while a
+  // node 160 m from the destination was perfectly reachable. That is the far
+  // carriageway of a divided highway, or the far side of a one-way exit ramp.
+  const P = (n: number): [number, number] => [A[0] + n * 0.002, A[1]];
+
+  const g = () =>
+    buildRouteGraph([
+      road([P(0), P(1), P(2)], { oneway: true }),
+      road([P(2), P(3), P(4)]),
+    ]);
+
+  it("routes to the nearest place it can actually reach", () => {
+    const r = findRoute(g(), P(4), P(1));
+    expect(r).not.toBeNull();
+    // It stopped short rather than pretending to arrive, and says how short.
+    expect(r!.snappedToM).toBeGreaterThan(100);
+    expect(r!.snappedToM).toBeLessThan(300);
+  });
+
+  it("still answers null when nothing is reachable at all", () => {
+    const far: [number, number] = [A[0] + 5, A[1] + 5];
+    expect(findRoute(g(), P(4), far)).toBeNull();
+  });
+
+  it("does not relocate when the direct route exists", () => {
+    const r = findRoute(g(), P(0), P(4));
+    expect(r).not.toBeNull();
+    expect(r!.snappedFromM).toBeLessThan(1);
+    expect(r!.snappedToM).toBeLessThan(1);
+  });
+});

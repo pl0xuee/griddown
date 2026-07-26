@@ -1,8 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { loadElevationGrid, tileXf, tileYf, type DemTile } from "../src/demgrid";
+import { loadElevationGrid, tileXf, tileYf, type DemTile,
+  pixelAt,
+} from "../src/demgrid";
 
 // A stub DEM source that counts how many times each tile was asked for, so a
 // regression back to per-sample fetching shows up as a hard number.
+/** A distinct, plausible elevation per tile: 0-8,000 m, unique modulo the
+ *  handful of tiles any one test touches. */
+function tileElev(x: number, y: number): number {
+  return ((x % 80) * 100 + (y % 100)) % 8001;
+}
+
 function stubSource(opts: { fail?: (x: number, y: number) => boolean; elev?: number } = {}) {
   const calls: string[] = [];
   return {
@@ -12,8 +20,11 @@ function stubSource(opts: { fail?: (x: number, y: number) => boolean; elev?: num
       if (opts.fail?.(x, y)) return Promise.reject(new Error("tile unavailable"));
       const width = 4;
       // Encode the tile identity into the samples so we can prove that a given
-      // lng/lat reads from the tile that actually covers it.
-      const data = new Float32Array(width * width).fill(opts.elev ?? x * 1000 + y);
+      // lng/lat reads from the tile that actually covers it. It has to stay
+      // inside the elevations pixelAt will accept as real — the identity is a
+      // probe, and a probe outside the plausible band would be testing the
+      // fixture rather than the code.
+      const data = new Float32Array(width * width).fill(opts.elev ?? tileElev(x, y));
       return Promise.resolve({ width, data });
     },
   };
@@ -54,7 +65,7 @@ describe("loadElevationGrid", () => {
     const n = 2 ** 12;
     const lng = -121.7;
     const lat = 45.35;
-    const expected = Math.floor(tileXf(lng, n)) * 1000 + Math.floor(tileYf(lat, n));
+    const expected = tileElev(Math.floor(tileXf(lng, n)), Math.floor(tileYf(lat, n)));
     expect(grid.sample(lng, lat)).toBe(expected);
   });
 
@@ -153,5 +164,26 @@ describe("loadElevationGrid", () => {
     const grid = await loadElevationGrid(src, { west: -121.7, south: 45.3, east: -121.7, north: 45.3 });
     expect(grid.tilesLoaded).toBe(1); // the single tile containing that point
     expect(grid.sample(-121.7, 45.3)).not.toBeNull();
+  });
+});
+
+describe("pixelAt plausibility", () => {
+  it("refuses a decoded impossibility rather than passing it on as terrain", () => {
+    // Terrarium packs elevation with a -32768 m offset, so an all-zero pixel —
+    // a corrupt or partially-written tile — decodes to exactly -32768 and used
+    // to be returned as a reading. The gap disclosure upstream relies on null
+    // meaning "genuinely absent", so this has to become a null.
+    const tile = { width: 2, data: new Float32Array(4).fill(-32768) };
+    expect(pixelAt(tile, 0.5, 0.5)).toBeNull();
+    expect(pixelAt({ width: 2, data: new Float32Array(4).fill(1200) }, 0.5, 0.5)).toBe(1200);
+  });
+
+  it("uses the row count, not the row stride, on a non-square tile", () => {
+    // 4 wide, 2 tall: the bottom row starts at index 4. Reading `width` for
+    // both put the sample two rows past the end of the data.
+    const data = new Float32Array([10, 10, 10, 10, 20, 20, 20, 20]);
+    const tile = { width: 4, height: 2, data };
+    expect(pixelAt(tile, 0.1, 0.1)).toBe(10);
+    expect(pixelAt(tile, 0.1, 0.9)).toBe(20);
   });
 });

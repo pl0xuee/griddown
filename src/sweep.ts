@@ -28,6 +28,15 @@ export function sweepViewshed(
 ): ViewshedResult {
   const { rays, steps, stepM } = opts;
   const visible = new Uint8Array(rays * steps);
+  // Eye height at this end, and nothing added at the far end — deliberately.
+  // This shades GROUND you can see, so the target is the ground itself. The
+  // measure tool's line of sight adds 1.7 m at the far end because it is asking
+  // a different question: can I see a PERSON standing there. The two therefore
+  // disagree by up to a target height on a long shot (about 40 m of terrain at
+  // 30 miles), which is correct rather than a bug — but it was undocumented,
+  // and undocumented disagreement between two tools reads as one of them being
+  // wrong. They share REFRACTION and R_EARTH; the target height is the part
+  // that is meant to differ.
   const eye = observerElevM + EYE_M;
   for (let r = 0; r < rays; r++) {
     let maxAngle = -Infinity;
