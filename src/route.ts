@@ -1179,5 +1179,5 @@ export function initRoute(deps: {
     draw(shown.r.coords, shown.z < 14);
   });
 
-  return { routeTo, clear: clearAll };
+  return { routeTo, clear: clearAll, hasRoute: () => shown !== null };
 }

@@ -88,6 +88,19 @@ function rid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/** Is a plan's route drawn on the map right now? */
+export function hasShownPlan(): boolean {
+  return shownId !== null && !!findPlan(shownId);
+}
+
+/** Take the plan's route off the map, leaving the plan itself alone. */
+export function clearShownPlan(): void {
+  if (shownId === null) return;
+  clearDrawn();
+  shownId = null;
+  render();
+}
+
 const MI = 1609.344;
 function miles(m: number): string {
   const mi = m / MI;

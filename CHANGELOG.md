@@ -57,6 +57,16 @@ is a bag of expired water tablets, flat batteries and medication that stopped
 working two years ago, and the tickbox will still say you are ready. The
 progress bar goes red when something has expired, whatever the percentage says.
 
+**The menu has been re-ordered around what you reach for.** Plan and Kit join
+Find and Get there at the top, and in the command bar on a phone. Marks moves
+in with the instruments. The **Handbook** leaves the Library group — it was
+styled quiet there on the grounds that a library is read before you leave, which
+is wrong for the one book you open when something has already happened — and
+becomes a button of its own. There is also a **Clear route** in the menu, shown
+only when there is a line to clear: a route from Get there and a plan drawn on
+the map could each previously only be taken off from inside the panel that drew
+it, which meant first working out which of the two it was.
+
 **Readiness now checks all of it**, which is the whole point of that panel: it
 exists to be read while things are still fixable. It will tell you that a plan
 has no alternate route, that a route was built from a map pack you no longer

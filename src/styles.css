@@ -782,6 +782,45 @@ h6 {
   margin-top: 8px;
   gap: 6px;
 }
+
+/* One button given more weight than a grid cell, because it is the one thing in
+   this menu you open when something has already gone wrong. Full width and two
+   lines: the second says what is inside, which "Handbook" alone does not.
+   Deliberately NOT overprint — that hue means "you put this on the sheet" and
+   nothing else may borrow it (see overprint.ts). */
+.hud-feature {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--rule-hot);
+  background: var(--control-on);
+  color: var(--type-loud);
+  text-align: left;
+  cursor: pointer;
+}
+.hud-feature:hover {
+  background: var(--control-hover);
+  border-color: var(--rule-hotter);
+}
+.hud-feature-name {
+  font-family: var(--font-collar);
+  font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.01em;
+}
+.hud-feature-sub {
+  font-family: var(--font-prose);
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--type-quiet);
+}
 .hud-grid--primary button {
   min-height: 42px;
   padding: 9px 9px;
@@ -2964,11 +3003,22 @@ body .maplibregl-ctrl-group button.gd-busy .gd-loc-svg {
     --cmdbar-h: 44px;
   }
 
-  /* Find / Get there / Mark already sit in the command bar, permanently, one
-     thumb-reach away. Repeating them at the top of the menu was the same three
-     buttons twice on one screen. */
-  .hud-grid--primary {
+  /* Find / Get there / Plan / Kit already sit in the command bar, permanently,
+     one thumb-reach away. Repeating them at the top of the menu was the same
+     buttons twice on one screen.
+     Hidden one by one rather than by hiding the group, because "Clear route"
+     lives here too and is NOT in the bar — hiding the whole group took the only
+     way to clear a line off the phone, which is the platform that has one. */
+  .hud-grid--primary > button:not(#clear-lines) {
     display: none;
+  }
+  /* With everything else hidden the grid is empty until a line is drawn; don't
+     leave its top margin behind as a gap in the menu. */
+  .hud-grid--primary {
+    margin-top: 0;
+  }
+  .hud-grid--primary > #clear-lines:not([hidden]) {
+    margin-top: 8px;
   }
 
   /* The dock stays up. It only gets out of the way for the software keyboard:

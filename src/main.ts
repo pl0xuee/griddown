@@ -36,7 +36,7 @@ import { initMeasure } from "./measure";
 import { dropGotoPin } from "./goto";
 import { initSearch, resetPlaceIndex } from "./search";
 import { initRoute } from "./route";
-import { initPlan } from "./planpanel";
+import { clearShownPlan, hasShownPlan, initPlan } from "./planpanel";
 import { initKit } from "./kitpanel";
 import { initUpdater } from "./updater";
 import { initVersion } from "./version";
@@ -1350,6 +1350,7 @@ async function start() {
   let routeCtl: {
     routeTo(lng: number, lat: number, label: string): void;
     clear(): void;
+    hasRoute(): boolean;
   } | null = null;
 
   // --- Map info cards: tap water (Fishing) or land (Wild food) to identify it
@@ -2163,6 +2164,31 @@ async function start() {
     // Saving a route into a plan hands the map over to the plan.
     clearRoute: () => routeCtl?.clear(),
   });
+
+  /**
+   * "Clear route" in the menu, shown only when there is a line to clear.
+   *
+   * Two things can put one on the map — a route from Get there, and a plan
+   * shown from the Plan panel — and each could previously only be taken off
+   * again from inside the panel that drew it, which meant first knowing which
+   * of the two it was.
+   *
+   * Synced when the menu is raised rather than watched continuously: the menu
+   * has to be open for the button to be seen at all, so anything more is work
+   * nobody can observe.
+   */
+  const clearBtn = document.getElementById("clear-lines") as HTMLButtonElement | null;
+  const syncClearLines = () => {
+    if (clearBtn) clearBtn.hidden = !(routeCtl?.hasRoute() || hasShownPlan());
+  };
+  clearBtn?.addEventListener("click", () => {
+    routeCtl?.clear();
+    clearShownPlan();
+    syncClearLines();
+    toast("Route cleared.", "success");
+  });
+  document.getElementById("hud-toggle")?.addEventListener("click", syncClearLines);
+  syncClearLines();
   initKit();
   initPrint({
     getMap: () => map,
@@ -2649,6 +2675,7 @@ function initChrome() {
     hud.classList.add("collapsed");
   }
   syncMenuHidden(hud);
+
   document.getElementById("hud-toggle")?.addEventListener("click", () => {
     // Same meaning on both: ☰ hides the menu completely. On a phone that turns
     // the bottom sheet back into the corner pill (see the sheet styles).
