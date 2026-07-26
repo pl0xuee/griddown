@@ -28,6 +28,12 @@ export interface KitItem {
   note?: string;
   /** Marks the item as counting toward days-of-supply. */
   supply?: Supply;
+  /**
+   * This quantity is per head. Copied from the template so a later rescale can
+   * tell a sleeping bag from a stove — without it, resizing the household would
+   * have to multiply everything or nothing, and both are wrong.
+   */
+  perPerson?: boolean;
 }
 
 export interface KitSection {
@@ -179,10 +185,43 @@ export function instantiate(
         ...(it.grams !== undefined ? { grams: it.grams } : {}),
         ...(it.note !== undefined ? { note: it.note } : {}),
         ...(it.supply !== undefined ? { supply: it.supply } : {}),
+        ...(it.perPerson ? { perPerson: true } : {}),
         ...(it.rotateMonths
           ? { expires: isoDate(addMonths(opts.now, it.rotateMonths)) }
           : {}),
       })),
+    })),
+  };
+}
+
+/**
+ * Resize a kit to a different household.
+ *
+ * The household is not fixed — someone moves in, a child arrives — and a
+ * checklist built for two that still says two is quietly wrong from that day
+ * on, in the direction of not having enough.
+ *
+ * Scales from what the kit currently says rather than re-deriving from the
+ * template, so items you added or edited yourself are carried along. The cost
+ * is that repeated resizing can drift upward by a unit here and there, because
+ * every step rounds up; that is the right direction to drift.
+ */
+export function rescale(k: Kit, people: number): Kit {
+  const from = k.people && k.people >= 1 ? k.people : 1;
+  const to =
+    Number.isFinite(people) && people >= 1 ? Math.floor(people) : from;
+  if (to === from) return k;
+  const factor = to / from;
+  return {
+    ...k,
+    people: to,
+    sections: k.sections.map((s) => ({
+      ...s,
+      items: s.items.map((i) =>
+        (i.perPerson || i.supply) && i.qty !== undefined
+          ? { ...i, qty: scaleQty(i.qty, factor) }
+          : i
+      ),
     })),
   };
 }
@@ -323,7 +362,8 @@ function isKitItem(v: any): v is KitItem {
     (v.supply === undefined ||
       v.supply === "water" ||
       v.supply === "food" ||
-      v.supply === "fuel")
+      v.supply === "fuel") &&
+    (v.perPerson === undefined || typeof v.perPerson === "boolean")
   );
 }
 

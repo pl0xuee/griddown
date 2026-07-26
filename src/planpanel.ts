@@ -32,6 +32,7 @@ import { computeLeg } from "./route";
 import { computePadding, safeAreaInsets, visibleBox } from "./fitmap";
 import { printPlan } from "./planprint";
 import { OVERPRINT, OVERPRINT_CASING, OVERPRINT_LIFT } from "./overprint";
+import { rescale } from "./kit";
 import { closeAllPanels } from "./panels";
 import { chooseAction, confirmAction, promptAction } from "./dialog";
 import { esc } from "./esc";
@@ -620,6 +621,46 @@ async function newPlan(): Promise<Plan | null> {
  * never the place you meant. Now the panel gets out of the way and the on-map
  * bar waits while you move the map.
  */
+/**
+ * The household changed, so the checklists are now for the wrong number.
+ *
+ * Offered, not done. Rescaling rewrites quantities you may have edited by
+ * hand, and this app's rule everywhere else is that stored work is never
+ * silently replaced. One button is a small price for that; a checklist quietly
+ * rewritten under you is not.
+ */
+async function offerRescale(): Promise<void> {
+  const kits = currentMarks().kits;
+  const n = roster.length;
+  if (!kits.length || n < 1) return;
+  const stale = kits.filter((k) => (k.people ?? 1) !== n);
+  if (!stale.length) return;
+
+  const names = stale.map((k) => k.name).join(", ");
+  const ok = await confirmAction(
+    `There ${n === 1 ? "is" : "are"} now ${n} ${n === 1 ? "person" : "people"} on the roster. ` +
+      `Resize ${stale.length === 1 ? "the checklist" : `${stale.length} checklists`} to match? (${names})`
+  );
+  if (!ok) return;
+
+  try {
+    await updateMarks({
+      kits: kits.map((k) => ((k.people ?? 1) !== n ? rescale(k, n) : k)),
+    });
+    // The Kit panel holds its own copy.
+    document.dispatchEvent(new CustomEvent("griddown:marks-changed"));
+    toast(
+      `Resized ${stale.length} checklist${stale.length === 1 ? "" : "s"} for ${n} ${
+        n === 1 ? "person" : "people"
+      }.`,
+      "success",
+      6000
+    );
+  } catch (e) {
+    toast(e instanceof Error ? e.message : "Couldn't resize the checklists.", "error", 7000);
+  }
+}
+
 function beginPlacingStop(p: Plan) {
   placingStopFor = p.id;
   document.getElementById("plan-panel")?.classList.add("hidden");
@@ -850,6 +891,8 @@ async function editPerson(id: string | null) {
     : roster.concat(person);
   await persist();
   render();
+  // A new mouth to feed changes how much of everything you need.
+  if (!existing) await offerRescale();
 }
 
 /**
@@ -1002,6 +1045,7 @@ function onBodyClick(e: MouseEvent) {
       roster = roster.filter((x) => x.id !== delPerson);
       await persist();
       render();
+      await offerRescale();
     })();
     return;
   }

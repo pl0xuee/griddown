@@ -26,9 +26,6 @@ import { toast } from "./toast";
 //
 // All logic lives in kit.ts, which is pure and tested. This file is DOM.
 
-/** How many people the supply maths is for. A household setting, not a kit one —
- *  the same bag feeds a different number of days depending who is eating. */
-const PEOPLE_KEY = "griddown_people";
 
 let loaded = false;
 let kits: Kit[] = [];
@@ -40,21 +37,18 @@ function rid(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/**
+ * How many people the kits are for, taken from the roster in the Plan panel.
+ *
+ * There used to be a separate "Household default" button here, which meant the
+ * same fact was recorded in two places and neither knew about the other — you
+ * could list four people under Who's with you and still be handed a checklist
+ * for one. The roster is the answer; this just reads it. Falls back to 1 only
+ * when nobody has been listed.
+ */
 function people(): number {
-  try {
-    const n = Number(localStorage.getItem(PEOPLE_KEY));
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
-  } catch {
-    return 1;
-  }
-}
-
-function setPeople(n: number) {
-  try {
-    localStorage.setItem(PEOPLE_KEY, String(n));
-  } catch {
-    /* storage unavailable — the default of 1 is still honest */
-  }
+  const n = currentMarks().roster.length;
+  return n >= 1 ? n : 1;
 }
 
 function body(): HTMLElement | null {
@@ -137,7 +131,6 @@ function renderList() {
   el.innerHTML = `
     <div class="kt-actions">
       <button id="kt-add" type="button">＋ Add a checklist</button>
-      <button id="kt-people" type="button" title="Used as the default when you add a checklist">Household default: ${people()}</button>
     </div>
     ${
       rows ||
@@ -304,7 +297,6 @@ async function addFromTemplate() {
   if (answer == null) return;
   const n = Number(answer.trim());
   const forPeople = Number.isFinite(n) && n >= 1 ? Math.floor(n) : base;
-  setPeople(forPeople);
 
   const k = instantiate(t, { id: rid(), now: Date.now(), people: forPeople });
   kits = kits.concat(k);
@@ -376,17 +368,6 @@ function onClick(e: MouseEvent) {
 
   if (t.id === "kt-add") {
     void addFromTemplate();
-    return;
-  }
-  if (t.id === "kt-people") {
-    void (async () => {
-      const n = await promptAction("How many people is this kit for?", {
-        value: String(people()),
-      });
-      const v = Number((n ?? "").trim());
-      if (Number.isFinite(v) && v > 0) setPeople(Math.floor(v));
-      render();
-    })();
     return;
   }
   const open = t.dataset.open;

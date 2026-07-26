@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   instantiate,
+  rescale,
   kitProgress,
   expiryState,
   kitIssues,
@@ -152,6 +153,77 @@ describe("instantiate — household size", () => {
       expect(k.people).toBe(4);
       expect(k.sections[0].items[0].qty).toBe(360);
     }
+  });
+});
+
+/**
+ * Resizing a kit after the fact. The household is not fixed — someone moves in,
+ * a child arrives — and a checklist built for two that still says two is wrong
+ * from the day it changes, silently, in the direction of not having enough.
+ */
+describe("rescale", () => {
+  const forTwo = (): Kit => ({
+    id: "k1",
+    name: "Home",
+    people: 2,
+    t: NOW,
+    sections: [
+      {
+        title: "Water",
+        items: [
+          { id: "a", name: "Stored water", have: true, qty: 180, unit: "L", supply: "water", perPerson: true },
+          { id: "b", name: "Gravity filter", have: false, qty: 1, unit: "unit" },
+          { id: "c", name: "Soap", have: false, qty: 10, unit: "bars", perPerson: true },
+        ],
+      },
+    ],
+  });
+
+  it("scales the per-head items to the new household", () => {
+    const k = rescale(forTwo(), 4);
+    expect(k.sections[0].items[0].qty).toBe(360);
+    expect(k.sections[0].items[2].qty).toBe(20);
+  });
+
+  it("leaves shared equipment where it was", () => {
+    expect(rescale(forTwo(), 4).sections[0].items[1].qty).toBe(1);
+  });
+
+  it("scales down as well as up", () => {
+    expect(rescale(forTwo(), 1).sections[0].items[0].qty).toBe(90);
+  });
+
+  it("records the new household", () => {
+    expect(rescale(forTwo(), 5).people).toBe(5);
+  });
+
+  it("keeps what you have already ticked", () => {
+    const k = rescale(forTwo(), 4);
+    expect(k.sections[0].items[0].have).toBe(true);
+    expect(k.sections[0].items[1].have).toBe(false);
+  });
+
+  it("rounds up, so a bigger household is never short", () => {
+    const k = rescale(forTwo(), 3); // ×1.5
+    expect(k.sections[0].items[2].qty).toBe(15);
+  });
+
+  it("does nothing at all when the household has not changed", () => {
+    const before = forTwo();
+    expect(rescale(before, 2)).toEqual(before);
+  });
+
+  it("refuses a nonsense household rather than zeroing the kit", () => {
+    for (const bad of [0, -2, Number.NaN]) {
+      const k = rescale(forTwo(), bad);
+      expect(k.people).toBe(2);
+      expect(k.sections[0].items[0].qty).toBe(180);
+    }
+  });
+
+  it("treats a kit with no recorded household as being for one", () => {
+    const k = rescale({ ...forTwo(), people: undefined }, 3);
+    expect(k.sections[0].items[0].qty).toBe(540);
   });
 });
 
