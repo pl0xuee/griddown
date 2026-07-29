@@ -230,6 +230,14 @@ struct SavedFile {
     /// Where to tell the user it went — not always the path; see
     /// [`export_location`].
     location: String,
+    /// Does this file survive the app being deleted?
+    ///
+    /// False on iOS, where [`export_dir`] is the app container's own Documents
+    /// directory — which the Files app shows as "On My iPhone → GridDown", so
+    /// it reads like a folder outside the app and is not one. iOS deletes the
+    /// container with the app, backup included. Desktop exports go to Downloads
+    /// and are nobody's business but the user's.
+    durable: bool,
 }
 
 /// Save an exported file (PDF, GPX, backup JSON) where the user can find it,
@@ -284,6 +292,7 @@ fn save_file(app: AppHandle, name: String, b64: String) -> Result<SavedFile, Str
     Ok(SavedFile {
         location: export_location(IS_IOS, &path),
         path: path.to_string_lossy().to_string(),
+        durable: !IS_IOS,
     })
 }
 
@@ -1583,6 +1592,22 @@ mod tests {
         sweep_scratch(&pack, false);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The JS side branches on this field to decide whether a backup needs
+    /// exporting out of the app container. A rename or a `skip` here would not
+    /// fail to compile — it would silently leave every iOS backup inside the
+    /// container, which is the bug this exists to fix.
+    #[test]
+    fn saved_file_reports_durability_to_the_frontend() {
+        let s = SavedFile {
+            path: "/tmp/x.json".into(),
+            location: "/tmp/x.json".into(),
+            durable: true,
+        };
+        let v: serde_json::Value = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["durable"], serde_json::json!(true));
+        assert_eq!(v["path"], serde_json::json!("/tmp/x.json"));
     }
 }
 
