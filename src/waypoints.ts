@@ -13,7 +13,9 @@ import {
 import { BACKUP_KEY, fmtAge } from "./readiness";
 import { haversine } from "./geo";
 import { watchFix } from "./geoloc";
-import { saveFile } from "./save";
+import { saveExport, saveFile } from "./save";
+import { runBackup } from "./backup";
+import { save as savePicker } from "@tauri-apps/plugin-dialog";
 import { confirmAction, promptAction } from "./dialog";
 import { OVERPRINT_LIFT } from "./overprint";
 
@@ -369,46 +371,19 @@ export async function initWaypoints(map: maplibregl.Map) {
   }
 
   function backupAll() {
-    // Plans, kits and the roster count as data worth backing up, and are read
-    // from the store rather than held here — this module doesn't own them, it
-    // just must not lose them.
-    const { plans, kits, roster, comms } = currentMarks();
-    if (
-      !waypoints.length &&
-      !tracks.length &&
-      !plans.length &&
-      !kits.length &&
-      !roster.length
-    ) {
-      toast("Nothing to back up yet — drop a pin or record a track first.");
-      return;
-    }
-    const payload = {
-      app: "GridDown",
-      kind: "marks-backup",
-      version: 1,
-      exported: new Date().toISOString(),
-      settings: { ...localStorage },
-      waypoints,
-      tracks,
-      plans,
-      kits,
-      // The roster carries names and medical details. It is in the backup
-      // because losing it is the failure that matters, but this file is
-      // therefore worth handling like a document, not like a map — the panel
-      // says so where you press the button.
-      roster,
-      comms,
-    };
-    void saveFile(
-      "griddown-backup.json",
-      JSON.stringify(payload, null, 2),
-      "application/json"
-    ).then((path) => {
-      // Only count it as a backup if it actually landed somewhere.
-      if (path !== null || !("__TAURI_INTERNALS__" in window)) {
-        localStorage.setItem(BACKUP_KEY, String(Date.now()));
-      }
+    // waypoints and tracks are this module's; plans, kits, the roster and the
+    // comms plan are read from the store, which owns them. Backing up means all
+    // of it — this panel just must not lose what it does not own.
+    const m = { ...currentMarks(), waypoints, tracks };
+    void runBackup(m, { ...localStorage } as unknown as Record<string, string>, {
+      save: (name, json) => saveExport(name, json, "application/json"),
+      // Only reached when the save was not durable, which today means iOS. The
+      // plugin resolves a bare name against the app's Documents directory —
+      // the same directory save_file just wrote to.
+      exportOut: (fileName) => savePicker({ defaultPath: fileName }),
+      stamp: (t) => localStorage.setItem(BACKUP_KEY, String(t)),
+      now: () => Date.now(),
+      toast,
     });
   }
 
