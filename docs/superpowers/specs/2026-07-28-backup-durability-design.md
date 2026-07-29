@@ -190,13 +190,25 @@ name, so a bare basename — not a full path — is the correct thing to pass.
 
 ## Risks and assumptions
 
-- **Assumption:** Tauri's `document_dir()` on iOS and the dialog plugin's
+- **Assumption — VERIFIED ON DEVICE, v1.2.3, 2026-07-28.** Tauri's
+  `document_dir()` on iOS and the dialog plugin's
   `FileManager.urls(for: .documentDirectory, …).first!` resolve to the same
-  directory. The whole approach rests on this. They should — both are the app
-  container's Documents directory — but it is unverified on device, and if it
-  were false the picker would export an empty placeholder rather than the
-  backup. **The plan must include a device check that the exported file has real
-  contents, not just that the picker appeared.**
+  directory. The whole approach rests on this: were it false, the picker would
+  export the plugin's empty placeholder rather than the backup, and every
+  indicator in the app — the toast, the readiness row — would still report
+  success. Confirmed by taking a backup on an iPhone from the v1.2.3 TestFlight
+  build, exporting it, and opening the exported file: real contents, not a
+  placeholder.
+
+  Code review traced why it holds: on iOS, Tauri resolves `document_dir()`
+  through `dirs` to `$HOME/Documents`, and iOS sets `HOME` to the container
+  root — the same directory the Swift side uses. The `/private` prefix
+  difference is cosmetic; both resolve to the same inode.
+
+  **This rests on pinned versions** — `tauri-plugin-dialog` 2.7.2 and `tauri`
+  2.11.5. A plugin upgrade could change the placeholder behaviour with no
+  compile error and no failing test, because the failure is silent by
+  construction. Re-run the device check when either is bumped.
 - The picker is a system UI; it cannot be exercised by the test suite. Tests
   cover the decision logic around it; the picker itself needs the device check
   above.
