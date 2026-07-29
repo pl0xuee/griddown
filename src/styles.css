@@ -1223,6 +1223,17 @@ body.placing-stop #route-recalc {
 #marks-actions button:hover {
   background: var(--control-hover);
 }
+/* What the file you are about to write actually contains, said where the
+   button is rather than in a panel nobody opens twice. The wording earns its
+   space: this file holds the roster's medical details, and it used to be
+   written somewhere iOS deletes along with the app. */
+#marks-note {
+  padding: 6px 2px 0;
+  color: var(--type-2);
+  font-family: var(--font-prose);
+  font-size: 11px;
+  line-height: 1.4;
+}
 #marks-record.recording {
   border-color: var(--bad);
   color: var(--bad-soft);
