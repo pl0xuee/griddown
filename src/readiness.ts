@@ -285,7 +285,7 @@ async function buildChecks(terrainAvailable: () => boolean): Promise<Check[]> {
       label: "Backup",
       level: "bad",
       detail: "Never backed up.",
-      fix: "Marks & tracks → Back up everything, and put it somewhere that isn't this phone.",
+      fix: "Marks & tracks → Back up everything, and save the copy somewhere outside the app.",
     });
   } else {
     const age = now - Math.floor(last / 1000);

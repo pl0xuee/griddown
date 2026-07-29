@@ -376,14 +376,22 @@ export async function initWaypoints(map: maplibregl.Map) {
     // of it — this panel just must not lose what it does not own.
     const m = { ...currentMarks(), waypoints, tracks };
     void runBackup(m, { ...localStorage } as unknown as Record<string, string>, {
-      save: (name, json) => saveExport(name, json, "application/json"),
+      // No success toast from the save itself: on a phone it would name the
+      // container the export is about to rescue the file from. runBackup says
+      // what happened, once it knows.
+      save: (name, json) => saveExport(name, json, "application/json", false),
       // Only reached when the save was not durable, which today means iOS. The
       // plugin resolves a bare name against the app's Documents directory —
-      // the same directory save_file just wrote to.
+      // the same directory save_file just wrote to, which is also why runBackup
+      // checks what comes back against it.
       exportOut: (fileName) => savePicker({ defaultPath: fileName }),
       stamp: (t) => localStorage.setItem(BACKUP_KEY, String(t)),
       now: () => Date.now(),
       toast,
+    }).catch((e) => {
+      // Nothing has been stamped if we are here, so the state is honest; the
+      // user just has no idea. Say so rather than letting it go unhandled.
+      toast(`Couldn't back up: ${e}`, "error", 7000);
     });
   }
 

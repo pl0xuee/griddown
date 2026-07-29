@@ -31,11 +31,21 @@ export type SaveOutcome =
  * including whether where it landed survives the app being deleted.
  *
  * Callers that only need the path can use `saveFile` below.
+ *
+ * `announce` controls the SUCCESS toast only. It is on for every export that
+ * genuinely ends where it says it does, and off for the backup path: there the
+ * location on iOS is the app's own container, and "Saved to Files → On My
+ * iPhone → GridDown" is the durability promise this app must stop making —
+ * especially just before an export picker opens, where it reads like
+ * instructions. backup.ts owns the success message in that case, once it knows
+ * the copy actually landed outside. A failure is announced either way, because
+ * runBackup gives up on `!ok` trusting that the reason has already been shown.
  */
 export async function saveExport(
   name: string,
   data: Uint8Array | string,
-  mime: string
+  mime: string,
+  announce: boolean = true
 ): Promise<SaveOutcome> {
   const bytes =
     typeof data === "string" ? new TextEncoder().encode(data) : data;
@@ -52,7 +62,7 @@ export async function saveExport(
         location: string;
         durable: boolean;
       }>("save_file", { name, b64: toBase64(bytes) });
-      toast(`Saved to ${saved.location}`, "success", 6000);
+      if (announce) toast(`Saved to ${saved.location}`, "success", 6000);
       return {
         ok: true,
         path: saved.path,
@@ -72,7 +82,7 @@ export async function saveExport(
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
-  toast(`Saved ${name} to your downloads`, "success");
+  if (announce) toast(`Saved ${name} to your downloads`, "success");
   // A browser download lands in the real Downloads folder, which is not going
   // anywhere when an app is uninstalled.
   return { ok: true, path: null, location: "your downloads", durable: true };
