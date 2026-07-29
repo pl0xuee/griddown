@@ -6,6 +6,31 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.2.2
+
+**On iPhone, the crosshair was not where the app thought it was — until you
+turned the phone.** The map measured itself a frame too early. WKWebView lays
+the page out once more after the app's script has run, with the final window
+bounds and the safe-area insets, and MapLibre discards exactly one notification
+that its container has changed size — on the assumption that it can only be
+repeating the measurement just taken. On iOS the discarded one is the real one,
+so the map spent the rest of the session drawn at the size it was built at,
+pinned to the top left of the screen.
+
+The location dot sitting off the crosshair was the visible half of it. The
+centre of the map is not the centre of the screen once the two are different
+sizes, and the centre of the map is where every crosshair reading comes from:
+the grid reference and the elevation in the collar, the camp check, the
+viewshed origin, a pin dropped at the crosshair, a stop added to a plan. Each of
+those was answering for a point beside the one you had lined up — the same
+offset, in the same direction, every time, and how much ground that covers
+depends on how far in you are zoomed.
+
+Turning the phone to landscape and back genuinely fixed it, because rotating
+fires two more of those notifications and neither of them is the first one. The
+app now holds the map to the size of the window rather than trusting that it
+will be told.
+
 ## v1.2.1
 
 The rest of the review that 1.2.0 shipped without.
