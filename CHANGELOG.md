@@ -6,6 +6,39 @@ a release without one.
 
 Headings must be exactly `## vX.Y.Z` to be found.
 
+## v1.2.3
+
+**A backup you can still restore after deleting the app.** On iPhone, "Back up
+everything" wrote the file into GridDown's own storage. The Files app shows that
+as "On My iPhone → GridDown", which reads like a folder outside the app. It is
+not one: iOS deletes it along with the app. So the backup was being kept inside
+the very thing it insures against — delete GridDown, and the pins, tracks, plans,
+checklists and roster went, along with the copy that was supposed to bring them
+back. This was found the way these things usually are.
+
+Backing up on a phone now opens the system save sheet, so the copy goes where you
+put it — iCloud Drive, On My iPhone, a memory stick, another app — and stays
+there when GridDown doesn't. Restoring already read from anywhere, so getting it
+back is unchanged.
+
+**It will not tell you a backup is safe when it isn't.** Dismissing the save
+sheet is not a backup and is no longer recorded as one, so the readiness check
+keeps asking rather than reporting a file that will not survive. Picking
+GridDown's own folder in that sheet is refused outright, because that is exactly
+the copy that goes missing. And the app no longer says "Saved to Files → On My
+iPhone → GridDown" before the sheet opens — it read like an instruction, and it
+was one worth not following.
+
+**The Marks panel says what is in the file.** Your pins, tracks, plans,
+checklists and the roster — names and medical details included. That is worth
+knowing before you decide where to put it, and it is the reason this file is
+worth treating like a document rather than like a map.
+
+**A comms plan on its own counts as something to back up.** The check for
+"anything worth saving" looked at pins, tracks, plans, checklists and the roster,
+but not at how you have agreed to raise each other. A household that had filled
+in only that was told there was nothing to back up.
+
 ## v1.2.2
 
 **On iPhone, the crosshair was not where the app thought it was — until you
