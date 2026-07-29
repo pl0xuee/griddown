@@ -54,6 +54,7 @@ import { declination, magneticToTrue, formatDeclination } from "./geomag";
 import { getFix, getFixFast, type GeoFix } from "./geoloc";
 import { haversine } from "./geo";
 import { initViewshed } from "./viewshed";
+import { keepMapSized } from "./mapsize";
 import { forward as mgrsForward } from "mgrs";
 import { toast } from "./toast";
 
@@ -841,6 +842,12 @@ async function start() {
     attributionControl: { compact: true },
     style: buildStyle(currentTheme),
   });
+
+  // Immediately, before anything can draw: on iOS the map is built against a
+  // container WKWebView is about to lay out again, and MapLibre discards the
+  // one notification it gets about that. See mapsize.ts — the visible symptom
+  // is the GPS dot sitting off the centre crosshair until you rotate the phone.
+  keepMapSized(map);
 
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
 
