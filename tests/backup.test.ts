@@ -148,6 +148,7 @@ describe("runBackup", () => {
 
     expect(d.exportOut).not.toHaveBeenCalled();
     expect(d.stamp).not.toHaveBeenCalled();
+    expect(d.toast).not.toHaveBeenCalled();
   });
 
   it("warns rather than exporting a placeholder when there is no path to export", async () => {
