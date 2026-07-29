@@ -18,6 +18,8 @@
 - Cancelling the picker is not a backup: `BACKUP_KEY` must not be stamped.
 - Commit messages: plain imperative prose in the style of `git log`, no `feat:`/`fix:` prefixes, ending with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 - Full verification before any commit that touches TS: `npx vitest run`, `npx tsc --noEmit`, `npm run build`. Rust changes also need `cargo test --manifest-path src-tauri/Cargo.toml`.
+- Run cargo against the warm target directory in the main checkout, or it is a cold ~5 GB Tauri build: prefix with `CARGO_TARGET_DIR=/home/jamespc/Documents/Projects/griddown/src-tauri/target`. Verified baseline in this worktree: 69 passed, 6 ignored, 0 failed.
+- `tsc` only covers `src` (`tsconfig.json` has `include: ["src"]`), so type annotations in `tests/` are never type-checked. Do not rely on `tsc` to catch a mistake in a test file.
 
 ## File Structure
 
@@ -106,8 +108,8 @@ and its construction at the end of `save_file`:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cargo test --manifest-path src-tauri/Cargo.toml`
-Expected: PASS, including the seven tests that were already there.
+Run: `CARGO_TARGET_DIR=/home/jamespc/Documents/Projects/griddown/src-tauri/target cargo test --manifest-path src-tauri/Cargo.toml`
+Expected: PASS — 70 passed, 6 ignored, 0 failed (the baseline is 69 passed, plus the new one).
 
 - [ ] **Step 5: Commit**
 
