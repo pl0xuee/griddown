@@ -143,6 +143,29 @@ jobs:
           APP=$(ls *.AppImage)
           ./"$APP" --appimage-extract >/dev/null
           rm -f squashfs-root/usr/lib/libwayland-*.so* squashfs-root/usr/lib/libepoxy.so*
+
+          # linuxdeploy's GTK hook hard-codes `export GDK_BACKEND=x11`, citing a
+          # 2024 WebKitGTK crash (tauri#8541). The hook is sourced by AppRun, so
+          # nothing outside the bundle can override it, and the cost is that
+          # every window is an XWayland window.
+          #
+          # Under a compositor with xwayland:force_zero_scaling, X clients are
+          # handed raw pixels and have to scale themselves from one session-wide
+          # GDK_SCALE — a single integer shared by every X client on the desktop.
+          # That cannot be correct on two monitors at different scales at once:
+          # the app is drawn at 2x on one screen or a fifth too small on
+          # another, and no per-window rule can fix it, because XWayland is one
+          # X server shared by all of them. A Wayland-native window is scaled
+          # per output by the compositor and follows a monitor change by itself.
+          #
+          # Verified against WebKitGTK 2.52.5: the crash does not reproduce and
+          # the window comes up Wayland-native. A list rather than a bare
+          # `wayland` so an X11 session still starts, and defaulted rather than
+          # assigned so a regression can be worked around from the environment.
+          HOOK=squashfs-root/apprun-hooks/linuxdeploy-plugin-gtk.sh
+          grep -q '^export GDK_BACKEND=x11' "$HOOK" \
+            || { echo "::error::no forced GDK_BACKEND=x11 in the GTK hook — has linuxdeploy changed?"; exit 1; }
+          sed -i 's|^export GDK_BACKEND=x11.*|export GDK_BACKEND="${GDK_BACKEND:-wayland,x11}"|' "$HOOK"
           # Pinned, not "continuous": this tool repackages the AppImage that we
           # then sign with our own key, so a retagged or compromised upstream
           # build would be signed as legitimate and auto-installed by every
